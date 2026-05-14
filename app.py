@@ -187,9 +187,11 @@ def index():
 @app.route('/import')
 def import_page():
     db = get_db(DB_PATH)
-    last_batch = db.execute("SELECT MAX(import_batch) FROM orders").fetchone()[0]
+    imports = db.execute(
+        "SELECT * FROM imported_files ORDER BY imported_at DESC"
+    ).fetchall()
     db.close()
-    return render_template('import.html', last_batch=last_batch)
+    return render_template('import.html', imports=imports)
 
 
 @app.route('/import/upload', methods=['POST'])
@@ -201,33 +203,17 @@ def import_upload():
     if not file.filename or not file.filename.lower().endswith('.csv'):
         return jsonify({'success': False, 'error': 'يجب أن يكون الملف بصيغة CSV'}), 400
 
-    file_hash = hashlib.md5(file.read()).hexdigest()
-    file.seek(0)
-
-    _db = get_db(DB_PATH)
-    prev = _db.execute(
-        "SELECT imported_at, rows_added FROM imported_files WHERE file_hash = ?", (file_hash,)
-    ).fetchone()
-    _db.close()
-    if prev:
-        return jsonify({
-            'success': False,
-            'duplicate': True,
-            'error': 'هذا الملف تم استيراده مسبقاً',
-            'detail': f'تم استيراد هذا الملف بتاريخ {prev["imported_at"][:10]} وأضاف {prev["rows_added"]} طلب',
-        }), 400
+    file_bytes = file.read()
+    file_hash = hashlib.md5(file_bytes).hexdigest()
 
     try:
-        df = pd.read_csv(file)
+        df = pd.read_csv(io.BytesIO(file_bytes))
     except Exception as e:
         return jsonify({'success': False, 'error': f'خطأ في قراءة الملف: {str(e)}'}), 400
 
     df.columns = [c.strip() for c in df.columns]
-
-    # Apply Title Case → snake_case mapping if the file uses that format
     df = df.rename(columns={k: v for k, v in CSV_COLUMN_MAP.items() if k in df.columns})
 
-    # Required columns checked after rename — works for both Title Case and snake_case CSVs
     required = ['order_nr', 'item_nr', 'sku', 'item_status']
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -236,118 +222,103 @@ def import_upload():
     for col in NUMERIC_COLS:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
     for col in df.columns:
         if col not in NUMERIC_COLS:
             df[col] = df[col].fillna('').astype(str)
 
+    def _safe_meta(col):
+        if col not in df.columns or len(df) == 0:
+            return ''
+        v = str(df[col].iloc[0]).strip()
+        return '' if v in ('nan', 'None') else v
+
+    statement_nr = _safe_meta('statement_nr')
+    statement_date = _safe_meta('statement_date')
+
     import_batch = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     db = get_db(DB_PATH)
-    imported = updated = ignored = new_skus = 0
-
-    # Pre-load existing rows so we can classify each incoming row without per-row SELECTs
-    existing = {}
-    for r in db.execute(
-        "SELECT order_nr, item_nr, net_proceeds, referral_fee, fbn_outbound_fee, total_payment FROM orders"
-    ).fetchall():
-        existing[(r['order_nr'], r['item_nr'])] = (
-            round(float(r['net_proceeds']),    4),
-            round(float(r['referral_fee']),    4),
-            round(float(r['fbn_outbound_fee']), 4),
-            round(float(r['total_payment']),   4),
-        )
+    rows_added = rows_updated = rows_ignored = 0
 
     for _, row in df.iterrows():
         try:
             order_nr = str(row.get('order_nr', ''))
-            item_nr  = str(row.get('item_nr',  ''))
-            new_net  = float(row.get('net_proceeds',    0))
-            new_ref  = float(row.get('referral_fee',    0))
-            new_fbn  = float(row.get('fbn_outbound_fee', 0))
-            new_pay  = float(row.get('total_payment',   0))
-            key = (order_nr, item_nr)
+            item_nr  = str(row.get('item_nr', ''))
+
+            new_net = float(row.get('net_proceeds', 0) or 0)
+            new_ref = float(row.get('referral_fee', 0) or 0)
+            new_fbn = float(row.get('fbn_outbound_fee', 0) or 0)
+            new_pay = float(row.get('total_payment', 0) or 0)
 
             r_net = round(new_net, 4)
             r_ref = round(new_ref, 4)
             r_fbn = round(new_fbn, 4)
             r_pay = round(new_pay, 4)
 
-            # Shipping-only: pure fbn fee row, no revenue, no referral fee
             is_shipping_only = (
-                r_net == 0 and r_ref == 0 and
-                r_fbn != 0 and abs(r_pay - r_fbn) < 0.0001
+                r_net == 0 and r_ref == 0 and r_fbn != 0 and r_pay == r_fbn
             )
 
-            if key not in existing:
-                # Brand-new row (regular order or shipping arriving before the main order)
+            existing = db.execute(
+                "SELECT * FROM orders WHERE order_nr=? AND item_nr=?",
+                (order_nr, item_nr)
+            ).fetchone()
+
+            def _insert_row():
                 db.execute("""
                     INSERT INTO orders
                         (order_nr, item_nr, sku, partner_sku, brand_en, brand_ar,
                          product_title_en, product_title_ar, item_status,
                          ordered_date, delivered_date, returned_date,
-                         net_proceeds, referral_fee, fbn_outbound_fee, total_payment,
-                         import_batch)
+                         net_proceeds, referral_fee, fbn_outbound_fee, total_payment, import_batch)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     order_nr, item_nr,
-                    str(row.get('sku', '')),
-                    str(row.get('partner_sku', '')),
-                    str(row.get('brand_en', '')),
-                    str(row.get('brand_ar', '')),
-                    str(row.get('product_title_en', '')),
-                    str(row.get('product_title_ar', '')),
+                    str(row.get('sku', '')), str(row.get('partner_sku', '')),
+                    str(row.get('brand_en', '')), str(row.get('brand_ar', '')),
+                    str(row.get('product_title_en', '')), str(row.get('product_title_ar', '')),
                     str(row.get('item_status', '')),
-                    str(row.get('ordered_date', '')),
-                    str(row.get('delivered_date', '')),
+                    str(row.get('ordered_date', '')), str(row.get('delivered_date', '')),
                     str(row.get('returned_date', '')),
-                    new_net, new_ref, new_fbn, new_pay,
-                    import_batch,
+                    new_net, new_ref, new_fbn, new_pay, import_batch,
                 ))
-                imported += 1
-                existing[key] = (r_net, r_ref, r_fbn, r_pay)
 
-            else:
-                ex = existing[key]
-
-                is_true_dup = (
-                    r_net == ex[0] and r_ref == ex[1] and
-                    r_fbn == ex[2] and r_pay == ex[3]
-                )
-                # General supplementary: no revenue but has referral or fbn fees
-                is_supplementary = (r_net == 0 and (r_ref != 0 or r_fbn != 0))
-
-                if is_true_dup:
-                    ignored += 1
-                elif is_shipping_only:
-                    # Accumulate only the shipping fee onto the existing row
+            if is_shipping_only:
+                if existing is None:
+                    _insert_row()
+                    rows_added += 1
+                elif round(float(existing['fbn_outbound_fee'] or 0), 4) == 0:
                     db.execute("""
-                        UPDATE orders SET
-                            fbn_outbound_fee = fbn_outbound_fee + ?,
+                        UPDATE orders
+                        SET fbn_outbound_fee = fbn_outbound_fee + ?,
                             total_payment    = total_payment    + ?
-                        WHERE order_nr = ? AND item_nr = ?
+                        WHERE order_nr=? AND item_nr=?
                     """, (new_fbn, new_pay, order_nr, item_nr))
-                    updated += 1
-                    existing[key] = (ex[0], ex[1],
-                                     round(ex[2] + r_fbn, 4),
-                                     round(ex[3] + r_pay, 4))
-                elif is_supplementary:
-                    # Mixed fees row — accumulate all financial fields
-                    db.execute("""
-                        UPDATE orders SET
-                            referral_fee     = referral_fee     + ?,
-                            fbn_outbound_fee = fbn_outbound_fee + ?,
-                            total_payment    = total_payment    + ?,
-                            net_proceeds     = net_proceeds     + ?
-                        WHERE order_nr = ? AND item_nr = ?
-                    """, (new_ref, new_fbn, new_pay, new_net, order_nr, item_nr))
-                    updated += 1
-                    existing[key] = (round(ex[0] + r_net, 4), round(ex[1] + r_ref, 4),
-                                     round(ex[2] + r_fbn, 4), round(ex[3] + r_pay, 4))
+                    rows_updated += 1
                 else:
-                    ignored += 1
+                    rows_ignored += 1
+            else:
+                if existing is None:
+                    _insert_row()
+                    rows_added += 1
+                else:
+                    ex_net = round(float(existing['net_proceeds'] or 0), 4)
+                    ex_ref = round(float(existing['referral_fee'] or 0), 4)
+                    ex_fbn = round(float(existing['fbn_outbound_fee'] or 0), 4)
+                    ex_pay = round(float(existing['total_payment'] or 0), 4)
+
+                    if r_net == ex_net and r_ref == ex_ref and r_fbn == ex_fbn and r_pay == ex_pay:
+                        rows_ignored += 1
+                    else:
+                        db.execute("""
+                            UPDATE orders
+                            SET net_proceeds = ?, referral_fee = ?,
+                                fbn_outbound_fee = ?, total_payment = ?
+                            WHERE order_nr=? AND item_nr=?
+                        """, (new_net, new_ref, new_fbn, new_pay, order_nr, item_nr))
+                        rows_updated += 1
 
         except Exception:
-            ignored += 1
+            rows_ignored += 1
 
     # Upsert new SKUs — never overwrite existing cost data
     if 'sku' in df.columns:
@@ -364,47 +335,37 @@ def import_upload():
                     (sku, partner_sku, brand_en, brand_ar, name_en, name_ar, updated_at)
                 VALUES (?,?,?,?,?,?,?)
             """, (
-                str(sku),
-                csv_psku,
-                str(sr.get('brand_en', '')),
-                str(sr.get('brand_ar', '')),
-                str(sr.get('product_title_en', '')),
-                str(sr.get('product_title_ar', '')),
+                str(sku), csv_psku,
+                str(sr.get('brand_en', '')), str(sr.get('brand_ar', '')),
+                str(sr.get('product_title_en', '')), str(sr.get('product_title_ar', '')),
                 now,
             ))
-            if cur.rowcount > 0:
-                new_skus += 1
-            elif csv_psku:
+            if cur.rowcount == 0 and csv_psku:
                 db.execute(
                     "UPDATE products SET partner_sku=?, updated_at=? WHERE sku=?",
                     (csv_psku, now, str(sku))
                 )
 
-    db.execute(
-        "INSERT OR IGNORE INTO imported_files (filename, file_hash, imported_at, rows_added, rows_updated) VALUES (?,?,?,?,?)",
-        (file.filename, file_hash, import_batch, imported, updated),
-    )
+    # Always log — never blocks import
+    db.execute("""
+        INSERT INTO imported_files
+            (statement_nr, statement_date, filename, file_hash, imported_at,
+             rows_added, rows_updated, rows_ignored)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (
+        statement_nr, statement_date, file.filename, file_hash,
+        import_batch, rows_added, rows_updated, rows_ignored,
+    ))
     db.commit()
-
-    date_from = date_to = ''
-    if 'ordered_date' in df.columns:
-        dates = df['ordered_date'].dropna().astype(str)
-        dates = dates[(dates != '') & (dates != 'nan')]
-        if len(dates) > 0:
-            date_from = str(dates.min())[:10]
-            date_to = str(dates.max())[:10]
-
-    product_count = db.execute("SELECT COUNT(*) FROM products").fetchone()[0]
     db.close()
 
     return jsonify({
         'success': True,
-        'orders_imported': imported,
-        'orders_updated': updated,
-        'orders_ignored': ignored,
-        'date_range': {'from': date_from, 'to': date_to},
-        'product_count': product_count,
-        'new_skus': new_skus,
+        'statement_nr': statement_nr,
+        'statement_date': statement_date,
+        'rows_added': rows_added,
+        'rows_updated': rows_updated,
+        'rows_ignored': rows_ignored,
     })
 
 

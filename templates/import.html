@@ -4,9 +4,6 @@
 {% block content %}
 <div class="page-header">
   <h4><i class="bi bi-upload me-2 color-revenue"></i>استيراد بيانات المبيعات</h4>
-  {% if last_batch %}
-  <small class="text-muted">آخر استيراد: {{ last_batch }}</small>
-  {% endif %}
 </div>
 
 <div class="row justify-content-center">
@@ -15,8 +12,8 @@
       <div class="card-body p-4">
         <h6 class="fw-bold mb-3"><i class="bi bi-file-earmark-arrow-up me-2"></i>رفع ملف CSV من نون</h6>
         <p class="text-muted small mb-4">
-          قم بتنزيل تقرير الطلبات من بوابة البائعين على نون، ثم ارفعه هنا.
-          سيتم تخطي الطلبات المكررة تلقائياً.
+          قم بتنزيل كشف المدفوعات من بوابة البائعين على نون، ثم ارفعه هنا.
+          يمكن رفع نفس الملف أكثر من مرة — الصفوف المكررة ستُتجاهل تلقائياً.
         </p>
 
         <div id="drop-zone" class="border border-2 border-dashed rounded-3 text-center p-5 mb-3"
@@ -40,30 +37,64 @@
       </div>
     </div>
 
-    <!-- Result card (hidden until import runs) -->
-    <div id="result-card" class="card stat-card mt-4 d-none">
+    <!-- Success card -->
+    <div id="result-card" class="card border-success mt-4 d-none">
       <div class="card-body p-4">
-        <h6 class="fw-bold mb-3 color-profit"><i class="bi bi-check-circle me-2"></i>نتيجة الاستيراد</h6>
-        <div class="row text-center g-3" id="result-stats"></div>
-      </div>
-    </div>
-
-    <!-- Duplicate file card -->
-    <div id="dup-card" class="card border-warning mt-4 d-none">
-      <div class="card-body p-3">
-        <p class="fw-600 text-warning mb-1">
-          <i class="bi bi-exclamation-triangle-fill me-2"></i>هذا الملف تم استيراده مسبقاً
+        <p class="fw-bold text-success mb-3">
+          <i class="bi bi-check-circle-fill me-2"></i>
+          <span id="result-title"></span>
         </p>
-        <p class="text-muted small mb-0" id="dup-detail"></p>
-        <p class="text-muted small mb-0 mt-1">لا يمكن استيراده مرة أخرى لتجنب التكرار.</p>
+        <ul class="list-unstyled mb-0 ps-1" id="result-lines" style="line-height:2"></ul>
       </div>
     </div>
 
     <!-- Error card -->
     <div id="error-card" class="card border-danger mt-4 d-none">
       <div class="card-body p-3">
-        <p class="text-danger mb-0"><i class="bi bi-exclamation-triangle me-2"></i><span id="error-msg"></span></p>
+        <p class="text-danger mb-0">
+          <i class="bi bi-exclamation-triangle me-2"></i>
+          <span id="error-msg"></span>
+        </p>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Import history -->
+<div class="card stat-card mt-4">
+  <div class="card-body p-4">
+    <h6 class="fw-bold mb-3"><i class="bi bi-clock-history me-2"></i>سجل الاستيراد</h6>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" id="imports-table">
+        <thead class="table-light">
+          <tr>
+            <th>رقم الكشف</th>
+            <th>تاريخ الكشف</th>
+            <th>اسم الملف</th>
+            <th>تاريخ الاستيراد</th>
+            <th class="text-center">مضاف</th>
+            <th class="text-center">محدَّث</th>
+            <th class="text-center">متجاهل</th>
+          </tr>
+        </thead>
+        <tbody id="imports-tbody">
+          {% for imp in imports %}
+          <tr>
+            <td class="fw-500">{{ imp['statement_nr'] or '—' }}</td>
+            <td>{{ imp['statement_date'] or '—' }}</td>
+            <td class="text-muted small">{{ imp['filename'] or '—' }}</td>
+            <td class="text-muted small">{{ (imp['imported_at'] or '')[:16] }}</td>
+            <td class="text-center fw-600 color-profit">{{ imp['rows_added'] or 0 }}</td>
+            <td class="text-center fw-600 color-revenue">{{ imp['rows_updated'] or 0 }}</td>
+            <td class="text-center fw-600 text-secondary">{{ imp['rows_ignored'] or 0 }}</td>
+          </tr>
+          {% else %}
+          <tr id="no-history-row">
+            <td colspan="7" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -74,19 +105,18 @@
 const fileInput = document.getElementById('csv_file');
 const uploadBtn = document.getElementById('upload-btn');
 const fileInfo  = document.getElementById('file-info');
-const fileName  = document.getElementById('file-name');
+const fileNameEl = document.getElementById('file-name');
 const dropZone  = document.getElementById('drop-zone');
 
 fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) {
-    fileName.textContent = fileInput.files[0].name;
+    fileNameEl.textContent = fileInput.files[0].name;
     fileInfo.classList.remove('d-none');
     uploadBtn.disabled = false;
     dropZone.style.borderColor = '#185FA5';
   }
 });
 
-// Drag & drop
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = '#185FA5'; });
 dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = '#c5cfd8'; });
 dropZone.addEventListener('drop', e => {
@@ -107,7 +137,6 @@ document.getElementById('import-form').addEventListener('submit', async e => {
 
   document.getElementById('result-card').classList.add('d-none');
   document.getElementById('error-card').classList.add('d-none');
-  document.getElementById('dup-card').classList.add('d-none');
 
   const fd = new FormData();
   fd.append('csv_file', fileInput.files[0]);
@@ -117,51 +146,48 @@ document.getElementById('import-form').addEventListener('submit', async e => {
     const data = await res.json();
 
     if (data.success) {
-      const stats = document.getElementById('result-stats');
-      stats.innerHTML = `
-        <div class="col-6 col-md-4">
-          <div class="p-3 bg-light rounded-3">
-            <div class="fw-700 fs-4 color-profit">${data.orders_imported}</div>
-            <div class="text-muted small">تم إضافة طلب جديد</div>
-          </div>
-        </div>
-        <div class="col-6 col-md-4">
-          <div class="p-3 bg-light rounded-3">
-            <div class="fw-700 fs-4 color-revenue">${data.orders_updated}</div>
-            <div class="text-muted small">تم تحديث رسوم شحن مضافة</div>
-          </div>
-        </div>
-        <div class="col-6 col-md-4">
-          <div class="p-3 bg-light rounded-3">
-            <div class="fw-700 fs-4 text-secondary">${data.orders_ignored}</div>
-            <div class="text-muted small">تم تجاهل مكرر بدون تغيير</div>
-          </div>
-        </div>
-        <div class="col-6 col-md-4">
-          <div class="p-3 bg-light rounded-3">
-            <div class="fw-700 fs-4 color-revenue">${data.product_count}</div>
-            <div class="text-muted small">إجمالي المنتجات</div>
-          </div>
-        </div>
-        <div class="col-6 col-md-4">
-          <div class="p-3 bg-light rounded-3">
-            <div class="fw-700 fs-4 color-fees">${data.new_skus}</div>
-            <div class="text-muted small">SKUs جديدة</div>
-          </div>
-        </div>
-        ${data.date_range.from ? `<div class="col-12 text-muted small mt-2">
-          الفترة: ${data.date_range.from} — ${data.date_range.to}
-        </div>` : ''}
+      const stmtLabel = data.statement_nr
+        ? `كشف ${data.statement_nr}` + (data.statement_date ? ` بتاريخ ${data.statement_date}` : '')
+        : 'الملف';
+
+      document.getElementById('result-title').textContent = `✓ تم استيراد ${stmtLabel}`;
+
+      const lines = document.getElementById('result-lines');
+      lines.innerHTML = `
+        <li><i class="bi bi-plus-circle-fill text-success me-2"></i>تم إضافة <strong>${data.rows_added}</strong> طلب جديد</li>
+        <li><i class="bi bi-arrow-repeat color-revenue me-2"></i>تم تحديث <strong>${data.rows_updated}</strong> طلب (رسوم شحن أو تصحيح)</li>
+        <li><i class="bi bi-dash-circle text-secondary me-2"></i>تم تجاهل <strong>${data.rows_ignored}</strong> سطر مكرر</li>
       `;
       document.getElementById('result-card').classList.remove('d-none');
-      const parts = [`${data.orders_imported} جديد`];
-      if (data.orders_updated) parts.push(`${data.orders_updated} محدَّث`);
-      if (data.orders_ignored) parts.push(`${data.orders_ignored} مكرر`);
+
+      // Prepend row to history table
+      const tbody = document.getElementById('imports-tbody');
+      const noRow = document.getElementById('no-history-row');
+      if (noRow) noRow.remove();
+
+      const now = new Date();
+      const importedAt = now.getFullYear() + '-'
+        + String(now.getMonth()+1).padStart(2,'0') + '-'
+        + String(now.getDate()).padStart(2,'0') + ' '
+        + String(now.getHours()).padStart(2,'0') + ':'
+        + String(now.getMinutes()).padStart(2,'0');
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="fw-500">${data.statement_nr || '—'}</td>
+        <td>${data.statement_date || '—'}</td>
+        <td class="text-muted small">${fileInput.files[0].name}</td>
+        <td class="text-muted small">${importedAt}</td>
+        <td class="text-center fw-600 color-profit">${data.rows_added}</td>
+        <td class="text-center fw-600 color-revenue">${data.rows_updated}</td>
+        <td class="text-center fw-600 text-secondary">${data.rows_ignored}</td>
+      `;
+      tbody.prepend(tr);
+
+      const parts = [`${data.rows_added} جديد`];
+      if (data.rows_updated) parts.push(`${data.rows_updated} محدَّث`);
+      if (data.rows_ignored) parts.push(`${data.rows_ignored} مكرر`);
       showToast(`تم الاستيراد: ${parts.join(' · ')}`, 'success');
-    } else if (data.duplicate) {
-      document.getElementById('dup-detail').textContent = data.detail;
-      document.getElementById('dup-card').classList.remove('d-none');
-      showToast(data.error, 'error');
     } else {
       document.getElementById('error-msg').textContent = data.error;
       document.getElementById('error-card').classList.remove('d-none');
