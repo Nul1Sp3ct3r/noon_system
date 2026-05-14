@@ -1,0 +1,446 @@
+{% extends 'base.html' %}
+{% block title %}الفواتير — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+/* --- Drop zone --- */
+.drop-zone {
+  border: 2px dashed #adb5bd;
+  border-radius: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  background: #fafafa;
+}
+.drop-zone:hover, .drop-zone.dz-over {
+  border-color: #185FA5;
+  background: #f0f4ff;
+}
+.drop-zone .dz-icon { font-size: 2.4rem; color: #adb5bd; display: block; margin-bottom: 8px; }
+
+/* --- Files area --- */
+#files-area {
+  border: 1.5px solid #d4edda;
+  border-radius: 10px;
+  background: #f8fff9;
+  padding: 12px;
+}
+.file-chip {
+  display: flex; align-items: center; gap: 7px;
+  background: #fff; border: 1.5px solid #dee2e6;
+  border-radius: 8px; padding: 5px 8px;
+  max-width: 200px; min-width: 0;
+}
+.file-chip .chip-thumb {
+  width: 30px; height: 30px; object-fit: cover;
+  border-radius: 4px; flex-shrink: 0;
+}
+.file-chip .chip-icon { font-size: 1.4rem; flex-shrink: 0; line-height: 1; }
+.file-chip .chip-name {
+  font-size: 0.75rem; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0;
+}
+.file-chip .chip-del {
+  background: none; border: none; padding: 0;
+  color: #adb5bd; cursor: pointer; flex-shrink: 0;
+  font-size: 0.8rem; line-height: 1;
+}
+.file-chip .chip-del:hover { color: #A32D2D; }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-file-earmark-text me-2 color-revenue"></i>إدارة الفواتير</h4>
+</div>
+
+<!-- Add Invoice Form -->
+<div class="card stat-card mb-4">
+  <div class="card-body">
+    <h6 class="fw-bold mb-3"><i class="bi bi-plus-circle me-2 color-revenue"></i>إضافة فاتورة جديدة</h6>
+    <form id="invoice-form" enctype="multipart/form-data">
+
+      <!-- Header fields -->
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label small fw-600">رقم الفاتورة</label>
+          <input type="text" name="invoice_nr" class="form-control" value="{{ next_invoice_nr }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-600">اسم المورد</label>
+          <input type="text" name="supplier_name" class="form-control" placeholder="اسم المورد">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-600">تاريخ الفاتورة</label>
+          <input type="date" name="invoice_date" class="form-control">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-600">المبلغ الإجمالي (ر.س)</label>
+          <input type="number" name="total_amount" class="form-control" step="0.01" min="0" placeholder="0.00">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-600">ضريبة القيمة المضافة (ر.س)</label>
+          <input type="number" name="vat_amount" class="form-control" step="0.01" min="0" placeholder="0.00">
+        </div>
+        <div class="col-md-9">
+          <label class="form-label small fw-600">ملاحظات</label>
+          <input type="text" name="notes" class="form-control" placeholder="ملاحظات اختيارية...">
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label small fw-600 mb-2">
+          <i class="bi bi-paperclip me-1"></i>ارفع الفاتورة (صور أو PDF)
+        </label>
+
+        <div id="upload-zone" class="drop-zone">
+          <i class="bi bi-cloud-upload dz-icon"></i>
+          <div class="fw-500">اسحب الملفات هنا أو اضغط للاختيار</div>
+          <div class="text-muted small mt-1">JPG · PNG · HEIC · PDF — الحد الأقصى 20MB لكل ملف</div>
+          <input type="file" id="unified-input" accept="image/*,.pdf" multiple class="d-none">
+        </div>
+
+        <div id="files-area" class="d-none">
+          <div id="file-list" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <span class="text-muted small fw-500" id="file-count"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="add-more-btn">
+              <i class="bi bi-plus me-1"></i>إضافة المزيد
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="clear-files-btn">
+              <i class="bi bi-trash me-1"></i>مسح الكل
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line Items -->
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <label class="form-label small fw-600 mb-0">بنود الفاتورة (اختيارية)</label>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="add-item-btn">
+            <i class="bi bi-plus me-1"></i>إضافة بند
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0" id="items-table">
+            <thead class="table-light">
+              <tr>
+                <th style="width:35%">المنتج (SKU)</th>
+                <th style="width:25%">اسم المنتج</th>
+                <th style="width:10%">الكمية</th>
+                <th style="width:15%">تكلفة الوحدة</th>
+                <th style="width:10%">الإجمالي</th>
+                <th style="width:5%"></th>
+              </tr>
+            </thead>
+            <tbody id="items-body"></tbody>
+          </table>
+        </div>
+        <div class="text-end mt-2" id="running-total-row" style="display:none!important">
+          <strong class="text-muted small">إجمالي البنود: </strong>
+          <strong id="running-total" class="color-revenue">0.00 ر.س</strong>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary px-4">
+        <i class="bi bi-save me-2"></i>حفظ الفاتورة
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Invoices List -->
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="p-3 border-bottom">
+      <h6 class="fw-bold mb-0 text-muted">قائمة الفواتير ({{ invoices|length }})</h6>
+    </div>
+    {% if invoices %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 noon-table">
+        <colgroup>
+          <col style="width:12%">
+          <col style="width:18%">
+          <col style="width:10%">
+          <col style="width:12%">
+          <col style="width:10%">
+          <col style="width:12%">
+          <col style="width:8%">
+          <col style="width:8%">
+          <col style="width:10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>رقم الفاتورة</th>
+            <th>المورد</th>
+            <th>التاريخ</th>
+            <th class="num">الإجمالي</th>
+            <th class="num">الضريبة</th>
+            <th class="num">الصافي</th>
+            <th class="ctr">البنود</th>
+            <th class="ctr">PDF</th>
+            <th class="ctr">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inv in invoices %}
+          <tr>
+            <td class="fw-500 cell-trunc" title="{{ inv.invoice_nr or '—' }}">{{ inv.invoice_nr or '—' }}</td>
+            <td><span class="cell-trunc" title="{{ inv.supplier_name }}">{{ inv.supplier_name }}</span></td>
+            <td class="small text-muted" style="white-space:nowrap">{{ inv.invoice_date }}</td>
+            <td class="num color-revenue">{{ '%.2f'|format(inv.total_amount or 0) }} ر.س</td>
+            <td class="num small text-muted">{{ '%.2f'|format(inv.vat_amount or 0) }} ر.س</td>
+            <td class="num small color-profit">{{ '%.2f'|format((inv.total_amount or 0) - (inv.vat_amount or 0)) }} ر.س</td>
+            <td class="ctr small text-muted">—</td>
+            <td class="ctr">
+              {% if inv.pdf_filename %}
+              <a href="{{ url_for('view_pdf', filename=inv.pdf_filename) }}" target="_blank"
+                 class="btn btn-sm btn-outline-danger py-0 px-1" title="عرض PDF">
+                <i class="bi bi-file-earmark-pdf-fill text-danger"></i>
+              </a>
+              {% else %}
+              <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
+            <td class="ctr">
+              <a href="{{ url_for('invoice_detail', invoice_id=inv.id) }}"
+                 class="btn btn-sm btn-outline-primary py-0 px-1 me-1" title="تفاصيل">
+                <i class="bi bi-eye"></i>
+              </a>
+              <button class="btn btn-sm btn-outline-danger py-0 px-1 delete-btn"
+                      data-id="{{ inv.id }}" data-nr="{{ inv.invoice_nr or inv.id }}" title="حذف">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-file-earmark-text" style="font-size:2.5rem"></i>
+      <p class="mt-2">لا توجد فواتير بعد.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// Upload state machine — multi-file
+// =============================================================================
+const uploadZone   = document.getElementById('upload-zone');
+const unifiedInput = document.getElementById('unified-input');
+const filesArea    = document.getElementById('files-area');
+const fileList     = document.getElementById('file-list');
+const fileCount    = document.getElementById('file-count');
+const addMoreBtn   = document.getElementById('add-more-btn');
+const clearFilesBtn = document.getElementById('clear-files-btn');
+
+let selectedFiles = [];
+
+function showState(state) {
+  uploadZone.classList.toggle('d-none', state !== 'empty');
+  filesArea.classList.toggle('d-none',  state !== 'files');
+}
+showState('empty');
+
+function isAllowed(f) {
+  return /\.(pdf|jpg|jpeg|png|heic|heif)$/i.test(f.name) ||
+         f.type === 'application/pdf' || f.type.startsWith('image/');
+}
+
+function addFiles(fileArray) {
+  const MAX = 20 * 1024 * 1024;
+  fileArray.forEach(f => {
+    if (!isAllowed(f)) { showToast(`نوع الملف غير صالح: ${f.name}`, 'error'); return; }
+    if (f.size > MAX)  { showToast(`${f.name}: يتجاوز 20MB`, 'error'); return; }
+    selectedFiles.push(f);
+  });
+  renderFileList();
+  if (selectedFiles.length) showState('files');
+}
+
+function renderFileList() {
+  fileList.querySelectorAll('img').forEach(img => {
+    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+  });
+  fileList.innerHTML = '';
+
+  selectedFiles.forEach((file, i) => {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const chip  = document.createElement('div');
+    chip.className = 'file-chip';
+
+    if (isPdf) {
+      chip.innerHTML = `
+        <i class="bi bi-file-earmark-pdf-fill text-danger chip-icon"></i>
+        <span class="chip-name" title="${file.name}">${file.name}</span>
+        <button type="button" class="chip-del" title="حذف"><i class="bi bi-x-lg"></i></button>`;
+    } else {
+      const url = URL.createObjectURL(file);
+      chip.innerHTML = `
+        <img src="${url}" class="chip-thumb" alt="">
+        <span class="chip-name" title="${file.name}">${file.name}</span>
+        <button type="button" class="chip-del" title="حذف"><i class="bi bi-x-lg"></i></button>`;
+    }
+
+    chip.querySelector('.chip-del').addEventListener('click', () => {
+      const img = chip.querySelector('img');
+      if (img) URL.revokeObjectURL(img.src);
+      selectedFiles.splice(i, 1);
+      renderFileList();
+      if (!selectedFiles.length) showState('empty');
+    });
+
+    fileList.appendChild(chip);
+  });
+
+  const n = selectedFiles.length;
+  fileCount.textContent = n === 1 ? 'ملف واحد محدد' : `${n} ملفات محددة`;
+}
+
+uploadZone.addEventListener('click', () => unifiedInput.click());
+uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('dz-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dz-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dz-over');
+  addFiles(Array.from(e.dataTransfer.files));
+});
+unifiedInput.addEventListener('change', e => {
+  addFiles(Array.from(e.target.files));
+  unifiedInput.value = '';
+});
+
+filesArea.addEventListener('dragover', e => e.preventDefault());
+filesArea.addEventListener('drop', e => {
+  e.preventDefault();
+  addFiles(Array.from(e.dataTransfer.files));
+});
+
+addMoreBtn.addEventListener('click', () => unifiedInput.click());
+
+clearFilesBtn.addEventListener('click', () => {
+  fileList.querySelectorAll('img').forEach(img => {
+    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+  });
+  selectedFiles = [];
+  fileList.innerHTML = '';
+  showState('empty');
+});
+
+// =============================================================================
+// Invoice line items
+// =============================================================================
+const skuOptions = [
+  {% for p in products %}
+  { sku: "{{ p.sku }}", name: "{{ p.name_en | replace('"', '') }}" },
+  {% endfor %}
+];
+
+function buildSkuSelect(selected = '') {
+  let opts = '<option value="">-- اختر SKU --</option>';
+  skuOptions.forEach(p => {
+    opts += `<option value="${p.sku}" data-name="${p.name}" ${selected===p.sku?'selected':''}>${p.sku} — ${p.name}</option>`;
+  });
+  return opts;
+}
+
+function updateRunningTotal() {
+  let total = 0;
+  document.querySelectorAll('.item-total-input').forEach(el => { total += parseFloat(el.value) || 0; });
+  document.getElementById('running-total').textContent = total.toFixed(2) + ' ر.س';
+  document.getElementById('running-total-row').style.removeProperty('display');
+}
+
+function addItemRow() {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select name="item_sku[]" class="form-select form-select-sm sku-select">${buildSkuSelect()}</select></td>
+    <td><input type="text" name="item_name[]" class="form-control form-control-sm item-name" placeholder="اسم المنتج" readonly></td>
+    <td><input type="number" name="item_qty[]" class="form-control form-control-sm item-qty" value="1" min="1" step="1"></td>
+    <td><input type="number" name="item_unit_cost[]" class="form-control form-control-sm item-uc" value="0" min="0" step="0.01"></td>
+    <td><input type="number" name="item_total[]" class="form-control form-control-sm item-total-input" value="0" readonly style="background:#f8f9fa"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger py-0 remove-row"><i class="bi bi-x-lg"></i></button></td>
+  `;
+  tr.querySelector('.sku-select').addEventListener('change', function() {
+    const opt = this.selectedOptions[0];
+    tr.querySelector('.item-name').value = opt ? (opt.dataset.name || '') : '';
+    recalcRow(tr);
+  });
+  tr.querySelector('.item-qty').addEventListener('input', () => recalcRow(tr));
+  tr.querySelector('.item-uc').addEventListener('input',  () => recalcRow(tr));
+  tr.querySelector('.remove-row').addEventListener('click', () => { tr.remove(); updateRunningTotal(); });
+  document.getElementById('items-body').appendChild(tr);
+}
+
+function recalcRow(tr) {
+  const qty = parseFloat(tr.querySelector('.item-qty').value) || 0;
+  const uc  = parseFloat(tr.querySelector('.item-uc').value)  || 0;
+  tr.querySelector('.item-total-input').value = (qty * uc).toFixed(2);
+  updateRunningTotal();
+}
+
+document.getElementById('add-item-btn').addEventListener('click', addItemRow);
+
+// =============================================================================
+// Form submission
+// =============================================================================
+document.getElementById('invoice-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = e.target.querySelector('[type=submit]');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>جاري الحفظ...';
+
+  const fd = new FormData(e.target);
+  selectedFiles.forEach(f => fd.append('pdf_file', f, f.name));
+
+  try {
+    const res  = await fetch('/invoices/add', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.success) {
+      showToast('تم حفظ الفاتورة بنجاح', 'success');
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast(data.error || 'حدث خطأ', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-save me-2"></i>حفظ الفاتورة';
+    }
+  } catch {
+    showToast('حدث خطأ غير متوقع', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-save me-2"></i>حفظ الفاتورة';
+  }
+});
+
+// =============================================================================
+// Delete buttons (invoices list)
+// =============================================================================
+document.querySelectorAll('.delete-btn').forEach(btn => {
+  btn.addEventListener('click', async function() {
+    const id = this.dataset.id, nr = this.dataset.nr;
+    if (!confirm(`هل تريد حذف الفاتورة "${nr}"؟ سيتم حذف الملف أيضاً.`)) return;
+    try {
+      const res  = await fetch(`/invoices/${id}/delete`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast('تم حذف الفاتورة', 'success');
+        setTimeout(() => location.reload(), 800);
+      } else {
+        showToast(data.error || 'فشل الحذف', 'error');
+      }
+    } catch {
+      showToast('حدث خطأ', 'error');
+    }
+  });
+});
+</script>
+{% endblock %}

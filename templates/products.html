@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+{% block title %}المنتجات — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-box-seam me-2 color-revenue"></i>أداء المنتجات</h4>
+</div>
+
+<!-- Filters -->
+<div class="card stat-card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-600 text-muted">العلامة التجارية</label>
+        <select name="brand" class="form-select form-select-sm">
+          <option value="">الكل</option>
+          {% for b in brands %}
+          <option value="{{ b }}" {% if brand_filter == b %}selected{% endif %}>{{ b }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small fw-600 text-muted">بحث</label>
+        <input type="text" name="q" class="form-control form-control-sm"
+               placeholder="اسم المنتج، SKU noon، أو كود الشريك..." value="{{ search }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-600 text-muted">حالة الربحية</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">الكل</option>
+          <option value="profitable" {% if status_filter=='profitable' %}selected{% endif %}>رابح</option>
+          <option value="loss" {% if status_filter=='loss' %}selected{% endif %}>خسارة</option>
+          <option value="unknown" {% if status_filter=='unknown' %}selected{% endif %}>غير معروف</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary btn-sm w-100">
+          <i class="bi bi-search me-1"></i>بحث
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if products %}
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 noon-table">
+        <colgroup>
+          <col style="width:12%"><!-- noon SKU -->
+          <col style="width:10%"><!-- Partner SKU -->
+          <col style="width:20%"><!-- Product Name -->
+          <col style="width:8%"> <!-- Brand -->
+          <col style="width:6%"> <!-- Sold -->
+          <col style="width:6%"> <!-- Returned -->
+          <col style="width:8%"> <!-- Revenue -->
+          <col style="width:8%"> <!-- noon Fees -->
+          <col style="width:8%"> <!-- COGS -->
+          <col style="width:8%"> <!-- Net Profit -->
+          <col style="width:6%"> <!-- Margin% -->
+          <col style="width:6%"> <!-- Status -->
+        </colgroup>
+        <thead>
+          <tr>
+            <th>SKU noon</th>
+            <th>كود الشريك</th>
+            <th>المنتج</th>
+            <th>العلامة</th>
+            <th class="num">مباع</th>
+            <th class="num">مرتجع</th>
+            <th class="num">الإيرادات</th>
+            <th class="num">رسوم noon</th>
+            <th class="num">COGS</th>
+            <th class="num">صافي الربح</th>
+            <th class="num">الهامش%</th>
+            <th class="ctr">الحالة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            <td>
+              <code class="small" title="{{ p.sku }}">
+                <span class="cell-trunc">{{ p.sku }}</span>
+              </code>
+            </td>
+            <td>
+              <div class="psku-display" data-sku="{{ p.sku }}" data-val="{{ p.partner_sku }}">
+                <span class="psku-val small text-muted cell-trunc" title="{{ p.partner_sku or '—' }}">{{ p.partner_sku or '—' }}</span>
+                <i class="bi bi-pencil-square psku-edit-btn ms-1" style="cursor:pointer;font-size:.7rem;opacity:.5"></i>
+              </div>
+              <div class="psku-form d-none" data-sku="{{ p.sku }}">
+                <div class="input-group input-group-sm">
+                  <input type="text" class="form-control form-control-sm psku-input" placeholder="كود...">
+                  <button type="button" class="btn btn-sm btn-success py-0 psku-save-btn px-1"><i class="bi bi-check"></i></button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary py-0 psku-cancel-btn px-1"><i class="bi bi-x"></i></button>
+                </div>
+              </div>
+            </td>
+            <td>
+              <span class="fw-500 cell-trunc" title="{{ p.name_en }}">{{ p.name_en or p.sku }}</span>
+              <span class="text-muted small cell-trunc" title="{{ p.name_ar }}">{{ p.name_ar }}</span>
+            </td>
+            <td><span class="small cell-trunc" title="{{ p.brand_en }}">{{ p.brand_en }}</span></td>
+            <td class="num">{{ p.units_sold }}</td>
+            <td class="num text-danger">{{ p.units_returned }}</td>
+            <td class="num small color-revenue">{{ p.revenue | sar }}</td>
+            <td class="num small color-fees">{{ p.noon_fees | sar }}</td>
+            <td class="num small text-muted">{{ p.cogs | sar }}</td>
+            <td class="num small fw-600 {% if p.net_profit >= 0 %}color-profit{% else %}color-loss{% endif %}">
+              {{ p.net_profit | sar }}
+            </td>
+            <td class="num small {% if p.margin_pct and p.margin_pct >= 0 %}color-profit{% else %}color-loss{% endif %}">
+              {{ p.margin_pct | pct }}
+            </td>
+            <td class="ctr">
+              <span class="badge badge-{{ p.badge }} rounded-pill px-2 py-1">
+                {% if p.badge == 'profitable' %}رابح
+                {% elif p.badge == 'loss' %}خسارة
+                {% else %}غير معروف{% endif %}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="text-muted small mt-2">{{ products|length }} منتج</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-box-seam" style="font-size:3rem"></i>
+  <p class="mt-3">لا توجد منتجات مطابقة للبحث.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Inline partner_sku edit
+document.addEventListener('click', function(e) {
+  const editBtn = e.target.closest('.psku-edit-btn');
+  if (editBtn) {
+    const disp = editBtn.closest('.psku-display');
+    const sku  = disp.dataset.sku;
+    const form = document.querySelector(`.psku-form[data-sku="${CSS.escape(sku)}"]`);
+    form.querySelector('.psku-input').value = disp.dataset.val === '—' ? '' : disp.dataset.val;
+    disp.classList.add('d-none');
+    form.classList.remove('d-none');
+    form.querySelector('.psku-input').focus();
+    return;
+  }
+  const saveBtn = e.target.closest('.psku-save-btn');
+  if (saveBtn) {
+    const form = saveBtn.closest('.psku-form');
+    doSavePsku(form.dataset.sku, form.querySelector('.psku-input').value.trim(), form);
+    return;
+  }
+  const cancelBtn = e.target.closest('.psku-cancel-btn');
+  if (cancelBtn) {
+    const form = cancelBtn.closest('.psku-form');
+    cancelPsku(form.dataset.sku, form);
+  }
+});
+
+document.addEventListener('keydown', function(e) {
+  if (!e.target.classList.contains('psku-input')) return;
+  const form = e.target.closest('.psku-form');
+  if (!form) return;
+  if (e.key === 'Enter') { e.preventDefault(); doSavePsku(form.dataset.sku, e.target.value.trim(), form); }
+  if (e.key === 'Escape') cancelPsku(form.dataset.sku, form);
+});
+
+function cancelPsku(sku, form) {
+  const disp = document.querySelector(`.psku-display[data-sku="${CSS.escape(sku)}"]`);
+  form.classList.add('d-none');
+  disp.classList.remove('d-none');
+}
+
+async function doSavePsku(sku, val, form) {
+  const disp = document.querySelector(`.psku-display[data-sku="${CSS.escape(sku)}"]`);
+  try {
+    const res = await fetch(`/products/${encodeURIComponent(sku)}/update-partner-sku`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({partner_sku: val})
+    });
+    const data = await res.json();
+    if (data.success) {
+      disp.querySelector('.psku-val').textContent = val || '—';
+      disp.querySelector('.psku-val').title = val || '—';
+      disp.dataset.val = val || '—';
+      form.classList.add('d-none');
+      disp.classList.remove('d-none');
+      showToast('تم تحديث كود الشريك', 'success');
+    } else {
+      showToast(data.error || 'حدث خطأ', 'error');
+    }
+  } catch {
+    showToast('حدث خطأ في الاتصال', 'error');
+  }
+}
+</script>
+{% endblock %}

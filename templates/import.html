@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% block title %}استيراد CSV — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-upload me-2 color-revenue"></i>استيراد بيانات المبيعات</h4>
+  {% if last_batch %}
+  <small class="text-muted">آخر استيراد: {{ last_batch }}</small>
+  {% endif %}
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card stat-card">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3"><i class="bi bi-file-earmark-arrow-up me-2"></i>رفع ملف CSV من نون</h6>
+        <p class="text-muted small mb-4">
+          قم بتنزيل تقرير الطلبات من بوابة البائعين على نون، ثم ارفعه هنا.
+          سيتم تخطي الطلبات المكررة تلقائياً.
+        </p>
+
+        <div id="drop-zone" class="border border-2 border-dashed rounded-3 text-center p-5 mb-3"
+             style="cursor:pointer; border-color:#c5cfd8!important; transition:border-color .2s"
+             onclick="document.getElementById('csv_file').click()">
+          <i class="bi bi-cloud-upload" style="font-size:3rem;color:#8892a4"></i>
+          <p class="mt-3 mb-1 fw-500">اسحب الملف هنا أو انقر للاختيار</p>
+          <p class="text-muted small mb-0">ملفات CSV فقط</p>
+        </div>
+
+        <form id="import-form">
+          <input type="file" id="csv_file" name="csv_file" accept=".csv" class="d-none">
+          <div id="file-info" class="d-none alert alert-secondary py-2 mb-3">
+            <i class="bi bi-file-earmark-text me-2"></i>
+            <span id="file-name"></span>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 py-2 fw-600" id="upload-btn" disabled>
+            <i class="bi bi-upload me-2"></i>استيراد الآن
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Result card (hidden until import runs) -->
+    <div id="result-card" class="card stat-card mt-4 d-none">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3 color-profit"><i class="bi bi-check-circle me-2"></i>نتيجة الاستيراد</h6>
+        <div class="row text-center g-3" id="result-stats"></div>
+      </div>
+    </div>
+
+    <!-- Duplicate file card -->
+    <div id="dup-card" class="card border-warning mt-4 d-none">
+      <div class="card-body p-3">
+        <p class="fw-600 text-warning mb-1">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>هذا الملف تم استيراده مسبقاً
+        </p>
+        <p class="text-muted small mb-0" id="dup-detail"></p>
+        <p class="text-muted small mb-0 mt-1">لا يمكن استيراده مرة أخرى لتجنب التكرار.</p>
+      </div>
+    </div>
+
+    <!-- Error card -->
+    <div id="error-card" class="card border-danger mt-4 d-none">
+      <div class="card-body p-3">
+        <p class="text-danger mb-0"><i class="bi bi-exclamation-triangle me-2"></i><span id="error-msg"></span></p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const fileInput = document.getElementById('csv_file');
+const uploadBtn = document.getElementById('upload-btn');
+const fileInfo  = document.getElementById('file-info');
+const fileName  = document.getElementById('file-name');
+const dropZone  = document.getElementById('drop-zone');
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) {
+    fileName.textContent = fileInput.files[0].name;
+    fileInfo.classList.remove('d-none');
+    uploadBtn.disabled = false;
+    dropZone.style.borderColor = '#185FA5';
+  }
+});
+
+// Drag & drop
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = '#185FA5'; });
+dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = '#c5cfd8'; });
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.csv')) {
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event('change'));
+  }
+});
+
+document.getElementById('import-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  uploadBtn.disabled = true;
+  uploadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>جاري الاستيراد...';
+
+  document.getElementById('result-card').classList.add('d-none');
+  document.getElementById('error-card').classList.add('d-none');
+  document.getElementById('dup-card').classList.add('d-none');
+
+  const fd = new FormData();
+  fd.append('csv_file', fileInput.files[0]);
+
+  try {
+    const res = await fetch('/import/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (data.success) {
+      const stats = document.getElementById('result-stats');
+      stats.innerHTML = `
+        <div class="col-6 col-md-4">
+          <div class="p-3 bg-light rounded-3">
+            <div class="fw-700 fs-4 color-profit">${data.orders_imported}</div>
+            <div class="text-muted small">تم إضافة طلب جديد</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-4">
+          <div class="p-3 bg-light rounded-3">
+            <div class="fw-700 fs-4 color-revenue">${data.orders_updated}</div>
+            <div class="text-muted small">تم تحديث رسوم شحن مضافة</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-4">
+          <div class="p-3 bg-light rounded-3">
+            <div class="fw-700 fs-4 text-secondary">${data.orders_ignored}</div>
+            <div class="text-muted small">تم تجاهل مكرر بدون تغيير</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-4">
+          <div class="p-3 bg-light rounded-3">
+            <div class="fw-700 fs-4 color-revenue">${data.product_count}</div>
+            <div class="text-muted small">إجمالي المنتجات</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-4">
+          <div class="p-3 bg-light rounded-3">
+            <div class="fw-700 fs-4 color-fees">${data.new_skus}</div>
+            <div class="text-muted small">SKUs جديدة</div>
+          </div>
+        </div>
+        ${data.date_range.from ? `<div class="col-12 text-muted small mt-2">
+          الفترة: ${data.date_range.from} — ${data.date_range.to}
+        </div>` : ''}
+      `;
+      document.getElementById('result-card').classList.remove('d-none');
+      const parts = [`${data.orders_imported} جديد`];
+      if (data.orders_updated) parts.push(`${data.orders_updated} محدَّث`);
+      if (data.orders_ignored) parts.push(`${data.orders_ignored} مكرر`);
+      showToast(`تم الاستيراد: ${parts.join(' · ')}`, 'success');
+    } else if (data.duplicate) {
+      document.getElementById('dup-detail').textContent = data.detail;
+      document.getElementById('dup-card').classList.remove('d-none');
+      showToast(data.error, 'error');
+    } else {
+      document.getElementById('error-msg').textContent = data.error;
+      document.getElementById('error-card').classList.remove('d-none');
+      showToast(data.error, 'error');
+    }
+  } catch (err) {
+    document.getElementById('error-msg').textContent = 'حدث خطأ غير متوقع';
+    document.getElementById('error-card').classList.remove('d-none');
+  }
+
+  uploadBtn.disabled = false;
+  uploadBtn.innerHTML = '<i class="bi bi-upload me-2"></i>استيراد الآن';
+});
+</script>
+{% endblock %}

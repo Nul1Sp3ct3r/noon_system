@@ -1,0 +1,437 @@
+{% extends 'base.html' %}
+{% block title %}التقارير المالية — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-file-earmark-bar-graph me-2 color-revenue"></i>التقارير المالية</h4>
+</div>
+
+<!-- Tab Navigation -->
+<ul class="nav nav-tabs mb-3" id="reportTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-pl" data-bs-toggle="tab" data-bs-target="#pl_tab"
+            type="button" role="tab" data-report="pl">
+      <i class="bi bi-graph-up me-1"></i>الأرباح والخسائر
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-sales" data-bs-toggle="tab" data-bs-target="#sales_tab"
+            type="button" role="tab" data-report="sales">
+      <i class="bi bi-cart me-1"></i>المبيعات
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-fees" data-bs-toggle="tab" data-bs-target="#fees_tab"
+            type="button" role="tab" data-report="fees">
+      <i class="bi bi-percent me-1"></i>رسوم noon
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-inventory" data-bs-toggle="tab" data-bs-target="#inventory_tab"
+            type="button" role="tab" data-report="inventory">
+      <i class="bi bi-box-seam me-1"></i>المخزون
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-invoices-report" data-bs-toggle="tab" data-bs-target="#invoices_report_tab"
+            type="button" role="tab" data-report="invoices-report">
+      <i class="bi bi-file-earmark-text me-1"></i>الفواتير
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="reportTabContent">
+
+  <!-- ========== P&L TAB ========== -->
+  <div class="tab-pane fade show active" id="pl_tab" role="tabpanel">
+    <div class="card stat-card mb-3">
+      <div class="card-body py-3">
+        <form class="row g-2 align-items-end" id="pl_filter">
+          <div class="col-auto">
+            <label class="form-label small mb-1">من شهر</label>
+            <input type="month" name="from_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">إلى شهر</label>
+            <input type="month" name="to_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick="loadReport('pl')">
+              <i class="bi bi-funnel me-1"></i>عرض التقرير
+            </button>
+            <a id="pl_excel_btn" href="/reports/pl/excel" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </a>
+            <a id="pl_pdf_btn" href="/reports/pl/pdf" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="row g-3 mb-3" id="pl_summary"></div>
+    <div class="card stat-card mb-3 d-none" id="pl_chart_container">
+      <div class="card-body">
+        <canvas id="pl_chart" height="100"></canvas>
+      </div>
+    </div>
+    <div class="card stat-card">
+      <div class="card-body p-0" id="pl_table">
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-bar-chart-line fs-1 d-block mb-2"></i>
+          اختر الفلاتر وانقر "عرض التقرير"
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== SALES TAB ========== -->
+  <div class="tab-pane fade" id="sales_tab" role="tabpanel">
+    <div class="card stat-card mb-3">
+      <div class="card-body py-3">
+        <form class="row g-2 align-items-end" id="sales_filter">
+          <div class="col-auto">
+            <label class="form-label small mb-1">من تاريخ</label>
+            <input type="date" name="from_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">إلى تاريخ</label>
+            <input type="date" name="to_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">العلامة التجارية</label>
+            <select name="brand" class="form-select form-select-sm">
+              <option value="">الكل</option>
+              {% for b in brands %}
+              <option value="{{ b }}">{{ b }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">ترتيب حسب</label>
+            <select name="sort_by" class="form-select form-select-sm">
+              <option value="profit">الربح</option>
+              <option value="revenue">الإيرادات</option>
+              <option value="units">الوحدات</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">الحالة</label>
+            <select name="status" class="form-select form-select-sm">
+              <option value="">الكل</option>
+              <option value="profitable">رابح</option>
+              <option value="loss">خاسر</option>
+              <option value="unknown">غير محدد</option>
+            </select>
+          </div>
+          <div class="col-auto d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick="loadReport('sales')">
+              <i class="bi bi-funnel me-1"></i>عرض التقرير
+            </button>
+            <a id="sales_excel_btn" href="/reports/sales/excel" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </a>
+            <a id="sales_pdf_btn" href="/reports/sales/pdf" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="row g-3 mb-3" id="sales_summary"></div>
+    <div class="card stat-card mb-3 d-none" id="sales_chart_container">
+      <div class="card-body">
+        <canvas id="sales_chart" height="120"></canvas>
+      </div>
+    </div>
+    <div class="card stat-card">
+      <div class="card-body p-0" id="sales_table">
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-bar-chart-line fs-1 d-block mb-2"></i>
+          اختر الفلاتر وانقر "عرض التقرير"
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== FEES TAB ========== -->
+  <div class="tab-pane fade" id="fees_tab" role="tabpanel">
+    <div class="card stat-card mb-3">
+      <div class="card-body py-3">
+        <form class="row g-2 align-items-end" id="fees_filter">
+          <div class="col-auto">
+            <label class="form-label small mb-1">من تاريخ</label>
+            <input type="date" name="from_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">إلى تاريخ</label>
+            <input type="date" name="to_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">العلامة التجارية</label>
+            <select name="brand" class="form-select form-select-sm">
+              <option value="">الكل</option>
+              {% for b in brands %}
+              <option value="{{ b }}">{{ b }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-auto d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick="loadReport('fees')">
+              <i class="bi bi-funnel me-1"></i>عرض التقرير
+            </button>
+            <a id="fees_excel_btn" href="/reports/fees/excel" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </a>
+            <a id="fees_pdf_btn" href="/reports/fees/pdf" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="row g-3 mb-3" id="fees_summary"></div>
+    <div class="card stat-card mb-3 d-none" id="fees_chart_container">
+      <div class="card-body" style="max-width:400px;margin:auto">
+        <canvas id="fees_chart" height="180"></canvas>
+      </div>
+    </div>
+    <div class="card stat-card">
+      <div class="card-body p-0" id="fees_table">
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-bar-chart-line fs-1 d-block mb-2"></i>
+          اختر الفلاتر وانقر "عرض التقرير"
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== INVENTORY TAB ========== -->
+  <div class="tab-pane fade" id="inventory_tab" role="tabpanel">
+    <div class="card stat-card mb-3">
+      <div class="card-body py-3">
+        <form class="row g-2 align-items-end" id="inventory_filter">
+          <div class="col-auto">
+            <label class="form-label small mb-1">العلامة التجارية</label>
+            <select name="brand" class="form-select form-select-sm">
+              <option value="">الكل</option>
+              {% for b in brands %}
+              <option value="{{ b }}">{{ b }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">تكلفة من</label>
+            <input type="number" name="cost_min" min="0" step="0.01" class="form-control form-control-sm" style="width:100px">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">تكلفة إلى</label>
+            <input type="number" name="cost_max" min="0" step="0.01" class="form-control form-control-sm" style="width:100px">
+          </div>
+          <div class="col-auto d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick="loadReport('inventory')">
+              <i class="bi bi-funnel me-1"></i>عرض التقرير
+            </button>
+            <a id="inventory_excel_btn" href="/reports/inventory/excel" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </a>
+            <a id="inventory_pdf_btn" href="/reports/inventory/pdf" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="row g-3 mb-3" id="inventory_summary"></div>
+    <div class="card stat-card mb-3 d-none" id="inventory_chart_container">
+      <div class="card-body">
+        <canvas id="inventory_chart" height="120"></canvas>
+      </div>
+    </div>
+    <div class="card stat-card">
+      <div class="card-body p-0" id="inventory_table">
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-bar-chart-line fs-1 d-block mb-2"></i>
+          اختر الفلاتر وانقر "عرض التقرير"
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== INVOICES REPORT TAB ========== -->
+  <div class="tab-pane fade" id="invoices_report_tab" role="tabpanel">
+    <div class="card stat-card mb-3">
+      <div class="card-body py-3">
+        <form class="row g-2 align-items-end" id="invoices_report_filter">
+          <div class="col-auto">
+            <label class="form-label small mb-1">المورد</label>
+            <select name="supplier" class="form-select form-select-sm">
+              <option value="">الكل</option>
+              {% for s in suppliers %}
+              <option value="{{ s }}">{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">من تاريخ</label>
+            <input type="date" name="from_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">إلى تاريخ</label>
+            <input type="date" name="to_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick="loadReport('invoices-report')">
+              <i class="bi bi-funnel me-1"></i>عرض التقرير
+            </button>
+            <a id="invoices_report_excel_btn" href="/reports/invoices-report/excel" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </a>
+            <a id="invoices_report_pdf_btn" href="/reports/invoices-report/pdf" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="row g-3 mb-3" id="invoices_report_summary"></div>
+    <div class="card stat-card mb-3 d-none" id="invoices_report_chart_container">
+      <div class="card-body">
+        <canvas id="invoices_report_chart" height="100"></canvas>
+      </div>
+    </div>
+    <div class="card stat-card">
+      <div class="card-body p-0" id="invoices_report_table">
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-bar-chart-line fs-1 d-block mb-2"></i>
+          اختر الفلاتر وانقر "عرض التقرير"
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.tab-content -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Chart instance registry
+const chartRegistry = {};
+
+// Report name → element ID prefix (hyphens → underscores)
+function rid(report) { return report.replace(/-/g, '_'); }
+
+async function loadReport(report) {
+  const form = document.getElementById(rid(report) + '_filter');
+  const params = new URLSearchParams();
+  if (form) {
+    new FormData(form).forEach((v, k) => { if (v) params.set(k, v); });
+  }
+  const qs = params.toString();
+
+  // Update download button hrefs
+  const excelBtn = document.getElementById(rid(report) + '_excel_btn');
+  const pdfBtn   = document.getElementById(rid(report) + '_pdf_btn');
+  if (excelBtn) excelBtn.href = `/reports/${report}/excel${qs ? '?' + qs : ''}`;
+  if (pdfBtn)   pdfBtn.href   = `/reports/${report}/pdf${qs ? '?' + qs : ''}`;
+
+  // Show loading state
+  const tableDiv = document.getElementById(rid(report) + '_table');
+  if (tableDiv) tableDiv.innerHTML = '<div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm"></div> جاري التحميل...</div>';
+
+  try {
+    const res  = await fetch(`/reports/${report}${qs ? '?' + qs : ''}`);
+    const data = await res.json();
+    if (!data.success) { showToast(data.error || 'خطأ في تحميل البيانات', 'error'); return; }
+
+    renderSummaryCards(report, data.summary_cards);
+    renderChart(report, data.chart);
+    renderTable(report, data.headers, data.rows, data.row_classes, data.totals);
+  } catch(e) {
+    if (tableDiv) tableDiv.innerHTML = '<div class="text-center py-4 text-danger">حدث خطأ في تحميل البيانات</div>';
+  }
+}
+
+function renderSummaryCards(report, cards) {
+  const el = document.getElementById(rid(report) + '_summary');
+  if (!el || !cards) return;
+  el.innerHTML = cards.map(c => `
+    <div class="col-6 col-md-3">
+      <div class="card stat-card">
+        <div class="card-body">
+          <div class="stat-label">${c.label}</div>
+          <div class="stat-value ${c.color || ''}">${c.value}</div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function renderChart(report, cfg) {
+  const canvas    = document.getElementById(rid(report) + '_chart');
+  const container = document.getElementById(rid(report) + '_chart_container');
+  if (!canvas || !cfg) return;
+  if (chartRegistry[report]) { chartRegistry[report].destroy(); }
+  chartRegistry[report] = new Chart(canvas, cfg);
+  if (container) container.classList.remove('d-none');
+}
+
+function renderTable(report, headers, rows, rowClasses, totals) {
+  const el = document.getElementById(rid(report) + '_table');
+  if (!el) return;
+  if (!rows || rows.length === 0) {
+    el.innerHTML = '<div class="text-center py-5 text-muted"><i class="bi bi-inbox fs-1 d-block mb-2"></i>لا توجد بيانات</div>';
+    return;
+  }
+  let html = '<div class="table-responsive"><table class="table table-hover mb-0" id="tbl_' + rid(report) + '"><thead class="table-light"><tr>';
+  headers.forEach((h, i) => {
+    html += `<th style="cursor:pointer;user-select:none" onclick="sortTbl('${report}',${i})">${h} <i class="bi bi-arrow-down-up opacity-25 small"></i></th>`;
+  });
+  html += '</tr></thead><tbody>';
+  rows.forEach((row, ri) => {
+    const cls = rowClasses ? (rowClasses[ri] || '') : '';
+    html += `<tr class="${cls}">` + row.map(cell => {
+      const v = (cell === null || cell === undefined) ? '—' : cell;
+      const isNum = typeof v === 'number';
+      return `<td class="${isNum ? 'text-end' : ''}">${isNum ? v.toLocaleString('ar-SA', {minimumFractionDigits:2, maximumFractionDigits:2}) : v}</td>`;
+    }).join('') + '</tr>';
+  });
+  html += '</tbody>';
+  if (totals) {
+    html += '<tfoot class="table-warning fw-bold"><tr>' + totals.map(c => {
+      const isNum = typeof c === 'number';
+      return `<td class="${isNum ? 'text-end' : ''}">${isNum ? c.toLocaleString('ar-SA', {minimumFractionDigits:2, maximumFractionDigits:2}) : (c || '')}</td>`;
+    }).join('') + '</tr></tfoot>';
+  }
+  html += '</table></div>';
+  el.innerHTML = html;
+}
+
+const sortState = {};
+function sortTbl(report, colIdx) {
+  const tbody = document.querySelector('#tbl_' + rid(report) + ' tbody');
+  if (!tbody) return;
+  const asc = sortState[report] !== colIdx;
+  sortState[report] = asc ? colIdx : null;
+  const rows = Array.from(tbody.rows);
+  rows.sort((a, b) => {
+    const av = a.cells[colIdx]?.textContent.trim() || '';
+    const bv = b.cells[colIdx]?.textContent.trim() || '';
+    const an = parseFloat(av.replace(/[^-\d.]/g, '')), bn = parseFloat(bv.replace(/[^-\d.]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return asc ? an - bn : bn - an;
+    return asc ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+
+// Load first tab on page load
+document.addEventListener('DOMContentLoaded', () => loadReport('pl'));
+
+// Load when tab activated
+document.querySelectorAll('#reportTabs button[data-bs-toggle="tab"]').forEach(btn => {
+  btn.addEventListener('shown.bs.tab', e => {
+    const report = e.target.dataset.report;
+    if (report) loadReport(report);
+  });
+});
+</script>
+{% endblock %}

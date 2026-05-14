@@ -1,0 +1,11 @@
+flask
+pandas
+openpyxl
+werkzeug
+reportlab
+arabic-reshaper
+python-bidi
+Pillow
+img2pdf
+pypdf
+numpy
