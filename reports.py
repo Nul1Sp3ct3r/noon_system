@@ -57,6 +57,74 @@ def _brand_where(brand, alias='p'):
 # Data functions
 # ---------------------------------------------------------------------------
 
+def get_vat_data(db_path, from_date='', to_date=''):
+    """Monthly VAT breakdown using verified formulas.
+
+    output_vat      = SUM(net_proceeds WHERE delivered) * 15/115
+    input_vat_noon  = SUM(ABS(referral_fee)+ABS(fbn_outbound_fee)) * 0.15
+    input_vat_supp  = SUM(invoices.vat_amount) for same month
+    net_vat         = output_vat - input_vat_noon - input_vat_supp
+    """
+    db = get_db(db_path)
+
+    # Orders query
+    cond, params = _date_where(from_date, to_date, 'o.ordered_date', 10)
+    where = ("WHERE " + " AND ".join(cond) + " AND o.ordered_date != ''") if cond else "WHERE o.ordered_date != ''"
+
+    orders_sql = f"""
+        SELECT
+            strftime('%Y-%m', o.ordered_date) AS month,
+            COALESCE(SUM(CASE WHEN o.item_status='delivered'
+                              THEN o.net_proceeds ELSE 0 END), 0.0) AS sales_incl,
+            COALESCE(SUM(ABS(o.referral_fee) + ABS(o.fbn_outbound_fee)), 0.0) AS fees_excl
+        FROM orders o
+        {where}
+        GROUP BY strftime('%Y-%m', o.ordered_date)
+        ORDER BY month
+    """
+    order_rows = db.execute(orders_sql, params).fetchall()
+
+    # Supplier VAT from invoices (grouped by month of invoice_date)
+    inv_cond, inv_params = _date_where(from_date, to_date, 'i.invoice_date', 10)
+    where_inv = ("WHERE " + " AND ".join(inv_cond)) if inv_cond else ""
+    inv_sql = f"""
+        SELECT
+            strftime('%Y-%m', i.invoice_date) AS month,
+            COALESCE(SUM(i.vat_amount), 0.0) AS supplier_vat
+        FROM invoices i
+        {where_inv}
+        GROUP BY strftime('%Y-%m', i.invoice_date)
+    """
+    inv_rows = db.execute(inv_sql, inv_params).fetchall()
+    db.close()
+
+    supp_vat_by_month = {r['month']: float(r['supplier_vat']) for r in inv_rows}
+
+    result = []
+    for r in order_rows:
+        month        = r['month']
+        sales_incl   = float(r['sales_incl'])
+        fees_excl    = float(r['fees_excl'])
+
+        output_vat      = round(sales_incl * 15 / 115, 2)
+        input_vat_noon  = round(fees_excl * 0.15, 2)
+        input_vat_supp  = round(supp_vat_by_month.get(month, 0.0), 2)
+        net_vat         = round(output_vat - input_vat_noon - input_vat_supp, 2)
+
+        result.append({
+            'month':          month,
+            'month_ar':       format_month_ar(month),
+            'sales_incl':     round(sales_incl, 2),
+            'output_vat':     output_vat,
+            'fees_excl':      round(fees_excl, 2),
+            'input_vat_noon': input_vat_noon,
+            'input_vat_supp': input_vat_supp,
+            'net_vat':        net_vat,
+            'status':         'payable' if net_vat > 0 else 'refundable',
+        })
+    return result
+
+
 def get_pl_data(db_path, from_date='', to_date=''):
     """P&L grouped by month."""
     db = get_db(db_path)

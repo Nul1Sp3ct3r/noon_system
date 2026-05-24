@@ -38,6 +38,12 @@
       <i class="bi bi-file-earmark-text me-1"></i>الفواتير
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-vat" data-bs-toggle="tab" data-bs-target="#vat_tab"
+            type="button" role="tab" data-report="vat">
+      <i class="bi bi-receipt-cutoff me-1"></i>ضريبة القيمة المضافة
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content" id="reportTabContent">
@@ -304,6 +310,52 @@
       <div class="card-body p-0" id="invoices_report_table">
         <div class="text-center py-5 text-muted">
           <i class="bi bi-bar-chart-line fs-1 d-block mb-2"></i>
+          اختر الفلاتر وانقر "عرض التقرير"
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== VAT TAB ========== -->
+  <div class="tab-pane fade" id="vat_tab" role="tabpanel">
+    <div class="card stat-card mb-3">
+      <div class="card-body py-3">
+        <form class="row g-2 align-items-end" id="vat_filter">
+          <div class="col-auto">
+            <label class="form-label small mb-1">من شهر</label>
+            <input type="month" name="from_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">إلى شهر</label>
+            <input type="month" name="to_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-auto d-flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick="loadReport('vat')">
+              <i class="bi bi-funnel me-1"></i>عرض التقرير
+            </button>
+            <a id="vat_excel_btn" href="/reports/vat/excel" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-excel me-1"></i>Excel
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="alert alert-info py-2 small mb-3">
+      <i class="bi bi-info-circle me-1"></i>
+      VAT المخرجات محسوب من صافي العائد (شامل VAT) × 15/115.
+      VAT المدخلات — نون محسوب من الرسوم (قبل VAT) × 15%.
+      VAT المدخلات — موردين مأخوذ من حقل الضريبة في الفواتير المُدخَلة.
+    </div>
+    <div class="row g-3 mb-3" id="vat_summary"></div>
+    <div class="card stat-card mb-3 d-none" id="vat_chart_container">
+      <div class="card-body">
+        <canvas id="vat_chart" height="100"></canvas>
+      </div>
+    </div>
+    <div class="card stat-card">
+      <div class="card-body p-0" id="vat_table">
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-receipt-cutoff fs-1 d-block mb-2"></i>
           اختر الفلاتر وانقر "عرض التقرير"
         </div>
       </div>

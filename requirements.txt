@@ -9,3 +9,4 @@ Pillow
 img2pdf
 pypdf
 numpy
+libsql-experimental

@@ -49,6 +49,9 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 init_db(DB_PATH)
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'heic'}
 
+VAT_RATE   = 0.15        # Saudi VAT 15%
+VAT_FACTOR = 15 / 115    # isolate VAT from VAT-inclusive amount
+
 CSV_COLUMN_MAP = {
     'Order Nr': 'order_nr',
     'Item Nr': 'item_nr',
@@ -130,6 +133,13 @@ def compute_product_metrics(row):
     else:
         badge = 'loss'
 
+    # VAT breakdown (verified formulas)
+    output_vat         = round(revenue * VAT_FACTOR, 2)
+    revenue_excl_vat   = round(revenue - output_vat, 2)
+    noon_fees_excl_vat = round(noon_fees, 2)          # fees already excl. VAT
+    input_vat_noon     = round(noon_fees * VAT_RATE, 2)
+    noon_fees_incl_vat = round(noon_fees + input_vat_noon, 2)
+
     return {
         'sku': row['sku'],
         'partner_sku': row['partner_sku'] or '',
@@ -149,6 +159,12 @@ def compute_product_metrics(row):
         'margin_pct': margin_pct,
         'has_cost': has_cost,
         'badge': badge,
+        # VAT fields
+        'output_vat': output_vat,
+        'revenue_excl_vat': revenue_excl_vat,
+        'noon_fees_excl_vat': noon_fees_excl_vat,
+        'input_vat_noon': input_vat_noon,
+        'noon_fees_incl_vat': noon_fees_incl_vat,
     }
 
 
@@ -859,6 +875,110 @@ def report_pl():
     })
 
 
+@app.route('/reports/vat')
+def report_vat():
+    f = _parse_filters()
+    try:
+        data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+    headers = [
+        'الشهر', 'المبيعات شامل VAT', 'VAT المخرجات',
+        'رسوم نون (قبل VAT)', 'VAT مدخلات — نون',
+        'VAT مدخلات — موردين', 'صافي VAT', 'الحالة',
+    ]
+
+    rows = []
+    for d in data:
+        rows.append([
+            d['month_ar'], d['sales_incl'], d['output_vat'],
+            d['fees_excl'], d['input_vat_noon'],
+            d['input_vat_supp'], d['net_vat'],
+            'مستحق' if d['status'] == 'payable' else 'قابل للاسترداد',
+        ])
+    row_classes = ['' for _ in rows]
+
+    t_sales  = round(sum(d['sales_incl']     for d in data), 2)
+    t_out    = round(sum(d['output_vat']     for d in data), 2)
+    t_fees   = round(sum(d['fees_excl']      for d in data), 2)
+    t_in_n   = round(sum(d['input_vat_noon'] for d in data), 2)
+    t_in_s   = round(sum(d['input_vat_supp'] for d in data), 2)
+    t_net    = round(sum(d['net_vat']        for d in data), 2)
+
+    totals = ['الإجمالي', t_sales, t_out, t_fees, t_in_n, t_in_s, t_net, '']
+
+    summary_cards = [
+        {'label': 'VAT المخرجات (مبيعات)',     'value': f'{t_out:,.2f}',  'color': 'color-loss'},
+        {'label': 'VAT مدخلات — رسوم نون',     'value': f'{t_in_n:,.2f}', 'color': 'color-profit'},
+        {'label': 'VAT مدخلات — موردين',       'value': f'{t_in_s:,.2f}', 'color': 'color-profit'},
+        {'label': 'صافي VAT للإقرار',          'value': f'{t_net:,.2f}',
+         'color': 'color-loss' if t_net > 0 else 'color-profit'},
+    ]
+
+    chart = {
+        'type': 'bar',
+        'data': {
+            'labels': [d['month_ar'] for d in data],
+            'datasets': [
+                {'label': 'VAT المخرجات',
+                 'data': [d['output_vat'] for d in data],
+                 'backgroundColor': '#A32D2Dcc', 'borderRadius': 4},
+                {'label': 'VAT المدخلات (نون + موردين)',
+                 'data': [round(d['input_vat_noon'] + d['input_vat_supp'], 2) for d in data],
+                 'backgroundColor': '#3B6D11cc', 'borderRadius': 4},
+            ],
+        },
+        'options': {
+            'responsive': True,
+            'plugins': {'legend': {'position': 'bottom'}},
+            'scales': {'y': {'beginAtZero': True}},
+        },
+    }
+
+    return jsonify({
+        'success': True, 'headers': headers, 'rows': rows,
+        'row_classes': row_classes, 'totals': totals,
+        'summary_cards': summary_cards, 'chart': chart,
+    })
+
+
+@app.route('/reports/vat/excel')
+def report_vat_excel():
+    f = _parse_filters()
+    data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'])
+    headers = [
+        'الشهر', 'المبيعات شامل VAT', 'VAT المخرجات',
+        'رسوم نون (قبل VAT)', 'VAT مدخلات — نون',
+        'VAT مدخلات — موردين', 'صافي VAT', 'الحالة',
+    ]
+    rows = []
+    for d in data:
+        rows.append([
+            d['month_ar'], d['sales_incl'], d['output_vat'],
+            d['fees_excl'], d['input_vat_noon'], d['input_vat_supp'], d['net_vat'],
+            'مستحق' if d['status'] == 'payable' else 'قابل للاسترداد',
+        ])
+    totals_row = [
+        'الإجمالي',
+        round(sum(d['sales_incl']     for d in data), 2),
+        round(sum(d['output_vat']     for d in data), 2),
+        round(sum(d['fees_excl']      for d in data), 2),
+        round(sum(d['input_vat_noon'] for d in data), 2),
+        round(sum(d['input_vat_supp'] for d in data), 2),
+        round(sum(d['net_vat']        for d in data), 2),
+        '',
+    ]
+    today = datetime.now().strftime('%Y%m%d')
+    buf, fname = rp.build_excel(
+        'VAT', headers, rows, totals_row=totals_row,
+        currency_cols=[2, 3, 4, 5, 6, 7],
+        filename=f'noon_vat_{today}.xlsx',
+    )
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @app.route('/reports/sales')
 def report_sales():
     f = _parse_filters()
@@ -1508,6 +1628,63 @@ def reports_export():
     buf.seek(0)
     return send_file(buf, as_attachment=True, download_name=filename,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# --- Pricing Calculator ---
+
+@app.route('/calculator')
+def calculator_page():
+    return render_template('calculator.html')
+
+
+@app.route('/api/calculate-price', methods=['POST'])
+def api_calculate_price():
+    data = request.get_json(silent=True) or {}
+    try:
+        cost               = float(data.get('cost', 0))
+        cost_includes_vat  = bool(data.get('cost_includes_vat', False))
+        commission_rate    = float(data.get('commission_rate', 0)) / 100
+        shipping_fee       = float(data.get('shipping_fee', 0))
+        storage_fee        = float(data.get('storage_fee', 0))
+        ads_fee            = float(data.get('ads_fee', 0))
+        other_fees         = float(data.get('other_fees', 0))
+        target_margin      = float(data.get('target_margin', 0)) / 100
+    except (TypeError, ValueError) as e:
+        return jsonify({'success': False, 'error': f'قيم غير صالحة: {e}'}), 400
+
+    if commission_rate + target_margin >= 1:
+        return jsonify({'success': False,
+                        'error': 'مجموع نسبة العمولة والهامش يجب أن يكون أقل من 100%'}), 400
+
+    # Costs — all fees are entered excl. VAT (noon fees structure)
+    cost_excl       = cost / 1.15 if cost_includes_vat else cost
+    fixed_fees_excl = shipping_fee + storage_fee + ads_fee + other_fees
+
+    # Solve: selling_excl × (1 - commission_rate - target_margin) = cost_excl + fixed_fees_excl
+    denominator  = 1 - commission_rate - target_margin
+    selling_excl = (cost_excl + fixed_fees_excl) / denominator
+    selling_incl = selling_excl * 1.15
+
+    commission_amount  = round(selling_excl * commission_rate, 2)
+    fees_total_excl    = round(commission_amount + fixed_fees_excl, 2)
+    input_vat_noon     = round(fees_total_excl * VAT_RATE, 2)
+    output_vat         = round(selling_incl * VAT_FACTOR, 2)
+    net_profit         = round(selling_excl - cost_excl - fees_total_excl, 2)
+    actual_margin      = round(net_profit / selling_excl * 100, 2) if selling_excl else 0
+
+    return jsonify({
+        'success':           True,
+        'cost_excl_vat':     round(cost_excl, 2),
+        'fixed_fees_excl':   round(fixed_fees_excl, 2),
+        'commission_amount': commission_amount,
+        'fees_total_excl':   fees_total_excl,
+        'input_vat_noon':    input_vat_noon,
+        'selling_excl_vat':  round(selling_excl, 2),
+        'selling_incl_vat':  round(selling_incl, 2),
+        'output_vat':        output_vat,
+        'net_profit':        net_profit,
+        'actual_margin_pct': actual_margin,
+    })
 
 
 # --- Browser auto-open ---

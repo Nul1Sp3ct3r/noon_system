@@ -1,0 +1,251 @@
+{% extends 'base.html' %}
+{% block title %}حاسبة التسعير — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+.calc-card   { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+.result-row  { display: flex; justify-content: space-between; padding: 8px 0;
+               border-bottom: 1px solid #f0f0f0; font-size: .92rem; }
+.result-row:last-child { border-bottom: none; }
+.result-label { color: #6c757d; }
+.result-value { font-weight: 600; }
+.result-highlight { font-size: 1.25rem; font-weight: 700; }
+.vat-badge { font-size: .75rem; background: #e9ecef; color: #495057;
+             border-radius: 4px; padding: 1px 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-calculator-fill me-2 color-revenue"></i>حاسبة التسعير</h4>
+</div>
+
+<div class="row g-4">
+
+  <!-- Inputs -->
+  <div class="col-lg-5">
+    <div class="card calc-card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3 text-muted"><i class="bi bi-input-cursor-text me-1"></i>المدخلات</h6>
+
+        <!-- Cost -->
+        <div class="mb-3">
+          <label class="form-label small fw-600">تكلفة المنتج (ر.س)</label>
+          <div class="input-group">
+            <input type="number" id="inp_cost" class="form-control" step="0.01" min="0"
+                   placeholder="0.00" value="">
+            <select id="inp_cost_vat" class="form-select" style="max-width:160px">
+              <option value="0">بدون VAT</option>
+              <option value="1">شامل VAT (15%)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Commission -->
+        <div class="mb-3">
+          <label class="form-label small fw-600">عمولة نون (%)</label>
+          <div class="input-group">
+            <input type="number" id="inp_commission" class="form-control" step="0.1"
+                   min="0" max="99" placeholder="10" value="10">
+            <span class="input-group-text">%</span>
+          </div>
+          <div class="form-text">نسبة العمولة المطبقة على سعر البيع شامل VAT</div>
+        </div>
+
+        <!-- Noon Fees -->
+        <div class="mb-3">
+          <label class="form-label small fw-600">رسوم نون الأخرى (قبل VAT) — ر.س</label>
+          <div class="row g-2">
+            <div class="col-6">
+              <input type="number" id="inp_shipping" class="form-control form-control-sm"
+                     step="0.01" min="0" placeholder="شحن 0.00" value="0">
+            </div>
+            <div class="col-6">
+              <input type="number" id="inp_storage" class="form-control form-control-sm"
+                     step="0.01" min="0" placeholder="تخزين 0.00" value="0">
+            </div>
+            <div class="col-6">
+              <input type="number" id="inp_ads" class="form-control form-control-sm"
+                     step="0.01" min="0" placeholder="إعلان 0.00" value="0">
+            </div>
+            <div class="col-6">
+              <input type="number" id="inp_other" class="form-control form-control-sm"
+                     step="0.01" min="0" placeholder="أخرى 0.00" value="0">
+            </div>
+          </div>
+        </div>
+
+        <!-- Target Margin -->
+        <div class="mb-4">
+          <label class="form-label small fw-600">الهامش المطلوب (%)</label>
+          <div class="input-group">
+            <input type="number" id="inp_margin" class="form-control" step="0.5"
+                   min="0" max="99" placeholder="20" value="20">
+            <span class="input-group-text">%</span>
+          </div>
+        </div>
+
+        <button id="calc_btn" class="btn btn-primary w-100">
+          <i class="bi bi-calculator me-2"></i>احسب السعر
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="col-lg-7">
+    <div class="card calc-card" id="results_card" style="display:none">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3 text-muted"><i class="bi bi-bar-chart me-1"></i>النتائج</h6>
+
+        <!-- Selling price highlight -->
+        <div class="text-center py-3 mb-3"
+             style="background:#f0f4ff;border-radius:8px;border:2px solid #185FA5">
+          <div class="text-muted small mb-1">سعر البيع المقترح في نون (شامل VAT)</div>
+          <div class="result-highlight color-revenue" id="res_selling_incl">— ر.س</div>
+          <div class="text-muted small mt-1">
+            بدون VAT: <span id="res_selling_excl" class="fw-600">—</span> ر.س
+          </div>
+        </div>
+
+        <!-- Breakdown -->
+        <div class="result-row">
+          <span class="result-label">تكلفة المنتج (بدون VAT)</span>
+          <span class="result-value text-muted" id="res_cost_excl">—</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">عمولة نون</span>
+          <span class="result-value color-fees" id="res_commission">—</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">رسوم نون الأخرى (بدون VAT)</span>
+          <span class="result-value color-fees" id="res_fixed_fees">—</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">
+            VAT على رسوم نون
+            <span class="vat-badge">مدخلات</span>
+          </span>
+          <span class="result-value color-profit" id="res_input_vat">—</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">
+            VAT على المبيعات
+            <span class="vat-badge">مخرجات</span>
+          </span>
+          <span class="result-value color-loss" id="res_output_vat">—</span>
+        </div>
+
+        <hr class="my-2">
+
+        <div class="result-row" style="font-size:1rem">
+          <span class="fw-700">صافي الربح</span>
+          <span class="result-value result-highlight" id="res_net_profit">—</span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">هامش الربح الفعلي</span>
+          <span class="result-value" id="res_margin">—</span>
+        </div>
+
+        <div id="warning_box" class="alert alert-warning mt-3 py-2 small d-none">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          <span id="warning_text"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div class="card calc-card" id="empty_card">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-calculator" style="font-size:3rem"></i>
+        <p class="mt-3">أدخل البيانات وانقر "احسب السعر"</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('calc_btn').addEventListener('click', calculate);
+
+['inp_cost','inp_commission','inp_shipping','inp_storage',
+ 'inp_ads','inp_other','inp_margin'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') calculate();
+  });
+});
+
+async function calculate() {
+  const btn = document.getElementById('calc_btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>جاري الحساب...';
+
+  const payload = {
+    cost:              parseFloat(document.getElementById('inp_cost').value)       || 0,
+    cost_includes_vat: document.getElementById('inp_cost_vat').value === '1',
+    commission_rate:   parseFloat(document.getElementById('inp_commission').value) || 0,
+    shipping_fee:      parseFloat(document.getElementById('inp_shipping').value)   || 0,
+    storage_fee:       parseFloat(document.getElementById('inp_storage').value)    || 0,
+    ads_fee:           parseFloat(document.getElementById('inp_ads').value)        || 0,
+    other_fees:        parseFloat(document.getElementById('inp_other').value)      || 0,
+    target_margin:     parseFloat(document.getElementById('inp_margin').value)     || 0,
+  };
+
+  try {
+    const res  = await fetch('/api/calculate-price', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      showToast(data.error || 'حدث خطأ في الحساب', 'error');
+      return;
+    }
+
+    const fmt = v => v.toLocaleString('ar-SA', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ر.س';
+
+    document.getElementById('res_selling_incl').textContent = fmt(data.selling_incl_vat);
+    document.getElementById('res_selling_excl').textContent = data.selling_excl_vat.toLocaleString('ar-SA', {minimumFractionDigits:2, maximumFractionDigits:2});
+    document.getElementById('res_cost_excl').textContent    = fmt(data.cost_excl_vat);
+    document.getElementById('res_commission').textContent   = fmt(data.commission_amount);
+    document.getElementById('res_fixed_fees').textContent   = fmt(data.fixed_fees_excl);
+    document.getElementById('res_input_vat').textContent    = fmt(data.input_vat_noon);
+    document.getElementById('res_output_vat').textContent   = fmt(data.output_vat);
+
+    const profitEl = document.getElementById('res_net_profit');
+    profitEl.textContent = fmt(data.net_profit);
+    profitEl.className   = 'result-value result-highlight ' +
+                           (data.net_profit >= 0 ? 'color-profit' : 'color-loss');
+
+    document.getElementById('res_margin').textContent =
+      data.actual_margin_pct.toFixed(2) + '%';
+
+    // Warning if margin < 5% or negative
+    const warnBox  = document.getElementById('warning_box');
+    const warnText = document.getElementById('warning_text');
+    if (data.net_profit < 0) {
+      warnText.textContent = 'تحذير: السعر المحسوب يُنتج خسارة. ارفع الهامش أو خفّض التكاليف.';
+      warnBox.classList.remove('d-none');
+    } else if (data.actual_margin_pct < 5) {
+      warnText.textContent = 'تنبيه: هامش الربح أقل من 5%. قد لا يكفي لتغطية تكاليف غير متوقعة.';
+      warnBox.classList.remove('d-none');
+    } else {
+      warnBox.classList.add('d-none');
+    }
+
+    document.getElementById('results_card').style.display = '';
+    document.getElementById('empty_card').style.display   = 'none';
+
+  } catch {
+    showToast('حدث خطأ غير متوقع', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-calculator me-2"></i>احسب السعر';
+  }
+}
+</script>
+{% endblock %}
