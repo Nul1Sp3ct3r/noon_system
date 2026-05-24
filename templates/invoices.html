@@ -63,7 +63,7 @@
     <h6 class="fw-bold mb-3"><i class="bi bi-plus-circle me-2 color-revenue"></i>إضافة فاتورة جديدة</h6>
     <form id="invoice-form" enctype="multipart/form-data">
 
-      <!-- Header fields -->
+      <!-- Row 1: identification -->
       <div class="row g-3 mb-3">
         <div class="col-md-3">
           <label class="form-label small fw-600">رقم الفاتورة</label>
@@ -78,16 +78,65 @@
           <input type="date" name="invoice_date" class="form-control">
         </div>
         <div class="col-md-3">
-          <label class="form-label small fw-600">المبلغ الإجمالي (ر.س)</label>
-          <input type="number" name="total_amount" class="form-control" step="0.01" min="0" placeholder="0.00">
-        </div>
-        <div class="col-md-3">
-          <label class="form-label small fw-600">ضريبة القيمة المضافة (ر.س)</label>
-          <input type="number" name="vat_amount" class="form-control" step="0.01" min="0" placeholder="0.00">
-        </div>
-        <div class="col-md-9">
           <label class="form-label small fw-600">ملاحظات</label>
           <input type="text" name="notes" class="form-control" placeholder="ملاحظات اختيارية...">
+        </div>
+      </div>
+
+      <!-- Row 2: VAT mode + amounts + live preview -->
+      <div class="row g-3 mb-3 align-items-start">
+        <div class="col-md-3">
+          <label class="form-label small fw-600 mb-1">طريقة احتساب الضريبة</label>
+          <div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="vat_mode" id="mode-incl" value="includes_vat" checked>
+              <label class="form-check-label small" for="mode-incl">شامل VAT</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="vat_mode" id="mode-excl" value="excludes_vat">
+              <label class="form-check-label small" for="mode-excl">غير شامل</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="vat_mode" id="mode-manual" value="manual">
+              <label class="form-check-label small" for="mode-manual">يدوي</label>
+            </div>
+          </div>
+          <div class="form-text small mt-1" id="mode-hint" style="color:#185FA5">
+            إذا كان السعر شامل الضريبة سيتم احتساب الضريبة تلقائياً
+          </div>
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label small fw-600" id="amount-label">المبلغ الإجمالي (شامل VAT)</label>
+          <input type="number" name="entered_amount" id="entered-amount"
+                 class="form-control" step="0.01" min="0" placeholder="0.00">
+        </div>
+
+        <div class="col-md-3 d-none" id="manual-vat-row">
+          <label class="form-label small fw-600">ضريبة القيمة المضافة (يدوي)</label>
+          <input type="number" name="vat_amount_manual" id="vat-amount-manual"
+                 class="form-control" step="0.01" min="0" placeholder="0.00">
+          <div id="vat-warning" class="form-text fw-600 d-none" style="color:#856404">
+            <i class="bi bi-exclamation-triangle me-1"></i>ضريبة القيمة المضافة غير منطقية، تحقق من المبلغ
+          </div>
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label small fw-600 invisible">x</label>
+          <div class="border rounded-3 bg-light p-2" style="font-size:.82rem" id="vat-preview">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="text-muted">الصافي قبل VAT</span>
+              <span id="prev-net" class="fw-600">—</span>
+            </div>
+            <div class="d-flex justify-content-between mb-1">
+              <span class="text-muted">الضريبة (VAT)</span>
+              <span id="prev-vat" class="fw-600 color-fees">—</span>
+            </div>
+            <div class="d-flex justify-content-between border-top pt-1 mt-1">
+              <span class="fw-700">الإجمالي</span>
+              <span id="prev-gross" class="fw-700 color-revenue">—</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -178,9 +227,9 @@
             <th>رقم الفاتورة</th>
             <th>المورد</th>
             <th>التاريخ</th>
-            <th class="num">الإجمالي</th>
-            <th class="num">الضريبة</th>
-            <th class="num">الصافي</th>
+            <th class="num">الإجمالي (شامل VAT)</th>
+            <th class="num">الضريبة (VAT)</th>
+            <th class="num">الصافي (قبل VAT)</th>
             <th class="ctr">البنود</th>
             <th class="ctr">PDF</th>
             <th class="ctr">إجراءات</th>
@@ -392,11 +441,89 @@ function recalcRow(tr) {
 document.getElementById('add-item-btn').addEventListener('click', addItemRow);
 
 // =============================================================================
+// VAT Calculator
+// =============================================================================
+function r2(v) { return Math.round(v * 100) / 100; }
+
+function calcVat() {
+  const mode    = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
+  const entered = parseFloat(document.getElementById('entered-amount').value) || 0;
+  const manualV = parseFloat(document.getElementById('vat-amount-manual').value) || 0;
+
+  let net = 0, vat = 0, gross = 0;
+  const vatWarning = document.getElementById('vat-warning');
+
+  if (mode === 'includes_vat') {
+    gross = entered;
+    vat   = r2(gross * 15 / 115);
+    net   = r2(gross - vat);
+    vatWarning.classList.add('d-none');
+  } else if (mode === 'excludes_vat') {
+    net   = entered;
+    vat   = r2(net * 0.15);
+    gross = r2(net + vat);
+    vatWarning.classList.add('d-none');
+  } else {
+    gross = entered;
+    vat   = manualV;
+    net   = r2(gross - vat);
+    const abnormal = gross > 0 && vat > gross * 0.15;
+    vatWarning.classList.toggle('d-none', !abnormal);
+  }
+
+  const fmt = v => v > 0 ? v.toFixed(2) + ' ر.س' : '—';
+  document.getElementById('prev-net').textContent   = fmt(net);
+  document.getElementById('prev-vat').textContent   = fmt(vat);
+  document.getElementById('prev-gross').textContent = fmt(gross);
+}
+
+function onModeChange() {
+  const mode      = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
+  const amtLabel  = document.getElementById('amount-label');
+  const modeHint  = document.getElementById('mode-hint');
+  const manualRow = document.getElementById('manual-vat-row');
+
+  if (mode === 'includes_vat') {
+    amtLabel.textContent = 'المبلغ الإجمالي (شامل VAT)';
+    modeHint.textContent = 'إذا كان السعر شامل الضريبة سيتم احتساب الضريبة تلقائياً';
+    modeHint.style.display = '';
+    manualRow.classList.add('d-none');
+  } else if (mode === 'excludes_vat') {
+    amtLabel.textContent = 'الصافي قبل الضريبة';
+    modeHint.textContent = 'سيتم إضافة 15% تلقائياً — المبلغ المحفوظ هو الإجمالي شامل VAT';
+    modeHint.style.display = '';
+    manualRow.classList.add('d-none');
+  } else {
+    amtLabel.textContent = 'المبلغ الإجمالي (شامل VAT)';
+    modeHint.style.display = 'none';
+    manualRow.classList.remove('d-none');
+  }
+  calcVat();
+}
+
+document.querySelectorAll('input[name="vat_mode"]').forEach(r => r.addEventListener('change', onModeChange));
+document.getElementById('entered-amount').addEventListener('input', calcVat);
+document.getElementById('vat-amount-manual').addEventListener('input', calcVat);
+onModeChange();
+
+// =============================================================================
 // Form submission
 // =============================================================================
 document.getElementById('invoice-form').addEventListener('submit', async e => {
   e.preventDefault();
   const btn = e.target.querySelector('[type=submit]');
+
+  // Client-side VAT sanity check for manual mode
+  const mode    = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
+  const entered = parseFloat(document.getElementById('entered-amount').value) || 0;
+  if (mode === 'manual') {
+    const manualVat = parseFloat(document.getElementById('vat-amount-manual').value) || 0;
+    if (entered > 0 && manualVat > entered * 0.20) {
+      showToast('ضريبة القيمة المضافة غير منطقية، تحقق من المبلغ', 'error');
+      return;
+    }
+  }
+
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>جاري الحفظ...';
 

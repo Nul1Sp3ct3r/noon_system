@@ -699,6 +699,25 @@ def invoices_add():
             cnt = db.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
             invoice_nr = f'INV-{cnt + 1:04d}'
 
+        # VAT calculation based on mode
+        vat_mode       = request.form.get('vat_mode', 'includes_vat')
+        entered_amount = float(request.form.get('entered_amount', 0) or 0)
+
+        if vat_mode == 'includes_vat':
+            total_amount = round(entered_amount, 2)
+            vat_amount   = round(entered_amount * 15 / 115, 2)
+        elif vat_mode == 'excludes_vat':
+            vat_amount   = round(entered_amount * 0.15, 2)
+            total_amount = round(entered_amount + vat_amount, 2)
+        else:
+            total_amount      = round(entered_amount, 2)
+            vat_amount_manual = float(request.form.get('vat_amount_manual', 0) or 0)
+            vat_amount        = round(vat_amount_manual, 2)
+            if total_amount > 0 and vat_amount > total_amount * 0.20:
+                db.close()
+                return jsonify({'success': False,
+                                'error': 'ضريبة القيمة المضافة غير منطقية، تحقق من المبلغ'}), 400
+
         cur = db.execute("""
             INSERT INTO invoices
                 (invoice_nr, supplier_name, invoice_date, total_amount, vat_amount,
@@ -708,8 +727,8 @@ def invoices_add():
             invoice_nr,
             request.form.get('supplier_name', ''),
             request.form.get('invoice_date', ''),
-            float(request.form.get('total_amount', 0) or 0),
-            float(request.form.get('vat_amount', 0) or 0),
+            total_amount,
+            vat_amount,
             request.form.get('notes', ''),
             pdf_filename,
             pdf_original_name,

@@ -29,12 +29,16 @@
             <tr><td class="text-muted small fw-600">المورد</td><td>{{ invoice.supplier_name }}</td></tr>
             <tr><td class="text-muted small fw-600">التاريخ</td><td>{{ invoice.invoice_date }}</td></tr>
             <tr>
-              <td class="text-muted small fw-600">المبلغ الإجمالي</td>
-              <td class="color-revenue fw-700">{{ '%.2f'|format(invoice.total_amount or 0) }} ر.س</td>
+              <td class="text-muted small fw-600">الصافي (قبل VAT)</td>
+              <td class="fw-600">{{ '%.2f'|format((invoice.total_amount or 0) - (invoice.vat_amount or 0)) }} ر.س</td>
             </tr>
             <tr>
-              <td class="text-muted small fw-600">الضريبة</td>
-              <td>{{ '%.2f'|format(invoice.vat_amount or 0) }} ر.س</td>
+              <td class="text-muted small fw-600">الضريبة (VAT 15%)</td>
+              <td class="color-fees">{{ '%.2f'|format(invoice.vat_amount or 0) }} ر.س</td>
+            </tr>
+            <tr>
+              <td class="text-muted small fw-600">الإجمالي (شامل VAT)</td>
+              <td class="color-revenue fw-700">{{ '%.2f'|format(invoice.total_amount or 0) }} ر.س</td>
             </tr>
             <tr><td class="text-muted small fw-600">العملة</td><td>{{ invoice.currency }}</td></tr>
             <tr><td class="text-muted small fw-600">ملاحظات</td><td class="small">{{ invoice.notes or '—' }}</td></tr>
