@@ -108,6 +108,14 @@ def pct_filter(value):
         return '—'
 
 
+@app.template_filter('abs')
+def abs_filter(value):
+    try:
+        return abs(float(value))
+    except (TypeError, ValueError):
+        return value
+
+
 # --- Helpers ---
 
 def allowed_file(filename):
@@ -1685,6 +1693,126 @@ def api_calculate_price():
         'net_profit':        net_profit,
         'actual_margin_pct': actual_margin,
     })
+
+
+# --- Profitability Analysis ---
+
+@app.route('/profitability')
+def profitability_page():
+    f          = _parse_filters()
+    sku_search = request.args.get('sku_search', '').strip()
+    badge_filter = request.args.get('badge_filter', '').strip()
+
+    products = rp.get_profitability_data(
+        DB_PATH, f['from_date'], f['to_date'], sku_search, badge_filter
+    )
+
+    totals = {
+        'units_sold':  sum(p['units_sold']  for p in products),
+        'revenue':     round(sum(p['revenue']     for p in products), 2),
+        'noon_fees':   round(sum(p['noon_fees']   for p in products), 2),
+        'input_vat_noon': round(sum(p['input_vat_noon'] for p in products), 2),
+        'cogs':        round(sum(p['cogs']        for p in products), 2),
+        'net_profit':  round(sum(p['net_profit']  for p in products), 2),
+    }
+    counts = {
+        'profitable':   sum(1 for p in products if p['badge'] == 'profitable'),
+        'low_margin':   sum(1 for p in products if p['badge'] == 'low_margin'),
+        'loss':         sum(1 for p in products if p['badge'] == 'loss'),
+        'missing_cost': sum(1 for p in products if p['badge'] == 'missing_cost'),
+    }
+    return render_template('profitability.html',
+                           products=products, totals=totals, counts=counts,
+                           from_date=f['from_date'], to_date=f['to_date'],
+                           sku_search=sku_search, badge_filter=badge_filter)
+
+
+@app.route('/profitability/excel')
+def profitability_excel():
+    f          = _parse_filters()
+    sku_search = request.args.get('sku_search', '').strip()
+    badge_filter = request.args.get('badge_filter', '').strip()
+
+    products = rp.get_profitability_data(
+        DB_PATH, f['from_date'], f['to_date'], sku_search, badge_filter
+    )
+
+    headers = [
+        'SKU', 'المنتج', 'الوحدات', 'الإيرادات (شامل VAT)',
+        'الإيرادات (بدون VAT)', 'رسوم نون', 'VAT رسوم نون',
+        'تكلفة البضاعة', 'صافي الربح', 'هامش %', 'التصنيف',
+    ]
+    badge_labels = {
+        'profitable': 'مربح', 'low_margin': 'هامش منخفض',
+        'loss': 'خسارة', 'missing_cost': 'تكلفة مفقودة',
+    }
+    rows = [[
+        p['sku'], p['name_en'] or p['name_ar'] or p['sku'],
+        p['units_sold'], p['revenue'], p['revenue_excl_vat'],
+        p['noon_fees_excl_vat'], p['input_vat_noon'],
+        p['cogs'], p['net_profit'],
+        p['margin_pct'] if p['margin_pct'] is not None else '',
+        badge_labels.get(p['badge'], p['badge']),
+    ] for p in products]
+
+    totals_row = [
+        'الإجمالي',
+        '',
+        sum(p['units_sold'] for p in products),
+        round(sum(p['revenue']            for p in products), 2),
+        round(sum(p['revenue_excl_vat']   for p in products), 2),
+        round(sum(p['noon_fees_excl_vat'] for p in products), 2),
+        round(sum(p['input_vat_noon']     for p in products), 2),
+        round(sum(p['cogs']               for p in products), 2),
+        round(sum(p['net_profit']         for p in products), 2),
+        '', '',
+    ]
+    today = datetime.now().strftime('%Y%m%d')
+    buf, fname = rp.build_excel(
+        'Profitability', headers, rows, totals_row=totals_row,
+        currency_cols=[4, 5, 6, 7, 8, 9], pct_cols=[10],
+        filename=f'noon_profitability_{today}.xlsx',
+    )
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# --- VAT Center ---
+
+@app.route('/vat-center')
+def vat_center_page():
+    f = _parse_filters()
+    data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'])
+    totals = {
+        'sales_incl':     round(sum(d['sales_incl']     for d in data), 2),
+        'output_vat':     round(sum(d['output_vat']     for d in data), 2),
+        'fees_excl':      round(sum(d['fees_excl']      for d in data), 2),
+        'input_vat_noon': round(sum(d['input_vat_noon'] for d in data), 2),
+        'input_vat_supp': round(sum(d['input_vat_supp'] for d in data), 2),
+        'net_vat':        round(sum(d['net_vat']        for d in data), 2),
+    }
+    return render_template('vat_center.html',
+                           data=data, totals=totals,
+                           from_date=f['from_date'], to_date=f['to_date'])
+
+
+# --- Settlements ---
+
+@app.route('/settlements')
+def settlements_page():
+    f = _parse_filters()
+    settlements = rp.get_settlements_data(DB_PATH, f['from_date'], f['to_date'])
+    totals = {
+        'gross_sales':    round(sum(s['gross_sales']   for s in settlements), 2),
+        'total_fees':     round(sum(s['total_fees']    for s in settlements), 2),
+        'vat_on_fees':    round(sum(s['vat_on_fees']   for s in settlements), 2),
+        'our_net':        round(sum(s['our_net']       for s in settlements), 2),
+        'actual_payout':  round(sum(s['actual_payout'] for s in settlements), 2),
+        'mismatch_count': sum(1 for s in settlements if s['has_mismatch']),
+    }
+    return render_template('settlements.html',
+                           settlements=settlements, totals=totals,
+                           from_date=f['from_date'], to_date=f['to_date'])
 
 
 # --- Browser auto-open ---

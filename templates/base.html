@@ -158,6 +158,21 @@
       <i class="bi bi-file-earmark-spreadsheet"></i> التقارير
     </a>
   </div>
+  <div class="nav-section">
+    <div class="nav-section-title">محاسبة وضريبة</div>
+    <a href="{{ url_for('profitability_page') }}" class="nav-link {% if request.endpoint == 'profitability_page' %}active{% endif %}">
+      <i class="bi bi-graph-up-arrow"></i> تحليل الربحية
+    </a>
+    <a href="{{ url_for('vat_center_page') }}" class="nav-link {% if request.endpoint == 'vat_center_page' %}active{% endif %}">
+      <i class="bi bi-receipt-cutoff"></i> مركز VAT
+    </a>
+    <a href="{{ url_for('settlements_page') }}" class="nav-link {% if request.endpoint == 'settlements_page' %}active{% endif %}">
+      <i class="bi bi-bank"></i> التسويات
+    </a>
+    <a href="{{ url_for('calculator_page') }}" class="nav-link {% if request.endpoint == 'calculator_page' %}active{% endif %}">
+      <i class="bi bi-calculator-fill"></i> حاسبة التسعير
+    </a>
+  </div>
 </nav>
 
 <!-- Main Content -->

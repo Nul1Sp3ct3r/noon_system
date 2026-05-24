@@ -1,0 +1,226 @@
+{% extends 'base.html' %}
+{% block title %}مركز ضريبة القيمة المضافة — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-receipt-cutoff me-2 color-revenue"></i>مركز ضريبة القيمة المضافة</h4>
+</div>
+
+<!-- Filter -->
+<div class="card stat-card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-1">من شهر</label>
+        <input type="month" name="from_date" class="form-control form-control-sm"
+               value="{{ from_date }}">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">إلى شهر</label>
+        <input type="month" name="to_date" class="form-control form-control-sm"
+               value="{{ to_date }}">
+      </div>
+      <div class="col-auto d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-funnel me-1"></i>عرض
+        </button>
+        <a href="/reports/vat/excel?from_date={{ from_date }}&to_date={{ to_date }}"
+           class="btn btn-success btn-sm">
+          <i class="bi bi-file-earmark-excel me-1"></i>Excel
+        </a>
+        {% if from_date or to_date %}
+        <a href="{{ url_for('vat_center_page') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-circle me-1"></i>مسح
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if data %}
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">VAT المخرجات (مبيعات)</div>
+          <div class="stat-value color-loss">{{ totals.output_vat | sar }}</div>
+        </div>
+        <i class="bi bi-arrow-up-circle stat-icon color-loss"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">VAT مدخلات — رسوم نون</div>
+          <div class="stat-value color-profit">{{ totals.input_vat_noon | sar }}</div>
+        </div>
+        <i class="bi bi-arrow-down-circle stat-icon color-profit"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">VAT مدخلات — موردين</div>
+          <div class="stat-value color-profit">{{ totals.input_vat_supp | sar }}</div>
+        </div>
+        <i class="bi bi-arrow-down-circle stat-icon color-profit"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">صافي VAT للإقرار</div>
+          <div class="stat-value {% if totals.net_vat > 0 %}color-loss{% else %}color-profit{% endif %}">
+            {{ totals.net_vat | sar }}
+          </div>
+          <div class="small mt-1">
+            {% if totals.net_vat > 0 %}
+            <span class="badge" style="background:#f8d7da;color:#A32D2D">مستحق للهيئة</span>
+            {% else %}
+            <span class="badge" style="background:#d4edda;color:#3B6D11">قابل للاسترداد</span>
+            {% endif %}
+          </div>
+        </div>
+        <i class="bi bi-calculator stat-icon {% if totals.net_vat > 0 %}color-loss{% else %}color-profit{% endif %}"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Info note -->
+<div class="alert alert-info py-2 small mb-4">
+  <i class="bi bi-info-circle me-1"></i>
+  VAT المخرجات = صافي العائد (شامل VAT) × 15/115 &nbsp;|&nbsp;
+  VAT مدخلات نون = رسوم نون (قبل VAT) × 15% &nbsp;|&nbsp;
+  VAT مدخلات موردين = مجموع حقل الضريبة في الفواتير المُدخَلة
+</div>
+
+<!-- Chart -->
+<div class="card stat-card mb-4">
+  <div class="card-body">
+    <canvas id="vatChart" height="80"></canvas>
+  </div>
+</div>
+
+<!-- Monthly Table -->
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="noon-table">
+        <colgroup>
+          <col style="width:120px">
+          <col style="width:145px">
+          <col style="width:130px">
+          <col style="width:145px">
+          <col style="width:145px">
+          <col style="width:145px">
+          <col style="width:130px">
+          <col style="width:110px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>الشهر</th>
+            <th class="num">المبيعات شامل VAT</th>
+            <th class="num">VAT المخرجات</th>
+            <th class="num">رسوم نون (قبل VAT)</th>
+            <th class="num">VAT مدخلات نون</th>
+            <th class="num">VAT مدخلات موردين</th>
+            <th class="num">صافي VAT</th>
+            <th class="ctr">الحالة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in data %}
+          <tr>
+            <td>{{ d.month_ar }}</td>
+            <td class="num">{{ d.sales_incl | sar }}</td>
+            <td class="num color-loss">{{ d.output_vat | sar }}</td>
+            <td class="num">{{ d.fees_excl | sar }}</td>
+            <td class="num color-profit">{{ d.input_vat_noon | sar }}</td>
+            <td class="num color-profit">{{ d.input_vat_supp | sar }}</td>
+            <td class="num {% if d.net_vat > 0 %}color-loss{% else %}color-profit{% endif %}">
+              {{ d.net_vat | sar }}
+            </td>
+            <td class="ctr">
+              {% if d.status == 'payable' %}
+              <span class="badge" style="background:#f8d7da;color:#A32D2D;font-size:.78rem">مستحق</span>
+              {% else %}
+              <span class="badge" style="background:#d4edda;color:#3B6D11;font-size:.78rem">قابل للاسترداد</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td><strong>الإجمالي</strong></td>
+            <td class="num">{{ totals.sales_incl | sar }}</td>
+            <td class="num">{{ totals.output_vat | sar }}</td>
+            <td class="num">{{ totals.fees_excl | sar }}</td>
+            <td class="num">{{ totals.input_vat_noon | sar }}</td>
+            <td class="num">{{ totals.input_vat_supp | sar }}</td>
+            <td class="num">{{ totals.net_vat | sar }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="card stat-card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-receipt-cutoff" style="font-size:3rem"></i>
+    <p class="mt-3">لا توجد بيانات للفترة المحددة.<br>استورد بيانات نون أو غيّر نطاق التاريخ.</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if data %}
+<script>
+(function () {
+  const labels  = {{ data | map(attribute='month_ar') | list | tojson }};
+  const outVat  = {{ data | map(attribute='output_vat')     | list | tojson }};
+  const inNoon  = {{ data | map(attribute='input_vat_noon') | list | tojson }};
+  const inSupp  = {{ data | map(attribute='input_vat_supp') | list | tojson }};
+  const netVat  = {{ data | map(attribute='net_vat')        | list | tojson }};
+
+  new Chart(document.getElementById('vatChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'VAT المخرجات',          data: outVat,
+          backgroundColor: '#A32D2Dcc',    borderRadius: 4 },
+        { label: 'VAT مدخلات (نون+موردين)',
+          data: inNoon.map((v,i) => +(v + inSupp[i]).toFixed(2)),
+          backgroundColor: '#3B6D11cc',    borderRadius: 4 },
+        { label: 'صافي VAT',               data: netVat,
+          backgroundColor: '#185FA5cc',    borderRadius: 4, type: 'line',
+          tension: 0.3, fill: false, borderColor: '#185FA5', pointRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { beginAtZero: true } },
+    },
+  });
+}());
+</script>
+{% endif %}
+{% endblock %}

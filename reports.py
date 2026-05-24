@@ -125,6 +125,147 @@ def get_vat_data(db_path, from_date='', to_date=''):
     return result
 
 
+def get_settlements_data(db_path, from_date='', to_date=''):
+    """Per-import-batch settlement reconciliation.
+
+    Query drives from orders (has historical data) and LEFT JOINs imported_files
+    for metadata — imported_files may be empty for historical imports.
+
+    Verified formula:
+      calc_net = gross_sales - noon_fees_excl_vat
+    VAT on fees is informational only; it is deducted at statement level and is
+    NOT included in per-row total_payment, so must not be subtracted here.
+    """
+    db = get_db(db_path)
+
+    # Filter on import_batch (timestamp), prefix 7 for YYYY-MM month inputs
+    cond, params = _date_where(from_date, to_date, 'o.import_batch', 7)
+    where = ("WHERE " + " AND ".join(cond)) if cond else ""
+
+    sql = f"""
+        SELECT
+            o.import_batch,
+            f.id            AS file_id,
+            f.statement_nr,
+            f.statement_date,
+            f.filename,
+            f.rows_added,
+            COUNT(o.id)     AS order_rows,
+            COALESCE(SUM(CASE WHEN o.item_status='delivered'
+                              THEN o.net_proceeds ELSE 0 END), 0.0) AS gross_sales,
+            COALESCE(SUM(ABS(o.referral_fee)),      0.0) AS referral_fees,
+            COALESCE(SUM(ABS(o.fbn_outbound_fee)),  0.0) AS fbn_fees,
+            COALESCE(SUM(o.total_payment),           0.0) AS actual_payout
+        FROM orders o
+        LEFT JOIN imported_files f ON f.imported_at = o.import_batch
+        {where}
+        GROUP BY o.import_batch
+        ORDER BY o.import_batch DESC
+    """
+    rows = db.execute(sql, params).fetchall()
+    db.close()
+
+    result = []
+    for r in rows:
+        gross_sales   = round(float(r['gross_sales']),   2)
+        referral_fees = round(float(r['referral_fees']), 2)
+        fbn_fees      = round(float(r['fbn_fees']),      2)
+        actual_payout = round(float(r['actual_payout']), 2)
+
+        total_fees  = round(referral_fees + fbn_fees, 2)
+        vat_on_fees = round(total_fees * 0.15, 2)
+        # calc_net does NOT subtract vat_on_fees — VAT is deducted at statement
+        # level as a separate row and is not part of per-row total_payment
+        our_net     = round(gross_sales - total_fees, 2)
+        mismatch    = round(abs(our_net - actual_payout), 2)
+
+        result.append({
+            'import_batch':   r['import_batch'],
+            'statement_nr':   r['statement_nr'] or '—',
+            'statement_date': r['statement_date'] or '—',
+            'filename':       r['filename'] or r['import_batch'],
+            'rows_added':     r['rows_added'] or r['order_rows'],
+            'gross_sales':    gross_sales,
+            'referral_fees':  referral_fees,
+            'fbn_fees':       fbn_fees,
+            'total_fees':     total_fees,
+            'vat_on_fees':    vat_on_fees,
+            'our_net':        our_net,
+            'actual_payout':  actual_payout,
+            'mismatch':       mismatch,
+            'has_mismatch':   mismatch > 1.0,
+        })
+    return result
+
+
+def get_profitability_data(db_path, from_date='', to_date='',
+                           sku_search='', badge_filter=''):
+    """Per-SKU profitability with date filtering and new badge thresholds.
+
+    Reuses compute_product_metrics via an inline import to avoid circular deps.
+    Date filter is applied in the JOIN condition so all products still appear.
+    Badge thresholds (overrides compute_product_metrics defaults):
+      profitable  = net_profit >= 2.0 SAR
+      low_margin  = 0 <= net_profit < 2.0 SAR
+      loss        = net_profit < 0
+      missing_cost = no unit_cost or extra_costs set
+    """
+    from app import compute_product_metrics, VAT_RATE, VAT_FACTOR  # app imports db, not circular
+
+    db = get_db(db_path)
+
+    # Date conditions in the JOIN so all products appear even with no matching orders
+    fd = from_date or ''
+    td = to_date   or ''
+
+    sql = """
+        SELECT
+            p.sku, p.partner_sku, p.brand_en, p.brand_ar,
+            p.name_en, p.name_ar, p.unit_cost, p.extra_costs, p.notes,
+            COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN 1 ELSE 0 END), 0) AS units_sold,
+            COALESCE(SUM(CASE WHEN o.item_status='returned'  THEN 1 ELSE 0 END), 0) AS units_returned,
+            COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN o.net_proceeds ELSE 0 END), 0.0) AS revenue,
+            COALESCE(SUM(ABS(o.referral_fee) + ABS(o.fbn_outbound_fee)), 0.0) AS noon_fees
+        FROM products p
+        LEFT JOIN orders o
+            ON  o.sku = p.sku
+            AND ('' = ? OR SUBSTR(o.ordered_date, 1, 7) >= ?)
+            AND ('' = ? OR SUBSTR(o.ordered_date, 1, 7) <= ?)
+        GROUP BY p.sku
+        ORDER BY p.name_en
+    """
+    rows = db.execute(sql, (fd, fd, td, td)).fetchall()
+    db.close()
+
+    result = []
+    for row in rows:
+        m = compute_product_metrics(row)
+
+        # Apply profitability-specific badge thresholds
+        if not m['has_cost']:
+            m['badge'] = 'missing_cost'
+        elif m['net_profit'] >= 2.0:
+            m['badge'] = 'profitable'
+        elif m['net_profit'] >= 0:
+            m['badge'] = 'low_margin'
+        else:
+            m['badge'] = 'loss'
+
+        result.append(m)
+
+    # Python-side filters (fast, data is small)
+    if sku_search:
+        q = sku_search.lower()
+        result = [m for m in result
+                  if q in m['sku'].lower()
+                  or q in (m['name_en'] or '').lower()
+                  or q in (m['name_ar'] or '').lower()]
+    if badge_filter:
+        result = [m for m in result if m['badge'] == badge_filter]
+
+    return result
+
+
 def get_pl_data(db_path, from_date='', to_date=''):
     """P&L grouped by month."""
     db = get_db(db_path)
