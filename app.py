@@ -446,8 +446,38 @@ def import_page():
     imports = db.execute(
         "SELECT * FROM imported_files ORDER BY imported_at DESC"
     ).fetchall()
+
+    order_stats_rows = db.execute("""
+        SELECT import_batch,
+               COALESCE(SUM(CASE WHEN item_status='delivered' THEN 1 ELSE 0 END),0) AS delivered,
+               COALESCE(SUM(CASE WHEN item_status='returned'  THEN 1 ELSE 0 END),0) AS returned
+        FROM orders GROUP BY import_batch
+    """).fetchall()
+    order_stats = {
+        r['import_batch']: {'delivered': int(r['delivered']), 'returned': int(r['returned'])}
+        for r in order_stats_rows
+    }
+
+    fee_stats_rows = db.execute("""
+        SELECT import_batch, COUNT(*) AS fees
+        FROM noon_statement_fees GROUP BY import_batch
+    """).fetchall()
+    fee_stats = {r['import_batch']: int(r['fees']) for r in fee_stats_rows}
+
     db.close()
-    return render_template('import.html', imports=imports)
+
+    batch_stats = {}
+    for imp in imports:
+        batch = imp['imported_at']
+        os_ = order_stats.get(batch, {'delivered': 0, 'returned': 0})
+        batch_stats[batch] = {
+            'delivered':  os_['delivered'],
+            'returned':   os_['returned'],
+            'fees':       fee_stats.get(batch, 0),
+            'is_monthly': fee_stats.get(batch, 0) > 0,
+        }
+
+    return render_template('import.html', imports=imports, batch_stats=batch_stats)
 
 
 @app.route('/import/upload', methods=['POST'])
@@ -529,6 +559,8 @@ def import_upload():
                             'error': f'خطأ في الاتصال بقاعدة البيانات: {str(e)}'}), 500
 
         rows_added = rows_ignored = 0
+        sales_count = returns_count = fees_count = 0
+        total_sales = total_fees = fees_vat_sum = 0.0
 
         try:
             # -- Customer rows → orders --
@@ -580,6 +612,11 @@ def import_upload():
                             net_proceeds, net_proceeds, import_batch,
                         ))
                         rows_added += 1
+                        if item_status == 'delivered':
+                            sales_count += 1
+                            total_sales += net_proceeds
+                        else:
+                            returns_count += 1
                     else:
                         rows_ignored += 1
                 except Exception:
@@ -604,6 +641,9 @@ def import_upload():
                         fee_snr, fee_sdate, fee_type, desc,
                         excl_vat, vat_amount, incl_vat, import_batch,
                     ))
+                    fees_count    += 1
+                    total_fees    += abs(excl_vat)
+                    fees_vat_sum  += abs(vat_amount)
                 except Exception:
                     pass
 
@@ -651,12 +691,19 @@ def import_upload():
 
         return jsonify({
             'success':        True,
+            'format':         'monthly',
             'import_batch':   import_batch,
             'statement_nr':   statement_nr,
             'statement_date': statement_date,
             'rows_added':     rows_added,
             'rows_updated':   0,
             'rows_ignored':   rows_ignored,
+            'sales_count':    sales_count,
+            'returns_count':  returns_count,
+            'fees_count':     fees_count,
+            'total_sales':    round(total_sales, 2),
+            'total_fees':     round(total_fees, 2),
+            'fees_vat':       round(fees_vat_sum, 2),
         })
 
     # ------------------------------------------------------------------ #
@@ -822,6 +869,7 @@ def import_upload():
 
     return jsonify({
         'success': True,
+        'format': 'old',
         'import_batch': import_batch,
         'statement_nr': statement_nr,
         'statement_date': statement_date,

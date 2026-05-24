@@ -6,14 +6,46 @@
   <h4><i class="bi bi-upload me-2 color-revenue"></i>استيراد بيانات المبيعات</h4>
 </div>
 
+<!-- Supported formats info -->
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card h-100 border-0" style="background:#eef5ff;">
+      <div class="card-body py-3 px-4">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="badge bg-secondary">ملف المبيعات</span>
+          <span class="small fw-600 text-dark">ملف المبيعات القديم</span>
+        </div>
+        <p class="small text-muted mb-1">كشف المبيعات اليومي أو الأسبوعي من بوابة البائعين</p>
+        <p class="small text-muted mb-0" style="font-size:.78rem;">
+          <i class="bi bi-check2 color-revenue me-1"></i>يحتوي على: <code>Net Proceeds</code>، <code>Referral Fee</code>، <code>FBN Outbound Fee</code>
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100 border-0" style="background:#f0faf2;">
+      <div class="card-body py-3 px-4">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="badge" style="background:#5a3ea1;color:#fff;">شهري</span>
+          <span class="small fw-600 text-dark">الملف الشهري الشامل</span>
+        </div>
+        <p class="small text-muted mb-1">التقرير الشهري المفصّل (VAT Statement) من نون</p>
+        <p class="small text-muted mb-0" style="font-size:.78rem;">
+          <i class="bi bi-check2 color-profit me-1"></i>يحتوي على: <code>Transaction Type</code>، <code>Document Type</code>، <code>VAT Amount</code>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload card -->
 <div class="row justify-content-center">
   <div class="col-lg-7">
     <div class="card stat-card">
       <div class="card-body p-4">
         <h6 class="fw-bold mb-3"><i class="bi bi-file-earmark-arrow-up me-2"></i>رفع ملف CSV من نون</h6>
         <p class="text-muted small mb-4">
-          قم بتنزيل كشف المدفوعات من بوابة البائعين على نون، ثم ارفعه هنا.
-          يمكن رفع نفس الملف أكثر من مرة — الصفوف المكررة ستُتجاهل تلقائياً.
+          يتم اكتشاف نوع الملف تلقائياً — يمكن رفع نفس الملف أكثر من مرة، الصفوف المكررة ستُتجاهل.
         </p>
 
         <div id="drop-zone" class="border border-2 border-dashed rounded-3 text-center p-5 mb-3"
@@ -21,7 +53,7 @@
              onclick="document.getElementById('csv_file').click()">
           <i class="bi bi-cloud-upload" style="font-size:3rem;color:#8892a4"></i>
           <p class="mt-3 mb-1 fw-500">اسحب الملف هنا أو انقر للاختيار</p>
-          <p class="text-muted small mb-0">ملفات CSV فقط</p>
+          <p class="text-muted small mb-0">ملفات CSV فقط · يدعم كلا التنسيقين</p>
         </div>
 
         <form id="import-form">
@@ -40,11 +72,60 @@
     <!-- Success card -->
     <div id="result-card" class="card border-success mt-4 d-none">
       <div class="card-body p-4">
-        <p class="fw-bold text-success mb-3">
-          <i class="bi bi-check-circle-fill me-2"></i>
-          <span id="result-title"></span>
-        </p>
-        <ul class="list-unstyled mb-0 ps-1" id="result-lines" style="line-height:2"></ul>
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span id="result-format-badge"></span>
+          <p class="fw-bold text-success mb-0">
+            <i class="bi bi-check-circle-fill me-1"></i>
+            <span id="result-title"></span>
+          </p>
+        </div>
+
+        <!-- Monthly summary -->
+        <div id="monthly-summary" class="d-none">
+          <div class="row g-2 mb-3">
+            <div class="col-6 col-md-4">
+              <div class="rounded p-2 text-center" style="background:#f0faf2;">
+                <div class="fw-700 color-profit fs-5" id="ms-sales">—</div>
+                <div class="small text-muted">عدد المبيعات</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-4">
+              <div class="rounded p-2 text-center" style="background:#fff5f5;">
+                <div class="fw-700 color-loss fs-5" id="ms-returns">—</div>
+                <div class="small text-muted">عدد المرتجعات</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-4">
+              <div class="rounded p-2 text-center" style="background:#faf5ff;">
+                <div class="fw-700 fs-5" style="color:#5a3ea1;" id="ms-fees">—</div>
+                <div class="small text-muted">صفوف الرسوم</div>
+              </div>
+            </div>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-4">
+              <div class="rounded p-2" style="background:#f8f9fa;">
+                <div class="small text-muted mb-1">إجمالي المبيعات</div>
+                <div class="fw-600" id="ms-total-sales">—</div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="rounded p-2" style="background:#f8f9fa;">
+                <div class="small text-muted mb-1">إجمالي الرسوم (بدون ضريبة)</div>
+                <div class="fw-600" id="ms-total-fees">—</div>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="rounded p-2" style="background:#f8f9fa;">
+                <div class="small text-muted mb-1">ضريبة رسوم نون</div>
+                <div class="fw-600" id="ms-fees-vat">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Old format summary -->
+        <ul class="list-unstyled mb-0 ps-1" id="old-summary" style="line-height:2"></ul>
       </div>
     </div>
 
@@ -72,22 +153,31 @@
             <th>تاريخ الكشف</th>
             <th>اسم الملف</th>
             <th>تاريخ الاستيراد</th>
-            <th class="text-center">مضاف</th>
-            <th class="text-center">محدَّث</th>
-            <th class="text-center">متجاهل</th>
+            <th class="text-center">نوع الملف</th>
+            <th class="text-center">مبيعات</th>
+            <th class="text-center">مرتجعات</th>
+            <th class="text-center">رسوم</th>
             <th class="text-center">حذف</th>
           </tr>
         </thead>
         <tbody id="imports-tbody">
           {% for imp in imports %}
+          {% set stats = batch_stats.get(imp['imported_at'], {'is_monthly': false, 'delivered': 0, 'returned': 0, 'fees': 0}) %}
           <tr>
             <td class="fw-500">{{ imp['statement_nr'] or '—' }}</td>
             <td>{{ imp['statement_date'] or '—' }}</td>
             <td class="text-muted small">{{ imp['filename'] or '—' }}</td>
             <td class="text-muted small">{{ (imp['imported_at'] or '')[:16] }}</td>
-            <td class="text-center fw-600 color-profit">{{ imp['rows_added'] or 0 }}</td>
-            <td class="text-center fw-600 color-revenue">{{ imp['rows_updated'] or 0 }}</td>
-            <td class="text-center fw-600 text-secondary">{{ imp['rows_ignored'] or 0 }}</td>
+            <td class="text-center">
+              {% if stats.is_monthly %}
+              <span class="badge" style="background:#e0d7f5;color:#5a3ea1;">شهري</span>
+              {% else %}
+              <span class="badge bg-secondary">مبيعات</span>
+              {% endif %}
+            </td>
+            <td class="text-center fw-600 color-profit">{{ stats.delivered }}</td>
+            <td class="text-center fw-600 color-loss">{{ stats.returned }}</td>
+            <td class="text-center fw-600" style="color:#5a3ea1;">{{ stats.fees }}</td>
             <td class="text-center">
               <button class="btn btn-sm btn-outline-danger py-0 px-2 delete-batch-btn"
                       data-batch="{{ imp['imported_at'] }}"
@@ -99,7 +189,7 @@
           </tr>
           {% else %}
           <tr id="no-history-row">
-            <td colspan="8" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>
+            <td colspan="9" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -111,11 +201,11 @@
 
 {% block scripts %}
 <script>
-const fileInput = document.getElementById('csv_file');
-const uploadBtn = document.getElementById('upload-btn');
-const fileInfo  = document.getElementById('file-info');
+const fileInput  = document.getElementById('csv_file');
+const uploadBtn  = document.getElementById('upload-btn');
+const fileInfo   = document.getElementById('file-info');
 const fileNameEl = document.getElementById('file-name');
-const dropZone  = document.getElementById('drop-zone');
+const dropZone   = document.getElementById('drop-zone');
 
 fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) {
@@ -125,25 +215,27 @@ fileInput.addEventListener('change', () => {
     dropZone.style.borderColor = '#185FA5';
   }
 });
-
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = '#185FA5'; });
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.borderColor = '#185FA5'; });
 dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = '#c5cfd8'; });
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   const f = e.dataTransfer.files[0];
   if (f && f.name.endsWith('.csv')) {
-    const dt = new DataTransfer();
-    dt.items.add(f);
+    const dt = new DataTransfer(); dt.items.add(f);
     fileInput.files = dt.files;
     fileInput.dispatchEvent(new Event('change'));
   }
 });
 
+function sarFmt(val) {
+  if (val == null) return '—';
+  return Number(val).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ر.س';
+}
+
 document.getElementById('import-form').addEventListener('submit', async e => {
   e.preventDefault();
   uploadBtn.disabled = true;
   uploadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>جاري الاستيراد...';
-
   document.getElementById('result-card').classList.add('d-none');
   document.getElementById('error-card').classList.add('d-none');
 
@@ -151,27 +243,45 @@ document.getElementById('import-form').addEventListener('submit', async e => {
   fd.append('csv_file', fileInput.files[0]);
 
   try {
-    const res = await fetch('/import/upload', { method: 'POST', body: fd });
+    const res  = await fetch('/import/upload', { method: 'POST', body: fd });
     const data = await res.json();
 
     if (data.success) {
-      const stmtLabel = data.statement_nr
+      const isMonthly  = data.format === 'monthly';
+      const stmtLabel  = data.statement_nr
         ? `كشف ${data.statement_nr}` + (data.statement_date ? ` بتاريخ ${data.statement_date}` : '')
         : 'الملف';
 
-      document.getElementById('result-title').textContent = `✓ تم استيراد ${stmtLabel}`;
+      // Format detection badge
+      const badgeHtml = isMonthly
+        ? '<span class="badge me-1" style="background:#5a3ea1;color:#fff;"><i class="bi bi-calendar-month me-1"></i>تم اكتشاف: الملف الشهري الشامل</span>'
+        : '<span class="badge bg-secondary me-1"><i class="bi bi-file-earmark-spreadsheet me-1"></i>تم اكتشاف: ملف مبيعات نون</span>';
+      document.getElementById('result-format-badge').innerHTML = badgeHtml;
+      document.getElementById('result-title').textContent = `تم استيراد ${stmtLabel}`;
 
-      const lines = document.getElementById('result-lines');
-      lines.innerHTML = `
-        <li><i class="bi bi-plus-circle-fill text-success me-2"></i>تم إضافة <strong>${data.rows_added}</strong> طلب جديد</li>
-        <li><i class="bi bi-arrow-repeat color-revenue me-2"></i>تم تحديث <strong>${data.rows_updated}</strong> طلب (رسوم شحن أو تصحيح)</li>
-        <li><i class="bi bi-dash-circle text-secondary me-2"></i>تم تجاهل <strong>${data.rows_ignored}</strong> سطر مكرر</li>
-      `;
+      if (isMonthly) {
+        document.getElementById('monthly-summary').classList.remove('d-none');
+        document.getElementById('old-summary').classList.add('d-none');
+        document.getElementById('ms-sales').textContent    = data.sales_count;
+        document.getElementById('ms-returns').textContent  = data.returns_count;
+        document.getElementById('ms-fees').textContent     = data.fees_count;
+        document.getElementById('ms-total-sales').textContent = sarFmt(data.total_sales);
+        document.getElementById('ms-total-fees').textContent  = sarFmt(data.total_fees);
+        document.getElementById('ms-fees-vat').textContent    = sarFmt(data.fees_vat);
+      } else {
+        document.getElementById('old-summary').classList.remove('d-none');
+        document.getElementById('monthly-summary').classList.add('d-none');
+        document.getElementById('old-summary').innerHTML = `
+          <li><i class="bi bi-plus-circle-fill text-success me-2"></i>تم إضافة <strong>${data.rows_added}</strong> طلب جديد</li>
+          <li><i class="bi bi-arrow-repeat color-revenue me-2"></i>تم تحديث <strong>${data.rows_updated}</strong> طلب</li>
+          <li><i class="bi bi-dash-circle text-secondary me-2"></i>تم تجاهل <strong>${data.rows_ignored}</strong> سطر مكرر</li>
+        `;
+      }
       document.getElementById('result-card').classList.remove('d-none');
 
       // Prepend row to history table
-      const tbody = document.getElementById('imports-tbody');
-      const noRow = document.getElementById('no-history-row');
+      const tbody  = document.getElementById('imports-tbody');
+      const noRow  = document.getElementById('no-history-row');
       if (noRow) noRow.remove();
 
       const now = new Date();
@@ -181,16 +291,24 @@ document.getElementById('import-form').addEventListener('submit', async e => {
         + String(now.getHours()).padStart(2,'0') + ':'
         + String(now.getMinutes()).padStart(2,'0');
 
-      const batchLabel = data.statement_nr || importedAt;
+      const typeBadge = isMonthly
+        ? '<span class="badge" style="background:#e0d7f5;color:#5a3ea1;">شهري</span>'
+        : '<span class="badge bg-secondary">مبيعات</span>';
+      const salesCount   = isMonthly ? data.sales_count   : data.rows_added;
+      const returnsCount = isMonthly ? data.returns_count : 0;
+      const feesCount    = isMonthly ? data.fees_count    : 0;
+      const batchLabel   = data.statement_nr || importedAt;
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="fw-500">${data.statement_nr || '—'}</td>
         <td>${data.statement_date || '—'}</td>
         <td class="text-muted small">${fileInput.files[0].name}</td>
         <td class="text-muted small">${importedAt}</td>
-        <td class="text-center fw-600 color-profit">${data.rows_added}</td>
-        <td class="text-center fw-600 color-revenue">${data.rows_updated}</td>
-        <td class="text-center fw-600 text-secondary">${data.rows_ignored}</td>
+        <td class="text-center">${typeBadge}</td>
+        <td class="text-center fw-600 color-profit">${salesCount}</td>
+        <td class="text-center fw-600 color-loss">${returnsCount}</td>
+        <td class="text-center fw-600" style="color:#5a3ea1;">${feesCount}</td>
         <td class="text-center">
           <button class="btn btn-sm btn-outline-danger py-0 px-2 delete-batch-btn"
                   data-batch="${data.import_batch}"
@@ -203,10 +321,11 @@ document.getElementById('import-form').addEventListener('submit', async e => {
       attachDeleteHandler(tr.querySelector('.delete-batch-btn'));
       tbody.prepend(tr);
 
-      const parts = [`${data.rows_added} جديد`];
-      if (data.rows_updated) parts.push(`${data.rows_updated} محدَّث`);
-      if (data.rows_ignored) parts.push(`${data.rows_ignored} مكرر`);
+      const parts = isMonthly
+        ? [`${data.sales_count} مبيعة`, `${data.returns_count} مرتجع`, `${data.fees_count} رسوم`]
+        : [`${data.rows_added} جديد`, data.rows_updated ? `${data.rows_updated} محدَّث` : null, data.rows_ignored ? `${data.rows_ignored} مكرر` : null].filter(Boolean);
       showToast(`تم الاستيراد: ${parts.join(' · ')}`, 'success');
+
     } else {
       document.getElementById('error-msg').textContent = data.error;
       document.getElementById('error-card').classList.remove('d-none');
@@ -228,9 +347,7 @@ function attachDeleteHandler(btn) {
   btn.addEventListener('click', async function () {
     const batch = this.dataset.batch;
     const label = this.dataset.label;
-    if (!confirm(
-      `هل أنت متأكد من حذف هذا الكشف؟\nسيتم حذف جميع الطلبات المرتبطة به ولا يمكن التراجع.`
-    )) return;
+    if (!confirm(`هل أنت متأكد من حذف هذا الكشف؟\nسيتم حذف جميع الطلبات والرسوم المرتبطة به ولا يمكن التراجع.`)) return;
 
     this.disabled = true;
     this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
@@ -250,7 +367,7 @@ function attachDeleteHandler(btn) {
         if (tbody.children.length === 0) {
           const tr = document.createElement('tr');
           tr.id = 'no-history-row';
-          tr.innerHTML = '<td colspan="8" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>';
+          tr.innerHTML = '<td colspan="9" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>';
           tbody.appendChild(tr);
         }
       } else {
