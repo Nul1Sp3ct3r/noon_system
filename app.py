@@ -253,8 +253,6 @@ def login():
                 session['username']  = user['username']
                 session['full_name'] = user['full_name'] or user['username']
                 session['role']      = user['role']
-                if username == 'admin' and password == 'admin123':
-                    session['warn_default_pwd'] = True
                 try:
                     db2 = get_db(DB_PATH)
                     db2.execute(
