@@ -90,7 +90,7 @@
           <div>
             <div class="form-check form-check-inline">
               <input class="form-check-input" type="radio" name="vat_mode" id="mode-incl" value="includes_vat" checked>
-              <label class="form-check-label small" for="mode-incl">شامل VAT</label>
+              <label class="form-check-label small" for="mode-incl">شامل الضريبة</label>
             </div>
             <div class="form-check form-check-inline">
               <input class="form-check-input" type="radio" name="vat_mode" id="mode-excl" value="excludes_vat">
@@ -107,7 +107,7 @@
         </div>
 
         <div class="col-md-3">
-          <label class="form-label small fw-600" id="amount-label">المبلغ الإجمالي (شامل VAT)</label>
+          <label class="form-label small fw-600" id="amount-label">المبلغ الإجمالي (شامل الضريبة)</label>
           <input type="number" name="entered_amount" id="entered-amount"
                  class="form-control" step="0.01" min="0" placeholder="0.00">
         </div>
@@ -125,11 +125,11 @@
           <label class="form-label small fw-600 invisible">x</label>
           <div class="border rounded-3 bg-light p-2" style="font-size:.82rem" id="vat-preview">
             <div class="d-flex justify-content-between mb-1">
-              <span class="text-muted">الصافي قبل VAT</span>
+              <span class="text-muted">الصافي قبل الضريبة</span>
               <span id="prev-net" class="fw-600">—</span>
             </div>
             <div class="d-flex justify-content-between mb-1">
-              <span class="text-muted">الضريبة (VAT)</span>
+              <span class="text-muted">ضريبة القيمة المضافة</span>
               <span id="prev-vat" class="fw-600 color-fees">—</span>
             </div>
             <div class="d-flex justify-content-between border-top pt-1 mt-1">
@@ -227,9 +227,9 @@
             <th>رقم الفاتورة</th>
             <th>المورد</th>
             <th>التاريخ</th>
-            <th class="num">الإجمالي (شامل VAT)</th>
-            <th class="num">الضريبة (VAT)</th>
-            <th class="num">الصافي (قبل VAT)</th>
+            <th class="num">الإجمالي (شامل الضريبة)</th>
+            <th class="num">ضريبة القيمة المضافة</th>
+            <th class="num">الصافي (قبل الضريبة)</th>
             <th class="ctr">البنود</th>
             <th class="ctr">PDF</th>
             <th class="ctr">إجراءات</th>
@@ -484,17 +484,17 @@ function onModeChange() {
   const manualRow = document.getElementById('manual-vat-row');
 
   if (mode === 'includes_vat') {
-    amtLabel.textContent = 'المبلغ الإجمالي (شامل VAT)';
+    amtLabel.textContent = 'المبلغ الإجمالي (شامل الضريبة)';
     modeHint.textContent = 'إذا كان السعر شامل الضريبة سيتم احتساب الضريبة تلقائياً';
     modeHint.style.display = '';
     manualRow.classList.add('d-none');
   } else if (mode === 'excludes_vat') {
     amtLabel.textContent = 'الصافي قبل الضريبة';
-    modeHint.textContent = 'سيتم إضافة 15% تلقائياً — المبلغ المحفوظ هو الإجمالي شامل VAT';
+    modeHint.textContent = 'سيتم إضافة 15% تلقائياً — المبلغ المحفوظ هو الإجمالي شامل الضريبة';
     modeHint.style.display = '';
     manualRow.classList.add('d-none');
   } else {
-    amtLabel.textContent = 'المبلغ الإجمالي (شامل VAT)';
+    amtLabel.textContent = 'المبلغ الإجمالي (شامل الضريبة)';
     modeHint.style.display = 'none';
     manualRow.classList.remove('d-none');
   }

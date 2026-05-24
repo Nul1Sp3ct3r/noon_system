@@ -922,9 +922,9 @@ def report_vat():
         return jsonify({'success': False, 'error': str(e)})
 
     headers = [
-        'الشهر', 'المبيعات شامل VAT', 'VAT المخرجات',
-        'رسوم نون (قبل VAT)', 'VAT مدخلات — نون',
-        'VAT مدخلات — موردين', 'صافي VAT', 'الحالة',
+        'الشهر', 'المبيعات شامل الضريبة', 'ضريبة المخرجات',
+        'رسوم نون (قبل الضريبة)', 'ضريبة المدخلات — نون',
+        'ضريبة المدخلات — الموردين', 'صافي الضريبة', 'الحالة',
     ]
 
     rows = []
@@ -947,10 +947,10 @@ def report_vat():
     totals = ['الإجمالي', t_sales, t_out, t_fees, t_in_n, t_in_s, t_net, '']
 
     summary_cards = [
-        {'label': 'VAT المخرجات (مبيعات)',     'value': f'{t_out:,.2f}',  'color': 'color-loss'},
-        {'label': 'VAT مدخلات — رسوم نون',     'value': f'{t_in_n:,.2f}', 'color': 'color-profit'},
-        {'label': 'VAT مدخلات — موردين',       'value': f'{t_in_s:,.2f}', 'color': 'color-profit'},
-        {'label': 'صافي VAT للإقرار',          'value': f'{t_net:,.2f}',
+        {'label': 'ضريبة المخرجات (مبيعات)',       'value': f'{t_out:,.2f}',  'color': 'color-loss'},
+        {'label': 'ضريبة المدخلات — رسوم نون',     'value': f'{t_in_n:,.2f}', 'color': 'color-profit'},
+        {'label': 'ضريبة المدخلات — الموردين',     'value': f'{t_in_s:,.2f}', 'color': 'color-profit'},
+        {'label': 'صافي الضريبة للإقرار',          'value': f'{t_net:,.2f}',
          'color': 'color-loss' if t_net > 0 else 'color-profit'},
     ]
 
@@ -959,10 +959,10 @@ def report_vat():
         'data': {
             'labels': [d['month_ar'] for d in data],
             'datasets': [
-                {'label': 'VAT المخرجات',
+                {'label': 'ضريبة المخرجات',
                  'data': [d['output_vat'] for d in data],
                  'backgroundColor': '#A32D2Dcc', 'borderRadius': 4},
-                {'label': 'VAT المدخلات (نون + موردين)',
+                {'label': 'ضريبة المدخلات (نون + الموردين)',
                  'data': [round(d['input_vat_noon'] + d['input_vat_supp'], 2) for d in data],
                  'backgroundColor': '#3B6D11cc', 'borderRadius': 4},
             ],
@@ -986,9 +986,9 @@ def report_vat_excel():
     f = _parse_filters()
     data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'])
     headers = [
-        'الشهر', 'المبيعات شامل VAT', 'VAT المخرجات',
-        'رسوم نون (قبل VAT)', 'VAT مدخلات — نون',
-        'VAT مدخلات — موردين', 'صافي VAT', 'الحالة',
+        'الشهر', 'المبيعات شامل الضريبة', 'ضريبة المخرجات',
+        'رسوم نون (قبل الضريبة)', 'ضريبة المدخلات — نون',
+        'ضريبة المدخلات — الموردين', 'صافي الضريبة', 'الحالة',
     ]
     rows = []
     for d in data:

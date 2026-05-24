@@ -70,7 +70,7 @@
     <div class="card stat-card">
       <div class="card-body d-flex justify-content-between align-items-center">
         <div>
-          <div class="stat-label">إجمالي الإيرادات (شامل VAT)</div>
+          <div class="stat-label">إجمالي الإيرادات (شامل الضريبة)</div>
           <div class="stat-value color-revenue">{{ totals.revenue | sar }}</div>
         </div>
         <i class="bi bi-currency-dollar stat-icon color-revenue"></i>
@@ -109,7 +109,7 @@
         <div>
           <div class="stat-label">رسوم نون الإجمالية</div>
           <div class="stat-value color-fees">{{ totals.noon_fees | sar }}</div>
-          <div class="small text-muted mt-1">VAT الرسوم: {{ totals.input_vat_noon | sar }}</div>
+          <div class="small text-muted mt-1">ضريبة الرسوم: {{ totals.input_vat_noon | sar }}</div>
         </div>
         <i class="bi bi-percent stat-icon color-fees"></i>
       </div>
@@ -140,10 +140,10 @@
             <th>SKU</th>
             <th>المنتج</th>
             <th class="ctr">الوحدات</th>
-            <th class="num">الإيرادات (شامل VAT)</th>
-            <th class="num">الإيرادات (بدون VAT)</th>
+            <th class="num">الإيرادات (شامل الضريبة)</th>
+            <th class="num">الإيرادات (بدون الضريبة)</th>
             <th class="num">رسوم نون</th>
-            <th class="num">VAT الرسوم</th>
+            <th class="num">ضريبة الرسوم</th>
             <th class="num">تكلفة البضاعة</th>
             <th class="num">صافي الربح</th>
             <th class="num">هامش %</th>

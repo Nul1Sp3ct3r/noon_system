@@ -35,8 +35,8 @@
             <input type="number" id="inp_cost" class="form-control" step="0.01" min="0"
                    placeholder="0.00" value="">
             <select id="inp_cost_vat" class="form-select" style="max-width:160px">
-              <option value="0">بدون VAT</option>
-              <option value="1">شامل VAT (15%)</option>
+              <option value="0">بدون ضريبة</option>
+              <option value="1">شامل الضريبة (15%)</option>
             </select>
           </div>
         </div>
@@ -49,12 +49,12 @@
                    min="0" max="99" placeholder="10" value="10">
             <span class="input-group-text">%</span>
           </div>
-          <div class="form-text">نسبة العمولة المطبقة على سعر البيع شامل VAT</div>
+          <div class="form-text">نسبة العمولة المطبقة على سعر البيع شامل الضريبة</div>
         </div>
 
         <!-- Noon Fees -->
         <div class="mb-3">
-          <label class="form-label small fw-600">رسوم نون الأخرى (قبل VAT) — ر.س</label>
+          <label class="form-label small fw-600">رسوم نون الأخرى (قبل الضريبة) — ر.س</label>
           <div class="row g-2">
             <div class="col-6">
               <input type="number" id="inp_shipping" class="form-control form-control-sm"
@@ -101,16 +101,16 @@
         <!-- Selling price highlight -->
         <div class="text-center py-3 mb-3"
              style="background:#f0f4ff;border-radius:8px;border:2px solid #185FA5">
-          <div class="text-muted small mb-1">سعر البيع المقترح في نون (شامل VAT)</div>
+          <div class="text-muted small mb-1">سعر البيع المقترح في نون (شامل الضريبة)</div>
           <div class="result-highlight color-revenue" id="res_selling_incl">— ر.س</div>
           <div class="text-muted small mt-1">
-            بدون VAT: <span id="res_selling_excl" class="fw-600">—</span> ر.س
+            بدون ضريبة: <span id="res_selling_excl" class="fw-600">—</span> ر.س
           </div>
         </div>
 
         <!-- Breakdown -->
         <div class="result-row">
-          <span class="result-label">تكلفة المنتج (بدون VAT)</span>
+          <span class="result-label">تكلفة المنتج (بدون الضريبة)</span>
           <span class="result-value text-muted" id="res_cost_excl">—</span>
         </div>
         <div class="result-row">
@@ -118,19 +118,19 @@
           <span class="result-value color-fees" id="res_commission">—</span>
         </div>
         <div class="result-row">
-          <span class="result-label">رسوم نون الأخرى (بدون VAT)</span>
+          <span class="result-label">رسوم نون الأخرى (بدون الضريبة)</span>
           <span class="result-value color-fees" id="res_fixed_fees">—</span>
         </div>
         <div class="result-row">
           <span class="result-label">
-            VAT على رسوم نون
+            ضريبة رسوم نون
             <span class="vat-badge">مدخلات</span>
           </span>
           <span class="result-value color-profit" id="res_input_vat">—</span>
         </div>
         <div class="result-row">
           <span class="result-label">
-            VAT على المبيعات
+            ضريبة المبيعات
             <span class="vat-badge">مخرجات</span>
           </span>
           <span class="result-value color-loss" id="res_output_vat">—</span>
