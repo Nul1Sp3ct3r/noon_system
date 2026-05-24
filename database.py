@@ -195,8 +195,9 @@ _DDL = [
         password_hash TEXT NOT NULL,
         full_name TEXT,
         role TEXT DEFAULT 'user',
-        is_active INTEGER DEFAULT 1,
-        created_at TEXT
+        is_active INTEGER DEFAULT 0,
+        created_at TEXT,
+        last_login TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
 ]
@@ -319,8 +320,9 @@ def _init_sqlite(db_path):
             password_hash TEXT NOT NULL,
             full_name TEXT,
             role TEXT DEFAULT 'user',
-            is_active INTEGER DEFAULT 1,
-            created_at TEXT
+            is_active INTEGER DEFAULT 0,
+            created_at TEXT,
+            last_login TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -352,6 +354,12 @@ def _init_sqlite(db_path):
         conn.execute("DROP TABLE _imported_files_old")
     elif 'rows_ignored' not in cols:
         conn.execute("ALTER TABLE imported_files ADD COLUMN rows_ignored INTEGER DEFAULT 0")
+
+    # Migration: add last_login column if missing
+    cur = conn.execute("PRAGMA table_info(users)")
+    user_cols = {row[1] for row in cur.fetchall()}
+    if 'last_login' not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN last_login TEXT")
 
     # Seed default admin if users table is empty
     cnt = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -406,6 +414,12 @@ def _init_turso():
             conn.execute("DROP TABLE _imported_files_old")
         elif 'rows_ignored' not in cols:
             conn.execute("ALTER TABLE imported_files ADD COLUMN rows_ignored INTEGER DEFAULT 0")
+
+        # Migration: add last_login column if missing
+        cur = conn.execute("PRAGMA table_info(users)")
+        user_cols = {row[1] for row in cur.fetchall()}
+        if 'last_login' not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN last_login TEXT")
 
         # Seed default admin if users table is empty
         cnt_row = conn.execute("SELECT COUNT(*) FROM users").fetchone()

@@ -1,0 +1,211 @@
+{% extends 'base.html' %}
+{% block title %}إدارة المستخدمين — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-people-fill me-2 color-revenue"></i>إدارة المستخدمين</h4>
+</div>
+
+<div class="card stat-card">
+  <div class="card-body p-4">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>الاسم</th>
+            <th>اسم المستخدم</th>
+            <th>الدور</th>
+            <th class="text-center">الحالة</th>
+            <th>تاريخ الإنشاء</th>
+            <th>آخر دخول</th>
+            <th class="text-center" style="min-width:260px">الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr id="user-row-{{ u['id'] }}">
+            <td class="fw-600">{{ u['full_name'] or '—' }}</td>
+            <td class="text-muted small">{{ u['username'] }}</td>
+            <td>
+              <select class="form-select form-select-sm role-select"
+                      data-uid="{{ u['id'] }}"
+                      style="width:auto; min-width:90px; font-family:Tajawal,sans-serif;">
+                <option value="user"  {% if u['role'] == 'user'  %}selected{% endif %}>مستخدم</option>
+                <option value="admin" {% if u['role'] == 'admin' %}selected{% endif %}>مدير</option>
+              </select>
+            </td>
+            <td class="text-center">
+              {% if u['is_active'] %}
+              <span class="badge" style="background:#d4edda;color:#3B6D11;border:1px solid #c3e6cb;">مفعّل</span>
+              {% else %}
+              <span class="badge" style="background:#f8d7da;color:#A32D2D;border:1px solid #f5c6cb;">معطّل</span>
+              {% endif %}
+            </td>
+            <td class="text-muted small">{{ (u['created_at'] or '')[:16] or '—' }}</td>
+            <td class="text-muted small">{{ (u['last_login'] or '')[:16] or '—' }}</td>
+            <td class="text-center">
+              <div class="d-flex gap-1 justify-content-center flex-wrap">
+                {% if u['is_active'] %}
+                <button class="btn btn-sm btn-outline-warning py-0 px-2 toggle-btn"
+                        data-uid="{{ u['id'] }}" data-action="deactivate" title="تعطيل">
+                  <i class="bi bi-person-slash"></i>
+                </button>
+                {% else %}
+                <button class="btn btn-sm btn-outline-success py-0 px-2 toggle-btn"
+                        data-uid="{{ u['id'] }}" data-action="activate" title="تفعيل">
+                  <i class="bi bi-person-check"></i>
+                </button>
+                {% endif %}
+                <button class="btn btn-sm btn-outline-primary py-0 px-2 reset-pwd-btn"
+                        data-uid="{{ u['id'] }}"
+                        data-uname="{{ u['username'] }}" title="إعادة تعيين كلمة المرور">
+                  <i class="bi bi-key"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-2 delete-user-btn"
+                        data-uid="{{ u['id'] }}"
+                        data-uname="{{ u['username'] }}" title="حذف المستخدم">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-muted py-4">لا يوجد مستخدمون</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal fade" id="resetPwdModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:380px">
+    <div class="modal-content" style="font-family:Tajawal,sans-serif; direction:rtl;">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold">
+          <i class="bi bi-key me-2"></i>إعادة تعيين كلمة المرور
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3" id="reset-pwd-for-label"></p>
+        <label class="form-label fw-600" style="font-size:.85rem;">كلمة المرور الجديدة</label>
+        <input type="password" id="new-password-input" class="form-control"
+               placeholder="6 أحرف على الأقل" style="font-family:Tajawal,sans-serif;">
+        <div id="reset-pwd-error" class="text-danger small mt-2 d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">إلغاء</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirm-reset-pwd-btn">
+          <i class="bi bi-check-lg me-1"></i>تأكيد
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let resetPwdUid = null;
+const resetModal = new bootstrap.Modal(document.getElementById('resetPwdModal'));
+
+async function apiPost(url, body = {}) {
+  const isJson = !(body instanceof FormData);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: isJson ? { 'Content-Type': 'application/json' } : {},
+    body: isJson ? JSON.stringify(body) : body,
+  });
+  return res.json();
+}
+
+// Activate / Deactivate
+document.querySelectorAll('.toggle-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const uid    = this.dataset.uid;
+    const action = this.dataset.action;
+    this.disabled = true;
+    const data = await apiPost(`/admin/users/${uid}/${action}`);
+    if (data.success) {
+      showToast(action === 'activate' ? 'تم تفعيل الحساب' : 'تم تعطيل الحساب',
+                action === 'activate' ? 'success' : 'info');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast(data.error || 'حدث خطأ', 'error');
+      this.disabled = false;
+    }
+  });
+});
+
+// Role change
+document.querySelectorAll('.role-select').forEach(sel => {
+  const original = sel.value;
+  sel.addEventListener('change', async function () {
+    const uid  = this.dataset.uid;
+    const role = this.value;
+    const data = await apiPost(`/admin/users/${uid}/role`, { role });
+    if (data.success) {
+      showToast('تم تغيير الدور بنجاح', 'success');
+    } else {
+      showToast(data.error || 'حدث خطأ', 'error');
+      this.value = original;
+    }
+  });
+});
+
+// Open reset password modal
+document.querySelectorAll('.reset-pwd-btn').forEach(btn => {
+  btn.addEventListener('click', function () {
+    resetPwdUid = this.dataset.uid;
+    document.getElementById('reset-pwd-for-label').textContent =
+      `المستخدم: ${this.dataset.uname}`;
+    document.getElementById('new-password-input').value = '';
+    document.getElementById('reset-pwd-error').classList.add('d-none');
+    resetModal.show();
+  });
+});
+
+// Confirm reset password
+document.getElementById('confirm-reset-pwd-btn').addEventListener('click', async function () {
+  const newPwd = document.getElementById('new-password-input').value.trim();
+  const errEl  = document.getElementById('reset-pwd-error');
+  if (newPwd.length < 6) {
+    errEl.textContent = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
+    errEl.classList.remove('d-none');
+    return;
+  }
+  this.disabled = true;
+  const data = await apiPost(`/admin/users/${resetPwdUid}/reset-password`, { new_password: newPwd });
+  this.disabled = false;
+  if (data.success) {
+    resetModal.hide();
+    showToast('تم إعادة تعيين كلمة المرور', 'success');
+  } else {
+    errEl.textContent = data.error || 'حدث خطأ';
+    errEl.classList.remove('d-none');
+  }
+});
+
+// Delete user
+document.querySelectorAll('.delete-user-btn').forEach(btn => {
+  btn.addEventListener('click', async function () {
+    const uid   = this.dataset.uid;
+    const uname = this.dataset.uname;
+    if (!confirm(`هل أنت متأكد من حذف المستخدم "${uname}"؟\nلا يمكن التراجع عن هذا الإجراء.`)) return;
+    this.disabled = true;
+    const data = await apiPost(`/admin/users/${uid}/delete`);
+    if (data.success) {
+      showToast(`تم حذف المستخدم "${uname}"`, 'success');
+      document.getElementById(`user-row-${uid}`)?.remove();
+    } else {
+      showToast(data.error || 'حدث خطأ', 'error');
+      this.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -15,7 +15,7 @@ import pandas as pd
 from flask import (Flask, render_template, request, redirect,
                    url_for, jsonify, send_file, send_from_directory, session)
 from openpyxl import Workbook
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import init_db, get_db
 import reports as rp
@@ -211,9 +211,20 @@ def login_required(f):
     return decorated
 
 
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        if session.get('role') != 'admin':
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
 @app.before_request
 def check_login():
-    public = {'login', 'logout', 'static'}
+    public = {'login', 'logout', 'register', 'static'}
     if request.endpoint in public or request.endpoint is None:
         return
     if 'user_id' not in session:
@@ -230,18 +241,33 @@ def login():
         password = request.form.get('password', '')
         db = get_db(DB_PATH)
         user = db.execute(
-            "SELECT * FROM users WHERE username = ? AND is_active = 1",
-            (username,)
+            "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
         db.close()
         if user and check_password_hash(user['password_hash'], password):
-            session.clear()
-            session['user_id']   = user['id']
-            session['username']  = user['username']
-            session['full_name'] = user['full_name'] or user['username']
-            session['role']      = user['role']
-            return redirect(url_for('dashboard'))
-        error = 'اسم المستخدم أو كلمة المرور غير صحيحة'
+            if not int(user['is_active'] or 0):
+                error = 'الحساب غير مفعل، يرجى انتظار موافقة الإدارة'
+            else:
+                session.clear()
+                session['user_id']   = user['id']
+                session['username']  = user['username']
+                session['full_name'] = user['full_name'] or user['username']
+                session['role']      = user['role']
+                if username == 'admin' and password == 'admin123':
+                    session['warn_default_pwd'] = True
+                try:
+                    db2 = get_db(DB_PATH)
+                    db2.execute(
+                        "UPDATE users SET last_login = ? WHERE id = ?",
+                        (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user['id'])
+                    )
+                    db2.commit()
+                    db2.close()
+                except Exception:
+                    pass
+                return redirect(url_for('dashboard'))
+        else:
+            error = 'اسم المستخدم أو كلمة المرور غير صحيحة'
     return render_template('login.html', error=error)
 
 
@@ -249,6 +275,157 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    error = None
+    success = None
+    if request.method == 'POST':
+        full_name = request.form.get('full_name', '').strip()
+        username  = request.form.get('username', '').strip()
+        password  = request.form.get('password', '')
+        confirm   = request.form.get('confirm_password', '')
+        if not full_name or not username or not password:
+            error = 'جميع الحقول مطلوبة'
+        elif len(username) < 3:
+            error = 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل'
+        elif password != confirm:
+            error = 'كلمة المرور وتأكيدها غير متطابقتين'
+        elif len(password) < 6:
+            error = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'
+        else:
+            try:
+                db = get_db(DB_PATH)
+                db.execute(
+                    "INSERT INTO users (username, password_hash, full_name, role, is_active, created_at)"
+                    " VALUES (?,?,?,?,0,?)",
+                    (username, generate_password_hash(password), full_name, 'user',
+                     datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                )
+                db.commit()
+                db.close()
+                success = 'تم إنشاء الحساب بنجاح، بانتظار موافقة الإدارة'
+            except Exception as e:
+                if 'UNIQUE' in str(e):
+                    error = 'اسم المستخدم مستخدم بالفعل'
+                else:
+                    error = 'حدث خطأ أثناء إنشاء الحساب'
+    return render_template('register.html', error=error, success=success)
+
+
+# =============================================================================
+# Admin — User Management
+# =============================================================================
+
+@app.route('/admin/users')
+@admin_required
+def admin_users():
+    db = get_db(DB_PATH)
+    users = db.execute(
+        "SELECT id, username, full_name, role, is_active, created_at, last_login"
+        " FROM users ORDER BY created_at DESC"
+    ).fetchall()
+    db.close()
+    return render_template('admin_users.html', users=users)
+
+
+def _count_active_admins(db):
+    row = db.execute(
+        "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+@app.route('/admin/users/<int:uid>/activate', methods=['POST'])
+@admin_required
+def admin_user_activate(uid):
+    try:
+        db = get_db(DB_PATH)
+        db.execute("UPDATE users SET is_active=1 WHERE id=?", (uid,))
+        db.commit()
+        db.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/users/<int:uid>/deactivate', methods=['POST'])
+@admin_required
+def admin_user_deactivate(uid):
+    try:
+        db = get_db(DB_PATH)
+        row = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+        if row and row['role'] == 'admin' and _count_active_admins(db) <= 1:
+            db.close()
+            return jsonify({'success': False, 'error': 'لا يمكنك تعطيل آخر مدير مفعل'}), 400
+        db.execute("UPDATE users SET is_active=0 WHERE id=?", (uid,))
+        db.commit()
+        db.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/users/<int:uid>/role', methods=['POST'])
+@admin_required
+def admin_user_role(uid):
+    if request.is_json:
+        role = (request.get_json(silent=True) or {}).get('role', '')
+    else:
+        role = request.form.get('role', '')
+    role = str(role).strip()
+    if role not in ('admin', 'user'):
+        return jsonify({'success': False, 'error': 'دور غير صالح'}), 400
+    try:
+        db = get_db(DB_PATH)
+        row = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+        if row and row['role'] == 'admin' and role == 'user' and _count_active_admins(db) <= 1:
+            db.close()
+            return jsonify({'success': False, 'error': 'لا يمكنك إزالة صلاحيات آخر مدير مفعل'}), 400
+        db.execute("UPDATE users SET role=? WHERE id=?", (role, uid))
+        db.commit()
+        db.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/users/<int:uid>/delete', methods=['POST'])
+@admin_required
+def admin_user_delete(uid):
+    try:
+        db = get_db(DB_PATH)
+        row = db.execute("SELECT role, is_active FROM users WHERE id=?", (uid,)).fetchone()
+        if row and row['role'] == 'admin' and int(row['is_active'] or 0) and _count_active_admins(db) <= 1:
+            db.close()
+            return jsonify({'success': False, 'error': 'لا يمكنك حذف آخر مدير مفعل'}), 400
+        db.execute("DELETE FROM users WHERE id=?", (uid,))
+        db.commit()
+        db.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/users/<int:uid>/reset-password', methods=['POST'])
+@admin_required
+def admin_user_reset_password(uid):
+    data = request.get_json(silent=True) or {}
+    new_password = str(data.get('new_password', '')).strip()
+    if len(new_password) < 6:
+        return jsonify({'success': False, 'error': 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'}), 400
+    try:
+        db = get_db(DB_PATH)
+        db.execute("UPDATE users SET password_hash=? WHERE id=?",
+                   (generate_password_hash(new_password), uid))
+        db.commit()
+        db.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # =============================================================================

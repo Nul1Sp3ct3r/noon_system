@@ -159,6 +159,14 @@
     </a>
   </div>
   <div class="nav-section">
+    <div class="nav-section-title">الإدارة</div>
+    {% if session.get('role') == 'admin' %}
+    <a href="{{ url_for('admin_users') }}" class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}">
+      <i class="bi bi-people-fill"></i> إدارة المستخدمين
+    </a>
+    {% endif %}
+  </div>
+  <div class="nav-section">
     <div class="nav-section-title">محاسبة وضريبة</div>
     <a href="{{ url_for('profitability_page') }}" class="nav-link {% if request.endpoint == 'profitability_page' %}active{% endif %}">
       <i class="bi bi-graph-up-arrow"></i> تحليل الربحية
@@ -186,6 +194,14 @@
 
 <!-- Main Content -->
 <div class="main-content">
+  {% if session.get('warn_default_pwd') %}
+  <div class="alert alert-warning alert-dismissible d-flex align-items-center gap-2 mb-4 py-2" role="alert"
+       style="font-size:.9rem;">
+    <i class="bi bi-shield-exclamation fs-5"></i>
+    <span>يرجى تغيير كلمة مرور المدير الافتراضية لحماية النظام</span>
+    <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Close"></button>
+  </div>
+  {% endif %}
   {% block content %}{% endblock %}
 </div>
 
