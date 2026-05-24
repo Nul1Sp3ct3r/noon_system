@@ -56,6 +56,10 @@ class _TursoCursor:
         return self._cursor.lastrowid
 
     @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    @property
     def description(self):
         return self._cursor.description
 
@@ -330,43 +334,51 @@ def _init_sqlite(db_path):
 
 
 def _init_turso():
-    """Turso path — runs each DDL statement individually (no executescript)."""
-    conn = libsql.connect(
-        database=os.environ['TURSO_DATABASE_URL'],
-        auth_token=os.environ['TURSO_AUTH_TOKEN'],
-    )
-    for stmt in _DDL:
-        conn.execute(stmt)
+    """Turso path — runs each DDL statement individually (no executescript).
+    Wrapped in try/except so a cold-start connection failure logs a warning
+    but does not crash the module import (tables already exist on warm starts).
+    """
+    try:
+        conn = libsql.connect(
+            database=os.environ['TURSO_DATABASE_URL'],
+            auth_token=os.environ['TURSO_AUTH_TOKEN'],
+        )
+        for stmt in _DDL:
+            conn.execute(stmt)
 
-    # Migration check (rows are raw tuples here — no row_factory set yet)
-    cur = conn.execute("PRAGMA table_info(imported_files)")
-    cols = {row[1] for row in cur.fetchall()}
-    if 'statement_nr' not in cols:
-        conn.execute("ALTER TABLE imported_files RENAME TO _imported_files_old")
-        conn.execute("""
-            CREATE TABLE imported_files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                statement_nr TEXT,
-                statement_date TEXT,
-                filename TEXT,
-                file_hash TEXT,
-                imported_at TEXT,
-                rows_added INTEGER DEFAULT 0,
-                rows_updated INTEGER DEFAULT 0,
-                rows_ignored INTEGER DEFAULT 0
-            )
-        """)
-        conn.execute("""
-            INSERT INTO imported_files (filename, file_hash, imported_at, rows_added, rows_updated)
-            SELECT filename, file_hash, imported_at, rows_added, rows_updated
-            FROM _imported_files_old
-        """)
-        conn.execute("DROP TABLE _imported_files_old")
-    elif 'rows_ignored' not in cols:
-        conn.execute("ALTER TABLE imported_files ADD COLUMN rows_ignored INTEGER DEFAULT 0")
+        # Migration check (rows are raw tuples here — no row_factory set yet)
+        cur = conn.execute("PRAGMA table_info(imported_files)")
+        cols = {row[1] for row in cur.fetchall()}
+        if 'statement_nr' not in cols:
+            conn.execute("ALTER TABLE imported_files RENAME TO _imported_files_old")
+            conn.execute("""
+                CREATE TABLE imported_files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    statement_nr TEXT,
+                    statement_date TEXT,
+                    filename TEXT,
+                    file_hash TEXT,
+                    imported_at TEXT,
+                    rows_added INTEGER DEFAULT 0,
+                    rows_updated INTEGER DEFAULT 0,
+                    rows_ignored INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute("""
+                INSERT INTO imported_files (filename, file_hash, imported_at, rows_added, rows_updated)
+                SELECT filename, file_hash, imported_at, rows_added, rows_updated
+                FROM _imported_files_old
+            """)
+            conn.execute("DROP TABLE _imported_files_old")
+        elif 'rows_ignored' not in cols:
+            conn.execute("ALTER TABLE imported_files ADD COLUMN rows_ignored INTEGER DEFAULT 0")
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        import sys
+        print(f"[Turso init warning] Schema init failed (tables may already exist): {e}",
+              file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
