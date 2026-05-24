@@ -173,6 +173,15 @@
       <i class="bi bi-calculator-fill"></i> حاسبة التسعير
     </a>
   </div>
+  <div class="nav-section" style="border-top:1px solid #2d3348; padding-top:8px; padding-bottom:8px;">
+    <div class="px-3 py-1" style="color:#8892a4; font-size:.83rem; line-height:1.4;">
+      <i class="bi bi-person-circle me-1"></i>
+      {{ session.get('full_name') or session.get('username', '') }}
+    </div>
+    <a href="{{ url_for('logout') }}" class="nav-link" style="color:#e57373;">
+      <i class="bi bi-box-arrow-left"></i> تسجيل الخروج
+    </a>
+  </div>
 </nav>
 
 <!-- Main Content -->

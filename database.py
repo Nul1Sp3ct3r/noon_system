@@ -1,5 +1,7 @@
 import sqlite3
 import os
+from datetime import datetime
+from werkzeug.security import generate_password_hash
 
 IS_VERCEL = bool(os.environ.get('VERCEL'))
 
@@ -187,6 +189,16 @@ _DDL = [
         credit     REAL DEFAULT 0
     )""",
     "CREATE INDEX IF NOT EXISTS idx_journal_lines_j ON journal_lines(journal_id)",
+    """CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT,
+        role TEXT DEFAULT 'user',
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
 ]
 
 
@@ -300,6 +312,18 @@ def _init_sqlite(db_path):
         );
 
         CREATE INDEX IF NOT EXISTS idx_journal_lines_j ON journal_lines(journal_id);
+
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            full_name TEXT,
+            role TEXT DEFAULT 'user',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     """)
 
     # Migration: upgrade imported_files if it has old schema
@@ -328,6 +352,16 @@ def _init_sqlite(db_path):
         conn.execute("DROP TABLE _imported_files_old")
     elif 'rows_ignored' not in cols:
         conn.execute("ALTER TABLE imported_files ADD COLUMN rows_ignored INTEGER DEFAULT 0")
+
+    # Seed default admin if users table is empty
+    cnt = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if cnt == 0:
+        conn.execute(
+            "INSERT INTO users (username, password_hash, full_name, role, is_active, created_at)"
+            " VALUES (?,?,?,?,1,?)",
+            ('admin', generate_password_hash('admin123'), 'المدير', 'admin',
+             datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        )
 
     conn.commit()
     conn.close()
@@ -372,6 +406,16 @@ def _init_turso():
             conn.execute("DROP TABLE _imported_files_old")
         elif 'rows_ignored' not in cols:
             conn.execute("ALTER TABLE imported_files ADD COLUMN rows_ignored INTEGER DEFAULT 0")
+
+        # Seed default admin if users table is empty
+        cnt_row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
+        if cnt_row is not None and int(cnt_row[0]) == 0:
+            conn.execute(
+                "INSERT INTO users (username, password_hash, full_name, role, is_active, created_at)"
+                " VALUES (?,?,?,?,1,?)",
+                ('admin', generate_password_hash('admin123'), 'المدير', 'admin',
+                 datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            )
 
         conn.commit()
         conn.close()

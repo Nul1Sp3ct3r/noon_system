@@ -7,13 +7,15 @@ import webbrowser
 import time
 import io
 from datetime import datetime
+from functools import wraps
 from itertools import groupby
 from operator import itemgetter
 
 import pandas as pd
 from flask import (Flask, render_template, request, redirect,
-                   url_for, jsonify, send_file, send_from_directory)
+                   url_for, jsonify, send_file, send_from_directory, session)
 from openpyxl import Workbook
+from werkzeug.security import check_password_hash
 
 from database import init_db, get_db
 import reports as rp
@@ -29,6 +31,8 @@ else:
 app = Flask(__name__,
             template_folder=os.path.join(BUNDLE_DIR, 'templates'),
             static_folder=os.path.join(BUNDLE_DIR, 'static'))
+
+app.secret_key = os.environ.get('SECRET_KEY', 'noon-dev-secret-do-not-use-in-production')
 
 if os.environ.get('VERCEL'):
     DB_PATH = '/tmp/data/noon.db'
@@ -192,6 +196,59 @@ def _parse_filters():
         'cost_min':  request.args.get('cost_min', None),
         'cost_max':  request.args.get('cost_max', None),
     }
+
+
+# =============================================================================
+# Auth
+# =============================================================================
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.before_request
+def check_login():
+    public = {'login', 'logout', 'static'}
+    if request.endpoint in public or request.endpoint is None:
+        return
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        db = get_db(DB_PATH)
+        user = db.execute(
+            "SELECT * FROM users WHERE username = ? AND is_active = 1",
+            (username,)
+        ).fetchone()
+        db.close()
+        if user and check_password_hash(user['password_hash'], password):
+            session.clear()
+            session['user_id']   = user['id']
+            session['username']  = user['username']
+            session['full_name'] = user['full_name'] or user['username']
+            session['role']      = user['role']
+            return redirect(url_for('dashboard'))
+        error = 'اسم المستخدم أو كلمة المرور غير صحيحة'
+    return render_template('login.html', error=error)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 
 # =============================================================================
