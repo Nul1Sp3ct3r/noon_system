@@ -3,10 +3,11 @@
 
 {% block extra_head %}
 <style>
-.badge-profitable  { background:#d4edda; color:#3B6D11; border:1px solid #c3e6cb; font-size:.78rem; }
-.badge-low_margin  { background:#fff3cd; color:#856404; border:1px solid #ffeeba; font-size:.78rem; }
-.badge-loss        { background:#f8d7da; color:#A32D2D; border:1px solid #f5c6cb; font-size:.78rem; }
-.badge-missing_cost{ background:#e9ecef; color:#6c757d; border:1px solid #dee2e6; font-size:.78rem; }
+.badge-profitable      { background:#d4edda; color:#3B6D11; border:1px solid #c3e6cb; font-size:.78rem; }
+.badge-low_margin      { background:#fff3cd; color:#856404; border:1px solid #ffeeba; font-size:.78rem; }
+.badge-loss            { background:#f8d7da; color:#A32D2D; border:1px solid #f5c6cb; font-size:.78rem; }
+.badge-missing_cost    { background:#e9ecef; color:#6c757d; border:1px solid #dee2e6; font-size:.78rem; }
+.badge-no_fees_allocated { background:#e0d7f5; color:#5a3ea1; border:1px solid #c9b8ee; font-size:.78rem; }
 </style>
 {% endblock %}
 
@@ -41,7 +42,8 @@
           <option value="profitable"   {% if badge_filter=='profitable'   %}selected{% endif %}>مربح</option>
           <option value="low_margin"   {% if badge_filter=='low_margin'   %}selected{% endif %}>هامش منخفض</option>
           <option value="loss"         {% if badge_filter=='loss'         %}selected{% endif %}>خسارة</option>
-          <option value="missing_cost" {% if badge_filter=='missing_cost' %}selected{% endif %}>تكلفة مفقودة</option>
+          <option value="missing_cost"       {% if badge_filter=='missing_cost'       %}selected{% endif %}>تكلفة مفقودة</option>
+          <option value="no_fees_allocated" {% if badge_filter=='no_fees_allocated' %}selected{% endif %}>رسوم غير مخصصة</option>
         </select>
       </div>
       <div class="col-auto d-flex gap-2">

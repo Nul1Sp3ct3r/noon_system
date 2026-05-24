@@ -38,3 +38,6 @@ Thumbs.db
 # Logs
 *.log
 .vercel
+
+# Test/sample data files
+*.csv

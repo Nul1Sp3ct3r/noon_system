@@ -468,6 +468,200 @@ def import_upload():
         return jsonify({'success': False, 'error': f'خطأ في قراءة الملف: {str(e)}'}), 400
 
     df.columns = [c.strip() for c in df.columns]
+
+    # --- Format detection (before any rename) ---
+    raw_cols = set(df.columns)
+    MONTHLY_DETECT = {
+        'Transaction Type', 'Document Type', 'Document Subtype',
+        'Price Including VAT (Document Currency)', 'VAT Amount (Document Currency)',
+    }
+    OLD_DETECT = {'Net Proceeds', 'Referral Fee', 'FBN Outbound Fee'}
+    is_monthly = MONTHLY_DETECT.issubset(raw_cols)
+    is_old     = OLD_DETECT.issubset(raw_cols)
+
+    if not is_monthly and not is_old:
+        return jsonify({
+            'success': False,
+            'error': 'تنسيق الملف غير معروف. تأكد من رفع ملف CSV صحيح من بوابة نون.',
+        }), 400
+
+    # ------------------------------------------------------------------ #
+    #  MONTHLY FORMAT (comprehensive statement file — auto-detected)       #
+    # ------------------------------------------------------------------ #
+    if is_monthly:
+        def _s(val):
+            v = str(val).strip()
+            return '' if v in ('nan', 'None', 'NaN') else v
+
+        def _f(val):
+            try:
+                return float(str(val).replace(',', ''))
+            except (TypeError, ValueError):
+                return 0.0
+
+        def _item_nr(val):
+            raw = _s(val)
+            if not raw:
+                return ''
+            try:
+                return str(int(float(raw)))
+            except (ValueError, TypeError):
+                return raw
+
+        df['Transaction Type'] = df['Transaction Type'].astype(str).str.strip()
+
+        customer_df = df[df['Transaction Type'] == 'Customer'].copy()
+        fee_df      = df[df['Transaction Type'].isin(['Statement Fee', 'Service Fee'])].copy()
+
+        # Statement metadata from first fee row
+        statement_nr   = ''
+        statement_date = ''
+        if not fee_df.empty:
+            fr = fee_df.iloc[0]
+            statement_nr   = _s(fr.get('Source Doc Nr',  ''))
+            statement_date = _s(fr.get('Document Date',  ''))
+
+        import_batch = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            db = get_db(DB_PATH)
+        except Exception as e:
+            return jsonify({'success': False,
+                            'error': f'خطأ في الاتصال بقاعدة البيانات: {str(e)}'}), 500
+
+        rows_added = rows_ignored = 0
+
+        try:
+            # -- Customer rows → orders --
+            for _, row in customer_df.iterrows():
+                try:
+                    doc_type = _s(row.get('Document Type', ''))
+                    if doc_type == 'Invoice':
+                        item_status    = 'delivered'
+                        delivered_date = _s(row.get('Document Date', ''))
+                        returned_date  = ''
+                    elif doc_type == 'Creditnote':
+                        item_status    = 'returned'
+                        delivered_date = ''
+                        returned_date  = _s(row.get('Document Date', ''))
+                    else:
+                        rows_ignored += 1
+                        continue
+
+                    order_nr         = _s(row.get('Source Doc Nr',       ''))
+                    item_nr          = _item_nr(row.get('Source Doc Line Nr', ''))
+                    sku              = _s(row.get('SKU',                  ''))
+                    partner_sku      = _s(row.get('Partner SKU',          ''))
+                    product_title_en = _s(row.get('Description',          ''))
+                    doc_date         = _s(row.get('Document Date',        ''))
+                    net_proceeds     = _f(row.get('Price Including VAT (Document Currency)', 0))
+
+                    if not order_nr or not item_nr:
+                        rows_ignored += 1
+                        continue
+
+                    existing = db.execute(
+                        "SELECT id FROM orders WHERE order_nr=? AND item_nr=? AND item_status=?",
+                        (order_nr, item_nr, item_status)
+                    ).fetchone()
+
+                    if existing is None:
+                        db.execute("""
+                            INSERT INTO orders
+                                (order_nr, item_nr, sku, partner_sku,
+                                 product_title_en, item_status,
+                                 ordered_date, delivered_date, returned_date,
+                                 net_proceeds, referral_fee, fbn_outbound_fee,
+                                 total_payment, import_batch)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,0,0,?,?)
+                        """, (
+                            order_nr, item_nr, sku, partner_sku,
+                            product_title_en, item_status,
+                            doc_date, delivered_date, returned_date,
+                            net_proceeds, net_proceeds, import_batch,
+                        ))
+                        rows_added += 1
+                    else:
+                        rows_ignored += 1
+                except Exception:
+                    rows_ignored += 1
+
+            # -- Fee rows → noon_statement_fees --
+            for _, row in fee_df.iterrows():
+                try:
+                    fee_type   = _s(row.get('Transaction Type', ''))
+                    desc       = _s(row.get('Description', ''))
+                    incl_vat   = _f(row.get('Price Including VAT (Document Currency)', 0))
+                    vat_amount = _f(row.get('VAT Amount (Document Currency)', 0))
+                    excl_vat   = round(incl_vat - vat_amount, 4)
+                    fee_snr    = _s(row.get('Source Doc Nr',  ''))
+                    fee_sdate  = _s(row.get('Document Date',  ''))
+                    db.execute("""
+                        INSERT INTO noon_statement_fees
+                            (statement_nr, statement_date, fee_type, description,
+                             excl_vat, vat_amount, incl_vat, import_batch)
+                        VALUES (?,?,?,?,?,?,?,?)
+                    """, (
+                        fee_snr, fee_sdate, fee_type, desc,
+                        excl_vat, vat_amount, incl_vat, import_batch,
+                    ))
+                except Exception:
+                    pass
+
+            # -- Upsert products from customer rows --
+            if not customer_df.empty and 'SKU' in customer_df.columns:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                for sku_val in customer_df['SKU'].unique():
+                    sku_str = _s(sku_val)
+                    if not sku_str:
+                        continue
+                    sr    = customer_df[customer_df['SKU'] == sku_val].iloc[0]
+                    psku  = _s(sr.get('Partner SKU', ''))
+                    pname = _s(sr.get('Description',  ''))
+                    cur_p = db.execute("""
+                        INSERT OR IGNORE INTO products (sku, partner_sku, name_en, updated_at)
+                        VALUES (?,?,?,?)
+                    """, (sku_str, psku, pname, now))
+                    if cur_p.rowcount == 0 and psku:
+                        db.execute(
+                            "UPDATE products SET partner_sku=?, updated_at=? "
+                            "WHERE sku=? AND (partner_sku IS NULL OR partner_sku='')",
+                            (psku, now, sku_str)
+                        )
+
+            # -- Log import --
+            db.execute("""
+                INSERT INTO imported_files
+                    (statement_nr, statement_date, filename, file_hash, imported_at,
+                     rows_added, rows_updated, rows_ignored)
+                VALUES (?,?,?,?,?,?,0,?)
+            """, (
+                statement_nr, statement_date, file.filename, file_hash,
+                import_batch, rows_added, rows_ignored,
+            ))
+            db.commit()
+            db.close()
+
+        except Exception as e:
+            try:
+                db.close()
+            except Exception:
+                pass
+            return jsonify({'success': False,
+                            'error': f'حدث خطأ أثناء الاستيراد: {str(e)}'}), 500
+
+        return jsonify({
+            'success':        True,
+            'import_batch':   import_batch,
+            'statement_nr':   statement_nr,
+            'statement_date': statement_date,
+            'rows_added':     rows_added,
+            'rows_updated':   0,
+            'rows_ignored':   rows_ignored,
+        })
+
+    # ------------------------------------------------------------------ #
+    #  OLD FORMAT (sales CSV — logic unchanged)                           #
+    # ------------------------------------------------------------------ #
     df = df.rename(columns={k: v for k, v in CSV_COLUMN_MAP.items() if k in df.columns})
 
     required = ['order_nr', 'item_nr', 'sku', 'item_status']
@@ -652,6 +846,7 @@ def import_delete_batch():
         orders_deleted = int(count_row[0]) if count_row else 0
 
         db.execute("DELETE FROM orders WHERE import_batch = ?", (import_batch,))
+        db.execute("DELETE FROM noon_statement_fees WHERE import_batch = ?", (import_batch,))
         db.execute("DELETE FROM imported_files WHERE imported_at = ?", (import_batch,))
         db.commit()
         db.close()

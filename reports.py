@@ -96,27 +96,49 @@ def get_vat_data(db_path, from_date='', to_date=''):
         GROUP BY strftime('%Y-%m', i.invoice_date)
     """
     inv_rows = db.execute(inv_sql, inv_params).fetchall()
+
+    # Statement-level fee VAT from monthly-format imports
+    nsf_cond2, nsf_params2 = _date_where(from_date, to_date, 'statement_date', 7)
+    nsf_where2 = (
+        "WHERE " + " AND ".join(nsf_cond2) + " AND statement_date != ''"
+    ) if nsf_cond2 else "WHERE statement_date != ''"
+    nsf_vat_sql = f"""
+        SELECT
+            strftime('%Y-%m', statement_date) AS month,
+            COALESCE(SUM(ABS(excl_vat)),   0.0) AS fees_excl_stmt,
+            COALESCE(SUM(ABS(vat_amount)), 0.0) AS stmt_vat
+        FROM noon_statement_fees
+        {nsf_where2}
+        GROUP BY strftime('%Y-%m', statement_date)
+    """
+    nsf_vat_rows = db.execute(nsf_vat_sql, nsf_params2).fetchall()
     db.close()
 
-    supp_vat_by_month = {r['month']: float(r['supplier_vat']) for r in inv_rows}
+    supp_vat_by_month  = {r['month']: float(r['supplier_vat']) for r in inv_rows}
+    stmt_fees_by_month = {
+        r['month']: {'fees_excl': float(r['fees_excl_stmt']), 'vat': float(r['stmt_vat'])}
+        for r in nsf_vat_rows
+    }
 
     result = []
     for r in order_rows:
-        month        = r['month']
-        sales_incl   = float(r['sales_incl'])
-        fees_excl    = float(r['fees_excl'])
+        month      = r['month']
+        sales_incl = float(r['sales_incl'])
+        fees_excl  = float(r['fees_excl'])
 
-        output_vat      = round(sales_incl * 15 / 115, 2)
-        input_vat_noon  = round(fees_excl * 0.15, 2)
-        input_vat_supp  = round(supp_vat_by_month.get(month, 0.0), 2)
-        net_vat         = round(output_vat - input_vat_noon - input_vat_supp, 2)
+        stmt = stmt_fees_by_month.get(month, {'fees_excl': 0.0, 'vat': 0.0})
+
+        output_vat     = round(sales_incl * 15 / 115, 2)
+        input_vat_noon = round(fees_excl * 0.15 + stmt['vat'], 2)
+        input_vat_supp = round(supp_vat_by_month.get(month, 0.0), 2)
+        net_vat        = round(output_vat - input_vat_noon - input_vat_supp, 2)
 
         result.append({
             'month':          month,
             'month_ar':       format_month_ar(month),
             'sales_incl':     round(sales_incl, 2),
             'output_vat':     output_vat,
-            'fees_excl':      round(fees_excl, 2),
+            'fees_excl':      round(fees_excl + stmt['fees_excl'], 2),
             'input_vat_noon': input_vat_noon,
             'input_vat_supp': input_vat_supp,
             'net_vat':        net_vat,
@@ -163,7 +185,26 @@ def get_settlements_data(db_path, from_date='', to_date=''):
         ORDER BY o.import_batch DESC
     """
     rows = db.execute(sql, params).fetchall()
+
+    # Statement-level fees per import_batch (monthly-format imports)
+    nsf_batch_rows = db.execute("""
+        SELECT import_batch,
+               COALESCE(SUM(ABS(excl_vat)),   0.0) AS fees_excl,
+               COALESCE(SUM(ABS(vat_amount)), 0.0) AS fee_vat,
+               COALESCE(SUM(ABS(incl_vat)),   0.0) AS fees_incl
+        FROM noon_statement_fees
+        GROUP BY import_batch
+    """).fetchall()
     db.close()
+
+    nsf_by_batch = {
+        r['import_batch']: {
+            'fees_excl': float(r['fees_excl']),
+            'vat':       float(r['fee_vat']),
+            'fees_incl': float(r['fees_incl']),
+        }
+        for r in nsf_batch_rows
+    }
 
     result = []
     for r in rows:
@@ -172,28 +213,36 @@ def get_settlements_data(db_path, from_date='', to_date=''):
         fbn_fees      = round(float(r['fbn_fees']),      2)
         actual_payout = round(float(r['actual_payout']), 2)
 
-        total_fees  = round(referral_fees + fbn_fees, 2)
-        vat_on_fees = round(total_fees * 0.15, 2)
-        # calc_net does NOT subtract vat_on_fees — VAT is deducted at statement
-        # level as a separate row and is not part of per-row total_payment
-        our_net     = round(gross_sales - total_fees, 2)
-        mismatch    = round(abs(our_net - actual_payout), 2)
+        stmt = nsf_by_batch.get(r['import_batch'], {'fees_excl': 0, 'vat': 0, 'fees_incl': 0})
+        is_monthly_batch = stmt['fees_excl'] > 0
+
+        if is_monthly_batch:
+            total_fees  = round(stmt['fees_excl'], 2)
+            vat_on_fees = round(stmt['vat'], 2)
+        else:
+            total_fees  = round(referral_fees + fbn_fees, 2)
+            vat_on_fees = round(total_fees * 0.15, 2)
+
+        our_net  = round(gross_sales - total_fees, 2)
+        mismatch = round(abs(our_net - actual_payout), 2) if not is_monthly_batch else 0
 
         result.append({
-            'import_batch':   r['import_batch'],
-            'statement_nr':   r['statement_nr'] or '—',
-            'statement_date': r['statement_date'] or '—',
-            'filename':       r['filename'] or r['import_batch'],
-            'rows_added':     r['rows_added'] or r['order_rows'],
-            'gross_sales':    gross_sales,
-            'referral_fees':  referral_fees,
-            'fbn_fees':       fbn_fees,
-            'total_fees':     total_fees,
-            'vat_on_fees':    vat_on_fees,
-            'our_net':        our_net,
-            'actual_payout':  actual_payout,
-            'mismatch':       mismatch,
-            'has_mismatch':   mismatch > 1.0,
+            'import_batch':    r['import_batch'],
+            'statement_nr':    r['statement_nr'] or '—',
+            'statement_date':  r['statement_date'] or '—',
+            'filename':        r['filename'] or r['import_batch'],
+            'rows_added':      r['rows_added'] or r['order_rows'],
+            'gross_sales':     gross_sales,
+            'referral_fees':   referral_fees,
+            'fbn_fees':        fbn_fees,
+            'stmt_fees':       round(stmt['fees_excl'], 2),
+            'total_fees':      total_fees,
+            'vat_on_fees':     vat_on_fees,
+            'our_net':         our_net,
+            'actual_payout':   actual_payout,
+            'mismatch':        mismatch,
+            'has_mismatch':    mismatch > 1.0,
+            'is_monthly_batch': is_monthly_batch,
         })
     return result
 
@@ -235,15 +284,33 @@ def get_profitability_data(db_path, from_date='', to_date='',
         ORDER BY p.name_en
     """
     rows = db.execute(sql, (fd, fd, td, td)).fetchall()
+
+    # Check whether any noon_statement_fees exist in the filtered period
+    nsf_where_p = "WHERE statement_date != ''"
+    nsf_params_p = []
+    if fd:
+        nsf_where_p += " AND SUBSTR(statement_date, 1, 7) >= ?"
+        nsf_params_p.append(fd)
+    if td:
+        nsf_where_p += " AND SUBSTR(statement_date, 1, 7) <= ?"
+        nsf_params_p.append(td)
+    nsf_cnt = db.execute(
+        f"SELECT COUNT(*) FROM noon_statement_fees {nsf_where_p}", nsf_params_p
+    ).fetchone()
+    has_stmt_fees = int(nsf_cnt[0] if nsf_cnt else 0) > 0
     db.close()
 
     result = []
     for row in rows:
         m = compute_product_metrics(row)
 
+        m['has_unallocated_fees'] = has_stmt_fees and m['noon_fees'] == 0
+
         # Apply profitability-specific badge thresholds
         if not m['has_cost']:
             m['badge'] = 'missing_cost'
+        elif m['has_unallocated_fees']:
+            m['badge'] = 'no_fees_allocated'
         elif m['net_profit'] >= 2.0:
             m['badge'] = 'profitable'
         elif m['net_profit'] >= 0:

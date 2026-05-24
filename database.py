@@ -169,7 +169,7 @@ _DDL = [
         rows_updated INTEGER DEFAULT 0,
         rows_ignored INTEGER DEFAULT 0
     )""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup ON orders(order_nr, item_nr)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup ON orders(order_nr, item_nr, item_status)",
     "CREATE INDEX IF NOT EXISTS idx_orders_sku ON orders(sku)",
     "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(item_status)",
     "CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id)",
@@ -200,6 +200,18 @@ _DDL = [
         last_login TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+    """CREATE TABLE IF NOT EXISTS noon_statement_fees (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        statement_nr   TEXT,
+        statement_date TEXT,
+        fee_type       TEXT,
+        description    TEXT,
+        excl_vat       REAL DEFAULT 0,
+        vat_amount     REAL DEFAULT 0,
+        incl_vat       REAL DEFAULT 0,
+        import_batch   TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)",
 ]
 
 
@@ -290,7 +302,7 @@ def _init_sqlite(db_path):
             rows_ignored INTEGER DEFAULT 0
         );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup ON orders(order_nr, item_nr);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup ON orders(order_nr, item_nr, item_status);
         CREATE INDEX IF NOT EXISTS idx_orders_sku ON orders(sku);
         CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(item_status);
         CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id);
@@ -326,6 +338,19 @@ def _init_sqlite(db_path):
         );
 
         CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+        CREATE TABLE IF NOT EXISTS noon_statement_fees (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            statement_nr   TEXT,
+            statement_date TEXT,
+            fee_type       TEXT,
+            description    TEXT,
+            excl_vat       REAL DEFAULT 0,
+            vat_amount     REAL DEFAULT 0,
+            incl_vat       REAL DEFAULT 0,
+            import_batch   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch);
     """)
 
     # Migration: upgrade imported_files if it has old schema
@@ -360,6 +385,30 @@ def _init_sqlite(db_path):
     user_cols = {row[1] for row in cur.fetchall()}
     if 'last_login' not in user_cols:
         conn.execute("ALTER TABLE users ADD COLUMN last_login TEXT")
+
+    # Migration: upgrade dedup index to 3-column key (order_nr, item_nr, item_status)
+    cur = conn.execute("PRAGMA index_info('idx_orders_dedup')")
+    idx_cols = [row[2] for row in cur.fetchall()]
+    if 'item_status' not in idx_cols:
+        conn.execute("DROP INDEX IF EXISTS idx_orders_dedup")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup "
+            "ON orders(order_nr, item_nr, item_status)"
+        )
+
+    # Migration: create noon_statement_fees if not exists
+    conn.execute("""CREATE TABLE IF NOT EXISTS noon_statement_fees (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        statement_nr   TEXT,
+        statement_date TEXT,
+        fee_type       TEXT,
+        description    TEXT,
+        excl_vat       REAL DEFAULT 0,
+        vat_amount     REAL DEFAULT 0,
+        incl_vat       REAL DEFAULT 0,
+        import_batch   TEXT
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)")
 
     # Seed default admin if users table is empty
     cnt = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -420,6 +469,33 @@ def _init_turso():
         user_cols = {row[1] for row in cur.fetchall()}
         if 'last_login' not in user_cols:
             conn.execute("ALTER TABLE users ADD COLUMN last_login TEXT")
+
+        # Migration: upgrade dedup index to 3-column key
+        try:
+            cur = conn.execute("PRAGMA index_info('idx_orders_dedup')")
+            idx_cols = [row[2] for row in cur.fetchall()]
+            if 'item_status' not in idx_cols:
+                conn.execute("DROP INDEX IF EXISTS idx_orders_dedup")
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup "
+                    "ON orders(order_nr, item_nr, item_status)"
+                )
+        except Exception:
+            pass
+
+        # Migration: create noon_statement_fees if not exists
+        conn.execute("""CREATE TABLE IF NOT EXISTS noon_statement_fees (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            statement_nr   TEXT,
+            statement_date TEXT,
+            fee_type       TEXT,
+            description    TEXT,
+            excl_vat       REAL DEFAULT 0,
+            vat_amount     REAL DEFAULT 0,
+            incl_vat       REAL DEFAULT 0,
+            import_batch   TEXT
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)")
 
         # Seed default admin if users table is empty
         cnt_row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
