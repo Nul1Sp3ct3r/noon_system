@@ -396,12 +396,40 @@ def import_upload():
 
     return jsonify({
         'success': True,
+        'import_batch': import_batch,
         'statement_nr': statement_nr,
         'statement_date': statement_date,
         'rows_added': rows_added,
         'rows_updated': rows_updated,
         'rows_ignored': rows_ignored,
     })
+
+
+@app.route('/import/delete-batch', methods=['POST'])
+def import_delete_batch():
+    data = request.get_json(silent=True) or {}
+    import_batch = data.get('import_batch', '').strip()
+    if not import_batch:
+        return jsonify({'success': False, 'error': 'دفعة الاستيراد غير محددة'}), 400
+
+    try:
+        db = get_db(DB_PATH)
+        count_row = db.execute(
+            "SELECT COUNT(*) FROM orders WHERE import_batch = ?", (import_batch,)
+        ).fetchone()
+        orders_deleted = int(count_row[0]) if count_row else 0
+
+        db.execute("DELETE FROM orders WHERE import_batch = ?", (import_batch,))
+        db.execute("DELETE FROM imported_files WHERE imported_at = ?", (import_batch,))
+        db.commit()
+        db.close()
+        return jsonify({'success': True, 'orders_deleted': orders_deleted})
+    except Exception as e:
+        try:
+            db.close()
+        except Exception:
+            pass
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # --- Dashboard ---

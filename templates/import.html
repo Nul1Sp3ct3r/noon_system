@@ -75,6 +75,7 @@
             <th class="text-center">مضاف</th>
             <th class="text-center">محدَّث</th>
             <th class="text-center">متجاهل</th>
+            <th class="text-center">حذف</th>
           </tr>
         </thead>
         <tbody id="imports-tbody">
@@ -87,10 +88,18 @@
             <td class="text-center fw-600 color-profit">{{ imp['rows_added'] or 0 }}</td>
             <td class="text-center fw-600 color-revenue">{{ imp['rows_updated'] or 0 }}</td>
             <td class="text-center fw-600 text-secondary">{{ imp['rows_ignored'] or 0 }}</td>
+            <td class="text-center">
+              <button class="btn btn-sm btn-outline-danger py-0 px-2 delete-batch-btn"
+                      data-batch="{{ imp['imported_at'] }}"
+                      data-label="{{ imp['statement_nr'] or (imp['imported_at'] or '')[:16] }}"
+                      title="حذف الكشف">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
           </tr>
           {% else %}
           <tr id="no-history-row">
-            <td colspan="7" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>
+            <td colspan="8" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -172,6 +181,7 @@ document.getElementById('import-form').addEventListener('submit', async e => {
         + String(now.getHours()).padStart(2,'0') + ':'
         + String(now.getMinutes()).padStart(2,'0');
 
+      const batchLabel = data.statement_nr || importedAt;
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="fw-500">${data.statement_nr || '—'}</td>
@@ -181,7 +191,16 @@ document.getElementById('import-form').addEventListener('submit', async e => {
         <td class="text-center fw-600 color-profit">${data.rows_added}</td>
         <td class="text-center fw-600 color-revenue">${data.rows_updated}</td>
         <td class="text-center fw-600 text-secondary">${data.rows_ignored}</td>
+        <td class="text-center">
+          <button class="btn btn-sm btn-outline-danger py-0 px-2 delete-batch-btn"
+                  data-batch="${data.import_batch}"
+                  data-label="${batchLabel}"
+                  title="حذف الكشف">
+            <i class="bi bi-trash"></i>
+          </button>
+        </td>
       `;
+      attachDeleteHandler(tr.querySelector('.delete-batch-btn'));
       tbody.prepend(tr);
 
       const parts = [`${data.rows_added} جديد`];
@@ -201,5 +220,52 @@ document.getElementById('import-form').addEventListener('submit', async e => {
   uploadBtn.disabled = false;
   uploadBtn.innerHTML = '<i class="bi bi-upload me-2"></i>استيراد الآن';
 });
+
+// =============================================================================
+// Delete batch
+// =============================================================================
+function attachDeleteHandler(btn) {
+  btn.addEventListener('click', async function () {
+    const batch = this.dataset.batch;
+    const label = this.dataset.label;
+    if (!confirm(
+      `هل أنت متأكد من حذف هذا الكشف؟\nسيتم حذف جميع الطلبات المرتبطة به ولا يمكن التراجع.`
+    )) return;
+
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    try {
+      const res  = await fetch('/import/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ import_batch: batch }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`تم الحذف: ${data.orders_deleted} طلب محذوف من "${label}"`, 'success');
+        const row = this.closest('tr');
+        row.remove();
+        const tbody = document.getElementById('imports-tbody');
+        if (tbody.children.length === 0) {
+          const tr = document.createElement('tr');
+          tr.id = 'no-history-row';
+          tr.innerHTML = '<td colspan="8" class="text-center text-muted py-4">لا توجد عمليات استيراد سابقة</td>';
+          tbody.appendChild(tr);
+        }
+      } else {
+        showToast(data.error || 'فشل الحذف', 'error');
+        this.disabled = false;
+        this.innerHTML = '<i class="bi bi-trash"></i>';
+      }
+    } catch {
+      showToast('حدث خطأ غير متوقع', 'error');
+      this.disabled = false;
+      this.innerHTML = '<i class="bi bi-trash"></i>';
+    }
+  });
+}
+
+document.querySelectorAll('.delete-batch-btn').forEach(attachDeleteHandler);
 </script>
 {% endblock %}
