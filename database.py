@@ -131,12 +131,14 @@ _DDL = [
         brand_ar TEXT,
         name_en TEXT,
         name_ar TEXT,
+        barcode TEXT,
         unit_cost REAL DEFAULT 0,
         extra_costs REAL DEFAULT 0,
         notes TEXT,
         updated_at TEXT,
         cost_includes_vat INTEGER DEFAULT 1
     )""",
+    "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)",
     """CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         invoice_nr TEXT,
@@ -284,12 +286,14 @@ def _init_sqlite(db_path):
             brand_ar TEXT,
             name_en TEXT,
             name_ar TEXT,
+            barcode TEXT,
             unit_cost REAL DEFAULT 0,
             extra_costs REAL DEFAULT 0,
             notes TEXT,
             updated_at TEXT,
             cost_includes_vat INTEGER DEFAULT 1
         );
+        CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 
         CREATE TABLE IF NOT EXISTS invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -459,11 +463,14 @@ def _init_sqlite(db_path):
     )""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)")
 
-    # Migration: add cost_includes_vat if missing
+    # Migration: add cost_includes_vat / barcode if missing
     cur = conn.execute("PRAGMA table_info(products)")
     prod_cols = {row[1] for row in cur.fetchall()}
     if 'cost_includes_vat' not in prod_cols:
         conn.execute("ALTER TABLE products ADD COLUMN cost_includes_vat INTEGER DEFAULT 1")
+    if 'barcode' not in prod_cols:
+        conn.execute("ALTER TABLE products ADD COLUMN barcode TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)")
 
     # Migration: create inventory tables if not exists
     conn.execute("""CREATE TABLE IF NOT EXISTS warehouses (
@@ -578,12 +585,15 @@ def _init_turso():
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)")
 
-        # Migration: add cost_includes_vat if missing
+        # Migration: add cost_includes_vat / barcode if missing
         try:
             cur = conn.execute("PRAGMA table_info(products)")
             prod_cols = {row[1] for row in cur.fetchall()}
             if 'cost_includes_vat' not in prod_cols:
                 conn.execute("ALTER TABLE products ADD COLUMN cost_includes_vat INTEGER DEFAULT 1")
+            if 'barcode' not in prod_cols:
+                conn.execute("ALTER TABLE products ADD COLUMN barcode TEXT")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)")
         except Exception:
             pass
 

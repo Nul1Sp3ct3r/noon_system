@@ -3,52 +3,49 @@
 
 {% block extra_head %}
 <style>
-/* --- Drop zone --- */
+/* Drop zone */
 .drop-zone {
-  border: 2px dashed #adb5bd;
-  border-radius: 10px;
-  padding: 32px 16px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color .2s, background .2s;
-  background: #fafafa;
+  border:2px dashed #adb5bd; border-radius:10px; padding:32px 16px;
+  text-align:center; cursor:pointer; transition:border-color .2s,background .2s; background:#fafafa;
 }
-.drop-zone:hover, .drop-zone.dz-over {
-  border-color: #185FA5;
-  background: #f0f4ff;
-}
-.drop-zone .dz-icon { font-size: 2.4rem; color: #adb5bd; display: block; margin-bottom: 8px; }
+.drop-zone:hover,.drop-zone.dz-over { border-color:#185FA5; background:#f0f4ff; }
+.drop-zone .dz-icon { font-size:2.4rem; color:#adb5bd; display:block; margin-bottom:8px; }
 
-/* --- Files area --- */
-#files-area {
-  border: 1.5px solid #d4edda;
-  border-radius: 10px;
-  background: #f8fff9;
-  padding: 12px;
-}
-.file-chip {
-  display: flex; align-items: center; gap: 7px;
-  background: #fff; border: 1.5px solid #dee2e6;
-  border-radius: 8px; padding: 5px 8px;
-  max-width: 200px; min-width: 0;
-}
-.file-chip .chip-thumb {
-  width: 30px; height: 30px; object-fit: cover;
-  border-radius: 4px; flex-shrink: 0;
-}
-.file-chip .chip-icon { font-size: 1.4rem; flex-shrink: 0; line-height: 1; }
-.file-chip .chip-name {
-  font-size: 0.75rem; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
-  flex: 1; min-width: 0;
-}
-.file-chip .chip-del {
-  background: none; border: none; padding: 0;
-  color: #adb5bd; cursor: pointer; flex-shrink: 0;
-  font-size: 0.8rem; line-height: 1;
-}
-.file-chip .chip-del:hover { color: #A32D2D; }
+/* File chips */
+#files-area { border:1.5px solid #d4edda; border-radius:10px; background:#f8fff9; padding:12px; }
+.file-chip { display:flex; align-items:center; gap:7px; background:#fff; border:1.5px solid #dee2e6;
+  border-radius:8px; padding:5px 8px; max-width:200px; min-width:0; }
+.file-chip .chip-thumb { width:30px; height:30px; object-fit:cover; border-radius:4px; flex-shrink:0; }
+.file-chip .chip-icon { font-size:1.4rem; flex-shrink:0; line-height:1; }
+.file-chip .chip-name { font-size:.75rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+.file-chip .chip-del { background:none; border:none; padding:0; color:#adb5bd; cursor:pointer; flex-shrink:0; font-size:.8rem; line-height:1; }
+.file-chip .chip-del:hover { color:#A32D2D; }
 
+/* Search dropdown */
+.item-dd {
+  display:none; position:absolute; top:100%; right:0; left:0; z-index:1050;
+  background:#fff; border:1px solid #dee2e6; border-radius:8px;
+  box-shadow:0 6px 20px rgba(0,0,0,.15); max-height:300px; overflow-y:auto;
+}
+.dd-item { padding:9px 12px; cursor:pointer; border-bottom:1px solid #f4f4f4; transition:background .1s; }
+.dd-item:last-child { border-bottom:none; }
+.dd-item:hover { background:#f0f4ff; }
+.dd-item .dd-name { font-weight:600; font-size:.9rem; margin-bottom:2px; }
+.dd-item .dd-meta { font-size:.76rem; color:#6c757d; display:flex; gap:10px; flex-wrap:wrap; }
+.dd-item .dd-cost { color:#3B6D11; font-weight:600; }
+.dd-notfound { padding:12px; color:#6c757d; font-size:.88rem; text-align:center; }
+
+/* Selected item info chip */
+.item-selected-chip {
+  display:none; margin-top:3px; padding:2px 7px; background:#e8f0fe;
+  border-radius:10px; font-size:.74rem; color:#185FA5; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; max-width:100%;
+}
+
+/* Items table */
+#items-table thead th { background:#1a3a5c; color:#fff; font-size:.82rem; padding:7px 8px; }
+#items-table tbody td { padding:5px 6px; vertical-align:middle; }
+.search-wrap { position:relative; }
 </style>
 {% endblock %}
 
@@ -140,18 +137,17 @@
         </div>
       </div>
 
+      <!-- File upload -->
       <div class="mb-4">
         <label class="form-label small fw-600 mb-2">
           <i class="bi bi-paperclip me-1"></i>ارفع الفاتورة (صور أو PDF)
         </label>
-
         <div id="upload-zone" class="drop-zone">
           <i class="bi bi-cloud-upload dz-icon"></i>
           <div class="fw-500">اسحب الملفات هنا أو اضغط للاختيار</div>
           <div class="text-muted small mt-1">JPG · PNG · HEIC · PDF — الحد الأقصى 20MB لكل ملف</div>
           <input type="file" id="unified-input" accept="image/*,.pdf" multiple class="d-none">
         </div>
-
         <div id="files-area" class="d-none">
           <div id="file-list" class="d-flex flex-wrap gap-2 mb-2"></div>
           <div class="d-flex align-items-center gap-2 mt-1">
@@ -176,14 +172,13 @@
         </div>
         <div class="table-responsive">
           <table class="table table-sm mb-0" id="items-table">
-            <thead class="table-light">
+            <thead>
               <tr>
-                <th style="width:35%">المنتج (SKU)</th>
-                <th style="width:25%">اسم المنتج</th>
-                <th style="width:10%">الكمية</th>
-                <th style="width:15%">تكلفة الوحدة</th>
-                <th style="width:10%">الإجمالي</th>
-                <th style="width:5%"></th>
+                <th style="width:44%"><i class="bi bi-search me-1"></i>الصنف / SKU / الباركود</th>
+                <th style="width:11%">الكمية</th>
+                <th style="width:18%">تكلفة الوحدة</th>
+                <th style="width:14%">الإجمالي</th>
+                <th style="width:13%"></th>
               </tr>
             </thead>
             <tbody id="items-body"></tbody>
@@ -212,27 +207,17 @@
     <div class="table-responsive">
       <table class="table table-hover mb-0 noon-table">
         <colgroup>
-          <col style="width:12%">
-          <col style="width:18%">
-          <col style="width:10%">
-          <col style="width:12%">
-          <col style="width:10%">
-          <col style="width:12%">
-          <col style="width:8%">
-          <col style="width:8%">
-          <col style="width:10%">
+          <col style="width:12%"><col style="width:18%"><col style="width:10%">
+          <col style="width:12%"><col style="width:10%"><col style="width:12%">
+          <col style="width:8%"><col style="width:8%"><col style="width:10%">
         </colgroup>
         <thead>
           <tr>
-            <th>رقم الفاتورة</th>
-            <th>المورد</th>
-            <th>التاريخ</th>
+            <th>رقم الفاتورة</th><th>المورد</th><th>التاريخ</th>
             <th class="num">الإجمالي (شامل الضريبة)</th>
             <th class="num">ضريبة القيمة المضافة</th>
             <th class="num">الصافي (قبل الضريبة)</th>
-            <th class="ctr">البنود</th>
-            <th class="ctr">PDF</th>
-            <th class="ctr">إجراءات</th>
+            <th class="ctr">البنود</th><th class="ctr">PDF</th><th class="ctr">إجراءات</th>
           </tr>
         </thead>
         <tbody>
@@ -278,22 +263,72 @@
     {% endif %}
   </div>
 </div>
+
+<!-- Quick-Add Product Modal -->
+<div class="modal fade" id="quickAddModal" tabindex="-1" aria-labelledby="qaModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1a3a5c; color:#fff;">
+        <h5 class="modal-title" id="qaModalLabel"><i class="bi bi-plus-circle me-2"></i>إضافة صنف جديد</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-bold">اسم المنتج بالعربي <span class="text-danger">*</span></label>
+          <input type="text" id="qa-name-ar" class="form-control" placeholder="اسم المنتج...">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">اسم المنتج بالإنجليزي <span class="text-muted fw-normal small">(اختياري)</span></label>
+          <input type="text" id="qa-name-en" class="form-control" placeholder="Product name...">
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-bold">SKU <span class="text-danger">*</span></label>
+            <input type="text" id="qa-sku" class="form-control" placeholder="NOON-SKU-001">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-bold">الباركود <span class="text-muted fw-normal small">(اختياري)</span></label>
+            <input type="text" id="qa-barcode" class="form-control" placeholder="6281234567890">
+          </div>
+        </div>
+        <div class="row g-3">
+          <div class="col-6">
+            <label class="form-label fw-bold">تكلفة الشراء الافتراضية</label>
+            <input type="number" id="qa-cost" class="form-control" value="0" min="0" step="0.01">
+          </div>
+          <div class="col-6 d-flex align-items-end pb-2">
+            <div class="form-check">
+              <input type="checkbox" id="qa-civ" class="form-check-input" checked>
+              <label class="form-check-label small" for="qa-civ">التكلفة شاملة الضريبة</label>
+            </div>
+          </div>
+        </div>
+        <div id="qa-error" class="alert alert-danger mt-3 d-none py-2" style="font-size:.88rem;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+        <button type="button" class="btn btn-primary" id="qa-save-btn">
+          <i class="bi bi-check2-circle me-1"></i>إضافة الصنف
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// =============================================================================
-// Upload state machine — multi-file
-// =============================================================================
-const uploadZone   = document.getElementById('upload-zone');
-const unifiedInput = document.getElementById('unified-input');
-const filesArea    = document.getElementById('files-area');
-const fileList     = document.getElementById('file-list');
-const fileCount    = document.getElementById('file-count');
-const addMoreBtn   = document.getElementById('add-more-btn');
+// ============================================================
+// Upload state machine
+// ============================================================
+const uploadZone    = document.getElementById('upload-zone');
+const unifiedInput  = document.getElementById('unified-input');
+const filesArea     = document.getElementById('files-area');
+const fileList      = document.getElementById('file-list');
+const fileCount     = document.getElementById('file-count');
+const addMoreBtn    = document.getElementById('add-more-btn');
 const clearFilesBtn = document.getElementById('clear-files-btn');
-
-let selectedFiles = [];
+let selectedFiles   = [];
 
 function showState(state) {
   uploadZone.classList.toggle('d-none', state !== 'empty');
@@ -318,29 +353,22 @@ function addFiles(fileArray) {
 }
 
 function renderFileList() {
-  fileList.querySelectorAll('img').forEach(img => {
-    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-  });
+  fileList.querySelectorAll('img').forEach(img => { if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src); });
   fileList.innerHTML = '';
-
   selectedFiles.forEach((file, i) => {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     const chip  = document.createElement('div');
     chip.className = 'file-chip';
-
     if (isPdf) {
-      chip.innerHTML = `
-        <i class="bi bi-file-earmark-pdf-fill text-danger chip-icon"></i>
+      chip.innerHTML = `<i class="bi bi-file-earmark-pdf-fill text-danger chip-icon"></i>
         <span class="chip-name" title="${file.name}">${file.name}</span>
-        <button type="button" class="chip-del" title="حذف"><i class="bi bi-x-lg"></i></button>`;
+        <button type="button" class="chip-del"><i class="bi bi-x-lg"></i></button>`;
     } else {
       const url = URL.createObjectURL(file);
-      chip.innerHTML = `
-        <img src="${url}" class="chip-thumb" alt="">
+      chip.innerHTML = `<img src="${url}" class="chip-thumb" alt="">
         <span class="chip-name" title="${file.name}">${file.name}</span>
-        <button type="button" class="chip-del" title="حذف"><i class="bi bi-x-lg"></i></button>`;
+        <button type="button" class="chip-del"><i class="bi bi-x-lg"></i></button>`;
     }
-
     chip.querySelector('.chip-del').addEventListener('click', () => {
       const img = chip.querySelector('img');
       if (img) URL.revokeObjectURL(img.src);
@@ -348,87 +376,176 @@ function renderFileList() {
       renderFileList();
       if (!selectedFiles.length) showState('empty');
     });
-
     fileList.appendChild(chip);
   });
-
   const n = selectedFiles.length;
   fileCount.textContent = n === 1 ? 'ملف واحد محدد' : `${n} ملفات محددة`;
 }
 
-uploadZone.addEventListener('click', () => unifiedInput.click());
-uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('dz-over'); });
-uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dz-over'));
-uploadZone.addEventListener('drop', e => {
-  e.preventDefault();
-  uploadZone.classList.remove('dz-over');
-  addFiles(Array.from(e.dataTransfer.files));
-});
-unifiedInput.addEventListener('change', e => {
-  addFiles(Array.from(e.target.files));
-  unifiedInput.value = '';
-});
-
-filesArea.addEventListener('dragover', e => e.preventDefault());
-filesArea.addEventListener('drop', e => {
-  e.preventDefault();
-  addFiles(Array.from(e.dataTransfer.files));
-});
-
-addMoreBtn.addEventListener('click', () => unifiedInput.click());
-
+uploadZone.addEventListener('click',    () => unifiedInput.click());
+uploadZone.addEventListener('dragover', e  => { e.preventDefault(); uploadZone.classList.add('dz-over'); });
+uploadZone.addEventListener('dragleave',() => uploadZone.classList.remove('dz-over'));
+uploadZone.addEventListener('drop',     e  => { e.preventDefault(); uploadZone.classList.remove('dz-over'); addFiles(Array.from(e.dataTransfer.files)); });
+unifiedInput.addEventListener('change', e  => { addFiles(Array.from(e.target.files)); unifiedInput.value = ''; });
+filesArea.addEventListener('dragover',  e  => e.preventDefault());
+filesArea.addEventListener('drop',      e  => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files)); });
+addMoreBtn.addEventListener('click',    () => unifiedInput.click());
 clearFilesBtn.addEventListener('click', () => {
-  fileList.querySelectorAll('img').forEach(img => {
-    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-  });
-  selectedFiles = [];
-  fileList.innerHTML = '';
-  showState('empty');
+  fileList.querySelectorAll('img').forEach(img => { if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src); });
+  selectedFiles = []; fileList.innerHTML = ''; showState('empty');
 });
 
-// =============================================================================
-// Invoice line items
-// =============================================================================
-const skuOptions = [
-  {% for p in products %}
-  { sku: "{{ p.sku }}", name: "{{ p.name_en | replace('"', '') }}" },
-  {% endfor %}
-];
+// ============================================================
+// Invoice line items — smart search
+// ============================================================
+let activeRow = null;
+const quickAddModal = new bootstrap.Modal(document.getElementById('quickAddModal'));
 
-function buildSkuSelect(selected = '') {
-  let opts = '<option value="">-- اختر SKU --</option>';
-  skuOptions.forEach(p => {
-    opts += `<option value="${p.sku}" data-name="${p.name}" ${selected===p.sku?'selected':''}>${p.sku} — ${p.name}</option>`;
-  });
-  return opts;
+function debounce(fn, ms) {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
+
+async function searchProducts(q) {
+  try {
+    const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}`);
+    return res.ok ? await res.json() : [];
+  } catch { return []; }
+}
+
+function showDropdown(tr, results, query) {
+  const dd = tr.querySelector('.item-dd');
+  if (!results.length) {
+    dd.innerHTML = `
+      <div class="dd-notfound">
+        الصنف غير موجود، هل ترغب في إضافته؟
+        <button type="button" class="btn btn-sm btn-primary mt-2 w-100 open-qa-btn">
+          <i class="bi bi-plus-circle me-1"></i>إضافة صنف جديد
+        </button>
+      </div>`;
+    dd.querySelector('.open-qa-btn').addEventListener('click', () => {
+      hideDropdown(tr); openQuickAdd(tr, query);
+    });
+  } else {
+    dd.innerHTML = results.map((p, i) => {
+      const name = p.name_ar || p.name_en || p.sku;
+      const costText = p.avg_cost !== null && p.avg_cost > 0
+        ? `<span class="dd-cost">متوسط التكلفة: ${p.avg_cost.toFixed(2)} ر.س</span>`
+        : (p.unit_cost > 0 ? `<span class="dd-cost">تكلفة: ${p.unit_cost.toFixed(2)} ر.س</span>` : '');
+      const bc = p.barcode ? `<span>باركود: ${p.barcode}</span>` : '';
+      return `<div class="dd-item" data-idx="${i}">
+        <div class="dd-name">${name}</div>
+        <div class="dd-meta"><span>SKU: ${p.sku}</span>${bc}${costText}</div>
+      </div>`;
+    }).join('');
+    dd.querySelectorAll('.dd-item').forEach(item => {
+      const idx = parseInt(item.dataset.idx);
+      item.addEventListener('mousedown', e => { e.preventDefault(); selectProduct(tr, results[idx]); });
+    });
+  }
+  dd.style.display = 'block';
+}
+
+function hideDropdown(tr) {
+  const dd = tr.querySelector('.item-dd');
+  if (dd) dd.style.display = 'none';
+}
+
+function selectProduct(tr, product) {
+  tr.querySelector('.item-sku-val').value  = product.sku;
+  tr.querySelector('.item-name-val').value = product.name_ar || product.name_en || product.sku;
+  tr.querySelector('.item-search').value   = product.name_ar || product.name_en || product.sku;
+
+  // Info chip
+  const chip  = tr.querySelector('.item-selected-chip');
+  const parts = [`SKU: ${product.sku}`];
+  if (product.barcode) parts.push(`باركود: ${product.barcode}`);
+  chip.textContent  = parts.join(' · ');
+  chip.style.display = 'inline-block';
+
+  // Pre-fill cost
+  const cost = (product.avg_cost !== null && product.avg_cost > 0) ? product.avg_cost : product.unit_cost;
+  if (cost > 0) tr.querySelector('.item-uc').value = cost.toFixed(2);
+
+  hideDropdown(tr);
+  recalcRow(tr);
+
+  // Auto-add next empty row if this is the last one
+  const tbody = document.getElementById('items-body');
+  if (tr === tbody.lastElementChild) addItemRow(false);
+
+  tr.querySelector('.item-qty').focus();
+  tr.querySelector('.item-qty').select();
+}
+
+function openQuickAdd(tr, prefill) {
+  activeRow = tr;
+  const q = prefill || tr.querySelector('.item-search').value.trim();
+  document.getElementById('qa-name-ar').value  = '';
+  document.getElementById('qa-name-en').value  = '';
+  document.getElementById('qa-sku').value      = '';
+  document.getElementById('qa-barcode').value  = '';
+  document.getElementById('qa-cost').value     = '0';
+  document.getElementById('qa-civ').checked    = true;
+  document.getElementById('qa-error').classList.add('d-none');
+
+  // Smart pre-fill: barcode if pure digits 8-13, else SKU if short alphanumeric, else name
+  if (/^\d{8,13}$/.test(q))               document.getElementById('qa-barcode').value  = q;
+  else if (/^[\w\-]{1,30}$/.test(q))      document.getElementById('qa-sku').value       = q;
+  else                                     document.getElementById('qa-name-ar').value   = q;
+
+  quickAddModal.show();
+  setTimeout(() => {
+    const first = document.getElementById('qa-name-ar').value ? 'qa-sku' : 'qa-name-ar';
+    document.getElementById(first).focus();
+  }, 300);
+}
+
+document.getElementById('qa-save-btn').addEventListener('click', async () => {
+  const nameAr  = document.getElementById('qa-name-ar').value.trim();
+  const nameEn  = document.getElementById('qa-name-en').value.trim();
+  const sku     = document.getElementById('qa-sku').value.trim();
+  const barcode = document.getElementById('qa-barcode').value.trim();
+  const cost    = parseFloat(document.getElementById('qa-cost').value) || 0;
+  const civ     = document.getElementById('qa-civ').checked ? 1 : 0;
+  const errEl   = document.getElementById('qa-error');
+  const btn     = document.getElementById('qa-save-btn');
+
+  if (!nameAr) { errEl.textContent = 'اسم المنتج بالعربي مطلوب'; errEl.classList.remove('d-none'); return; }
+  if (!sku)    { errEl.textContent = 'SKU مطلوب'; errEl.classList.remove('d-none'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>جاري الحفظ...';
+
+  try {
+    const res  = await fetch('/api/products/quick-create', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name_ar: nameAr, name_en: nameEn, sku,
+                            barcode: barcode || null, unit_cost: cost, cost_includes_vat: civ}),
+    });
+    const data = await res.json();
+    if (data.success) {
+      quickAddModal.hide();
+      showToast(data.existed ? 'هذا SKU موجود مسبقاً — تم تحديد المنتج' : 'تم إضافة الصنف بنجاح',
+                data.existed ? 'info' : 'success');
+      if (activeRow) { selectProduct(activeRow, data.product); activeRow = null; }
+    } else {
+      errEl.textContent = data.error || 'حدث خطأ';
+      errEl.classList.remove('d-none');
+    }
+  } catch {
+    errEl.textContent = 'خطأ في الاتصال بالخادم';
+    errEl.classList.remove('d-none');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>إضافة الصنف';
+  }
+});
 
 function updateRunningTotal() {
   let total = 0;
   document.querySelectorAll('.item-total-input').forEach(el => { total += parseFloat(el.value) || 0; });
   document.getElementById('running-total').textContent = total.toFixed(2) + ' ر.س';
   document.getElementById('running-total-row').style.removeProperty('display');
-}
-
-function addItemRow() {
-  const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td><select name="item_sku[]" class="form-select form-select-sm sku-select">${buildSkuSelect()}</select></td>
-    <td><input type="text" name="item_name[]" class="form-control form-control-sm item-name" placeholder="اسم المنتج" readonly></td>
-    <td><input type="number" name="item_qty[]" class="form-control form-control-sm item-qty" value="1" min="1" step="1"></td>
-    <td><input type="number" name="item_unit_cost[]" class="form-control form-control-sm item-uc" value="0" min="0" step="0.01"></td>
-    <td><input type="number" name="item_total[]" class="form-control form-control-sm item-total-input" value="0" readonly style="background:#f8f9fa"></td>
-    <td><button type="button" class="btn btn-sm btn-outline-danger py-0 remove-row"><i class="bi bi-x-lg"></i></button></td>
-  `;
-  tr.querySelector('.sku-select').addEventListener('change', function() {
-    const opt = this.selectedOptions[0];
-    tr.querySelector('.item-name').value = opt ? (opt.dataset.name || '') : '';
-    recalcRow(tr);
-  });
-  tr.querySelector('.item-qty').addEventListener('input', () => recalcRow(tr));
-  tr.querySelector('.item-uc').addEventListener('input',  () => recalcRow(tr));
-  tr.querySelector('.remove-row').addEventListener('click', () => { tr.remove(); updateRunningTotal(); });
-  document.getElementById('items-body').appendChild(tr);
 }
 
 function recalcRow(tr) {
@@ -438,37 +555,112 @@ function recalcRow(tr) {
   updateRunningTotal();
 }
 
-document.getElementById('add-item-btn').addEventListener('click', addItemRow);
+function addItemRow(focus = true) {
+  const tr = document.createElement('tr');
+  tr.className = 'item-row';
+  tr.innerHTML = `
+    <td>
+      <div class="search-wrap">
+        <input type="text" class="form-control form-control-sm item-search"
+               placeholder="اسم الصنف / SKU / الباركود" autocomplete="off" dir="auto">
+        <input type="hidden" name="item_sku[]"  class="item-sku-val">
+        <input type="hidden" name="item_name[]" class="item-name-val">
+        <div class="item-dd"></div>
+      </div>
+      <div class="item-selected-chip"></div>
+    </td>
+    <td><input type="number" name="item_qty[]" class="form-control form-control-sm item-qty"
+               value="1" min="1" step="1"></td>
+    <td><input type="number" name="item_unit_cost[]" class="form-control form-control-sm item-uc"
+               value="0" min="0" step="0.01"></td>
+    <td><input type="number" name="item_total[]" class="form-control form-control-sm item-total-input"
+               value="0" readonly style="background:#f8f9fa"></td>
+    <td>
+      <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 me-1 open-qa-row"
+              title="إضافة صنف جديد"><i class="bi bi-plus-circle"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 remove-row"
+              title="حذف"><i class="bi bi-x-lg"></i></button>
+    </td>`;
 
-// =============================================================================
+  const searchInput = tr.querySelector('.item-search');
+  const debouncedSearch = debounce(async q => {
+    if (q.length < 2) { hideDropdown(tr); return; }
+    const results = await searchProducts(q);
+    showDropdown(tr, results, q);
+  }, 200);
+
+  searchInput.addEventListener('input', e => {
+    // Clear selection if user edits the field
+    if (!e.target.value.trim()) {
+      tr.querySelector('.item-sku-val').value  = '';
+      tr.querySelector('.item-name-val').value = '';
+      tr.querySelector('.item-selected-chip').style.display = 'none';
+    }
+    debouncedSearch(e.target.value.trim());
+  });
+  searchInput.addEventListener('blur',    () => setTimeout(() => hideDropdown(tr), 160));
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { hideDropdown(tr); return; }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const first = tr.querySelector('.dd-item');
+      if (first) first.focus();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = tr.querySelector('.dd-item');
+      if (first) first.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+    }
+  });
+
+  tr.querySelector('.item-qty').addEventListener('input', () => recalcRow(tr));
+  tr.querySelector('.item-qty').addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const sku   = tr.querySelector('.item-sku-val').value;
+    if (!sku) return;
+    const tbody = document.getElementById('items-body');
+    const rows  = Array.from(tbody.querySelectorAll('.item-row'));
+    const idx   = rows.indexOf(tr);
+    if (idx < rows.length - 1) rows[idx + 1].querySelector('.item-search').focus();
+    else addItemRow(true);
+  });
+
+  tr.querySelector('.item-uc').addEventListener('input', () => recalcRow(tr));
+  tr.querySelector('.remove-row').addEventListener('click',  () => { tr.remove(); updateRunningTotal(); });
+  tr.querySelector('.open-qa-row').addEventListener('click', () => openQuickAdd(tr, ''));
+
+  document.getElementById('items-body').appendChild(tr);
+  if (focus) searchInput.focus();
+  return tr;
+}
+
+// Start with one empty row
+addItemRow(false);
+document.getElementById('add-item-btn').addEventListener('click', () => addItemRow(true));
+
+// ============================================================
 // VAT Calculator
-// =============================================================================
+// ============================================================
 function r2(v) { return Math.round(v * 100) / 100; }
 
 function calcVat() {
   const mode    = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
   const entered = parseFloat(document.getElementById('entered-amount').value) || 0;
   const manualV = parseFloat(document.getElementById('vat-amount-manual').value) || 0;
-
   let net = 0, vat = 0, gross = 0;
   const vatWarning = document.getElementById('vat-warning');
 
   if (mode === 'includes_vat') {
-    gross = entered;
-    vat   = r2(gross * 15 / 115);
-    net   = r2(gross - vat);
+    gross = entered; vat = r2(gross * 15 / 115); net = r2(gross - vat);
     vatWarning.classList.add('d-none');
   } else if (mode === 'excludes_vat') {
-    net   = entered;
-    vat   = r2(net * 0.15);
-    gross = r2(net + vat);
+    net = entered; vat = r2(net * 0.15); gross = r2(net + vat);
     vatWarning.classList.add('d-none');
   } else {
-    gross = entered;
-    vat   = manualV;
-    net   = r2(gross - vat);
-    const abnormal = gross > 0 && vat > gross * 0.15;
-    vatWarning.classList.toggle('d-none', !abnormal);
+    gross = entered; vat = manualV; net = r2(gross - vat);
+    vatWarning.classList.toggle('d-none', !(gross > 0 && vat > gross * 0.15));
   }
 
   const fmt = v => v > 0 ? v.toFixed(2) + ' ر.س' : '—';
@@ -482,21 +674,17 @@ function onModeChange() {
   const amtLabel  = document.getElementById('amount-label');
   const modeHint  = document.getElementById('mode-hint');
   const manualRow = document.getElementById('manual-vat-row');
-
   if (mode === 'includes_vat') {
     amtLabel.textContent = 'المبلغ الإجمالي (شامل الضريبة)';
     modeHint.textContent = 'إذا كان السعر شامل الضريبة سيتم احتساب الضريبة تلقائياً';
-    modeHint.style.display = '';
-    manualRow.classList.add('d-none');
+    modeHint.style.display = ''; manualRow.classList.add('d-none');
   } else if (mode === 'excludes_vat') {
     amtLabel.textContent = 'الصافي قبل الضريبة';
     modeHint.textContent = 'سيتم إضافة 15% تلقائياً — المبلغ المحفوظ هو الإجمالي شامل الضريبة';
-    modeHint.style.display = '';
-    manualRow.classList.add('d-none');
+    modeHint.style.display = ''; manualRow.classList.add('d-none');
   } else {
     amtLabel.textContent = 'المبلغ الإجمالي (شامل الضريبة)';
-    modeHint.style.display = 'none';
-    manualRow.classList.remove('d-none');
+    modeHint.style.display = 'none'; manualRow.classList.remove('d-none');
   }
   calcVat();
 }
@@ -506,21 +694,39 @@ document.getElementById('entered-amount').addEventListener('input', calcVat);
 document.getElementById('vat-amount-manual').addEventListener('input', calcVat);
 onModeChange();
 
-// =============================================================================
+// ============================================================
 // Form submission
-// =============================================================================
+// ============================================================
 document.getElementById('invoice-form').addEventListener('submit', async e => {
   e.preventDefault();
   const btn = e.target.querySelector('[type=submit]');
 
-  // Client-side VAT sanity check for manual mode
+  // VAT manual sanity check
   const mode    = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
   const entered = parseFloat(document.getElementById('entered-amount').value) || 0;
   if (mode === 'manual') {
     const manualVat = parseFloat(document.getElementById('vat-amount-manual').value) || 0;
     if (entered > 0 && manualVat > entered * 0.20) {
-      showToast('ضريبة القيمة المضافة غير منطقية، تحقق من المبلغ', 'error');
+      showToast('ضريبة القيمة المضافة غير منطقية، تحقق من المبلغ', 'error'); return;
+    }
+  }
+
+  // Warn if search text entered but no SKU selected
+  for (const row of document.querySelectorAll('.item-row')) {
+    const searchText = row.querySelector('.item-search').value.trim();
+    const sku        = row.querySelector('.item-sku-val').value.trim();
+    if (searchText && !sku) {
+      showToast('اختر الصنف من القائمة أو أضفه كصنف جديد', 'error');
+      row.querySelector('.item-search').focus();
       return;
+    }
+    // Validate qty > 0 when SKU is set
+    if (sku) {
+      const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
+      if (qty <= 0) {
+        showToast('الكمية يجب أن تكون أكبر من صفر', 'error');
+        row.querySelector('.item-qty').focus(); return;
+      }
     }
   }
 
@@ -548,9 +754,9 @@ document.getElementById('invoice-form').addEventListener('submit', async e => {
   }
 });
 
-// =============================================================================
-// Delete buttons (invoices list)
-// =============================================================================
+// ============================================================
+// Delete buttons
+// ============================================================
 document.querySelectorAll('.delete-btn').forEach(btn => {
   btn.addEventListener('click', async function() {
     const id = this.dataset.id, nr = this.dataset.nr;
@@ -564,9 +770,7 @@ document.querySelectorAll('.delete-btn').forEach(btn => {
       } else {
         showToast(data.error || 'فشل الحذف', 'error');
       }
-    } catch {
-      showToast('حدث خطأ', 'error');
-    }
+    } catch { showToast('حدث خطأ', 'error'); }
   });
 });
 </script>

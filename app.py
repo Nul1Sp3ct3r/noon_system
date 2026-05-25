@@ -2447,6 +2447,129 @@ def settlements_page():
 
 
 # =============================================================================
+# Products search & quick-create APIs
+# =============================================================================
+
+@app.route('/api/products/search')
+def api_products_search():
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    like = f'%{q}%'
+    db = get_db(DB_PATH)
+    try:
+        rows = db.execute("""
+            SELECT p.sku, p.partner_sku, p.name_en, p.name_ar,
+                   COALESCE(p.barcode, '') AS barcode,
+                   p.unit_cost,
+                   CASE WHEN SUM(CASE WHEN im.movement_type='purchase' THEN im.quantity ELSE 0 END) > 0
+                        THEN SUM(CASE WHEN im.movement_type='purchase' THEN im.quantity * im.unit_cost ELSE 0 END) /
+                             SUM(CASE WHEN im.movement_type='purchase' THEN im.quantity ELSE 0 END)
+                        ELSE NULL END AS avg_cost
+            FROM products p
+            LEFT JOIN inventory_movements im ON im.sku = p.sku AND im.is_void = 0
+            WHERE p.sku LIKE ? OR COALESCE(p.partner_sku,'') LIKE ?
+               OR COALESCE(p.barcode,'') LIKE ?
+               OR COALESCE(p.name_en,'') LIKE ? OR COALESCE(p.name_ar,'') LIKE ?
+            GROUP BY p.sku
+            ORDER BY
+                CASE WHEN p.sku = ? THEN 0
+                     WHEN COALESCE(p.barcode,'') = ? THEN 1
+                     WHEN p.sku LIKE ? THEN 2 ELSE 3 END,
+                p.sku
+            LIMIT 10
+        """, (like, like, like, like, like, q, q, f'{q}%')).fetchall()
+    except Exception as e:
+        db.close()
+        return jsonify({'error': str(e)}), 500
+
+    results = []
+    for r in rows:
+        avg = r['avg_cost']
+        results.append({
+            'sku':        r['sku'],
+            'partner_sku': r['partner_sku'] or '',
+            'name_en':    r['name_en'] or '',
+            'name_ar':    r['name_ar'] or '',
+            'barcode':    r['barcode'] or '',
+            'unit_cost':  float(r['unit_cost'] or 0),
+            'avg_cost':   float(avg) if avg is not None else None,
+        })
+    db.close()
+    return jsonify(results)
+
+
+@app.route('/api/products/quick-create', methods=['POST'])
+def api_products_quick_create():
+    data = request.get_json(silent=True) or {}
+    name_ar = str(data.get('name_ar', '')).strip()
+    name_en = str(data.get('name_en', '')).strip()
+    sku = str(data.get('sku', '')).strip()
+    barcode = str(data.get('barcode', '')).strip() or None
+    unit_cost = float(data.get('unit_cost', 0) or 0)
+    cost_includes_vat = int(data.get('cost_includes_vat', 1))
+
+    if not sku:
+        return jsonify({'success': False, 'error': 'SKU مطلوب'}), 400
+    if not name_ar:
+        return jsonify({'success': False, 'error': 'اسم المنتج بالعربي مطلوب'}), 400
+
+    db = get_db(DB_PATH)
+
+    # If SKU already exists, return it instead of erroring
+    existing = db.execute("SELECT * FROM products WHERE sku=?", (sku,)).fetchone()
+    if existing:
+        db.close()
+        return jsonify({
+            'success': True, 'existed': True,
+            'product': {
+                'sku':       existing['sku'],
+                'partner_sku': existing['partner_sku'] or '',
+                'name_en':   existing['name_en'] or '',
+                'name_ar':   existing['name_ar'] or '',
+                'barcode':   existing['barcode'] or '' if 'barcode' in existing.keys() else '',
+                'unit_cost': float(existing['unit_cost'] or 0),
+                'avg_cost':  None,
+            }
+        })
+
+    # Check barcode uniqueness
+    if barcode:
+        bc_conflict = db.execute(
+            "SELECT sku FROM products WHERE barcode=?", (barcode,)
+        ).fetchone()
+        if bc_conflict:
+            db.close()
+            return jsonify({
+                'success': False,
+                'error': 'هذا الباركود مستخدم مسبقاً',
+                'conflict_sku': bc_conflict['sku'],
+            }), 409
+
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    db.execute("""
+        INSERT INTO products
+            (sku, name_ar, name_en, barcode, unit_cost, cost_includes_vat, updated_at)
+        VALUES (?,?,?,?,?,?,?)
+    """, (sku, name_ar, name_en or None, barcode, unit_cost, cost_includes_vat, now))
+    db.commit()
+    db.close()
+
+    return jsonify({
+        'success': True, 'existed': False,
+        'product': {
+            'sku':       sku,
+            'partner_sku': '',
+            'name_en':   name_en,
+            'name_ar':   name_ar,
+            'barcode':   barcode or '',
+            'unit_cost': unit_cost,
+            'avg_cost':  None,
+        }
+    })
+
+
+# =============================================================================
 # Inventory Management
 # =============================================================================
 
