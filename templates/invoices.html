@@ -474,13 +474,18 @@ function showDropdown(tr, results, query) {
     nf.style.display = 'none';
     dd.innerHTML = results.map((p, i) => {
       const name = p.name_ar || p.name_en || p.sku;
+      const brand = p.brand_ar || p.brand_en;
       const costText = p.avg_cost !== null && p.avg_cost > 0
         ? `<span class="dd-cost">متوسط التكلفة: ${p.avg_cost.toFixed(2)} ر.س</span>`
         : (p.unit_cost > 0 ? `<span class="dd-cost">تكلفة: ${p.unit_cost.toFixed(2)} ر.س</span>` : '');
-      const bc = p.barcode ? `<span>باركود: ${p.barcode}</span>` : '';
+      const metaParts = [`<span>SKU noon: ${p.sku}</span>`];
+      if (p.partner_sku) metaParts.push(`<span>كود الشريك: ${p.partner_sku}</span>`);
+      if (p.barcode)     metaParts.push(`<span>الباركود: ${p.barcode}</span>`);
+      if (brand)         metaParts.push(`<span>${brand}</span>`);
+      if (costText)      metaParts.push(costText);
       return `<div class="dd-item" data-idx="${i}">
         <div class="dd-name">${name}</div>
-        <div class="dd-meta"><span>SKU: ${p.sku}</span>${bc}${costText}</div>
+        <div class="dd-meta">${metaParts.join('')}</div>
       </div>`;
     }).join('');
     dd.querySelectorAll('.dd-item').forEach(item => {

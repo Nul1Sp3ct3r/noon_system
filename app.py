@@ -2461,6 +2461,8 @@ def api_products_search():
         rows = db.execute("""
             SELECT p.sku, p.partner_sku, p.name_en, p.name_ar,
                    COALESCE(p.barcode, '') AS barcode,
+                   COALESCE(p.brand_en, '') AS brand_en,
+                   COALESCE(p.brand_ar, '') AS brand_ar,
                    p.unit_cost,
                    CASE WHEN SUM(CASE WHEN im.movement_type='purchase' THEN im.quantity ELSE 0 END) > 0
                         THEN SUM(CASE WHEN im.movement_type='purchase' THEN im.quantity * im.unit_cost ELSE 0 END) /
@@ -2468,17 +2470,25 @@ def api_products_search():
                         ELSE NULL END AS avg_cost
             FROM products p
             LEFT JOIN inventory_movements im ON im.sku = p.sku AND im.is_void = 0
-            WHERE p.sku LIKE ? OR COALESCE(p.partner_sku,'') LIKE ?
+            WHERE p.sku LIKE ?
+               OR COALESCE(p.partner_sku,'') LIKE ?
                OR COALESCE(p.barcode,'') LIKE ?
-               OR COALESCE(p.name_en,'') LIKE ? OR COALESCE(p.name_ar,'') LIKE ?
+               OR COALESCE(p.name_en,'') LIKE ?
+               OR COALESCE(p.name_ar,'') LIKE ?
+               OR COALESCE(p.brand_en,'') LIKE ?
+               OR COALESCE(p.brand_ar,'') LIKE ?
             GROUP BY p.sku
             ORDER BY
                 CASE WHEN p.sku = ? THEN 0
-                     WHEN COALESCE(p.barcode,'') = ? THEN 1
-                     WHEN p.sku LIKE ? THEN 2 ELSE 3 END,
+                     WHEN COALESCE(p.partner_sku,'') = ? THEN 1
+                     WHEN COALESCE(p.barcode,'') = ? THEN 2
+                     WHEN p.sku LIKE ? THEN 3
+                     WHEN COALESCE(p.partner_sku,'') LIKE ? THEN 4
+                     ELSE 5 END,
                 p.sku
             LIMIT 10
-        """, (like, like, like, like, like, q, q, f'{q}%')).fetchall()
+        """, (like, like, like, like, like, like, like,
+              q, q, q, f'{q}%', f'{q}%')).fetchall()
     except Exception as e:
         db.close()
         return jsonify({'error': str(e)}), 500
@@ -2487,13 +2497,15 @@ def api_products_search():
     for r in rows:
         avg = r['avg_cost']
         results.append({
-            'sku':        r['sku'],
+            'sku':         r['sku'],
             'partner_sku': r['partner_sku'] or '',
-            'name_en':    r['name_en'] or '',
-            'name_ar':    r['name_ar'] or '',
-            'barcode':    r['barcode'] or '',
-            'unit_cost':  float(r['unit_cost'] or 0),
-            'avg_cost':   float(avg) if avg is not None else None,
+            'name_en':     r['name_en'] or '',
+            'name_ar':     r['name_ar'] or '',
+            'barcode':     r['barcode'] or '',
+            'brand_en':    r['brand_en'] or '',
+            'brand_ar':    r['brand_ar'] or '',
+            'unit_cost':   float(r['unit_cost'] or 0),
+            'avg_cost':    float(avg) if avg is not None else None,
         })
     db.close()
     return jsonify(results)
