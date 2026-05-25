@@ -26,26 +26,68 @@
   display:none; position:absolute; top:100%; right:0; left:0; z-index:1050;
   background:#fff; border:1px solid #dee2e6; border-radius:8px;
   box-shadow:0 6px 20px rgba(0,0,0,.15); max-height:300px; overflow-y:auto;
+  min-width:280px;
 }
-.dd-item { padding:9px 12px; cursor:pointer; border-bottom:1px solid #f4f4f4; transition:background .1s; }
+.dd-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid #f4f4f4; transition:background .1s; }
 .dd-item:last-child { border-bottom:none; }
 .dd-item:hover { background:#f0f4ff; }
-.dd-item .dd-name { font-weight:600; font-size:.9rem; margin-bottom:2px; }
-.dd-item .dd-meta { font-size:.76rem; color:#6c757d; display:flex; gap:10px; flex-wrap:wrap; }
+.dd-item .dd-name { font-weight:600; font-size:.92rem; margin-bottom:3px; }
+.dd-item .dd-meta { font-size:.78rem; color:#6c757d; display:flex; gap:10px; flex-wrap:wrap; }
 .dd-item .dd-cost { color:#3B6D11; font-weight:600; }
-.dd-notfound { padding:12px; color:#6c757d; font-size:.88rem; text-align:center; }
+
+/* Not-found alert — shown inline below search field */
+.item-notfound {
+  display:none; margin-top:8px; padding:10px 14px;
+  background:#fff8e1; border:1px solid #ffe082; border-radius:8px;
+  font-size:.88rem; color:#5d4037;
+}
+.item-notfound .btn { font-size:.84rem; }
 
 /* Selected item info chip */
 .item-selected-chip {
-  display:none; margin-top:3px; padding:2px 7px; background:#e8f0fe;
-  border-radius:10px; font-size:.74rem; color:#185FA5; white-space:nowrap;
+  display:none; margin-top:5px; padding:3px 9px; background:#e8f0fe;
+  border-radius:10px; font-size:.76rem; color:#185FA5; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; max-width:100%;
 }
 
-/* Items table */
-#items-table thead th { background:#1a3a5c; color:#fff; font-size:.82rem; padding:7px 8px; }
-#items-table tbody td { padding:5px 6px; vertical-align:middle; }
+/* ── Item rows — flex layout ── */
+.items-header {
+  display:flex; gap:8px; padding:6px 12px 6px;
+  font-size:.78rem; color:#6c757d; font-weight:700;
+  border-bottom:2px solid #e9ecef; margin-bottom:6px;
+}
+.item-row {
+  display:flex; align-items:flex-start; gap:8px;
+  padding:10px 12px; border:1px solid #e9ecef; border-radius:10px;
+  margin-bottom:8px; background:#fff; min-height:56px;
+  transition:border-color .15s;
+}
+.item-row:hover { border-color:#c6d4e8; }
+
+.item-search-col  { flex:1 1 0; min-width:0; }
+.item-qty-col     { width:90px;  flex-shrink:0; }
+.item-uc-col      { width:135px; flex-shrink:0; }
+.item-total-col   { width:135px; flex-shrink:0; }
+.item-actions-col { width:72px;  flex-shrink:0; display:flex; align-items:flex-start;
+                    justify-content:flex-end; padding-top:3px; gap:3px; }
+
+/* header col alignment matches row cols */
+.items-header .item-search-col  { flex:1 1 0; }
+.items-header .item-qty-col     { width:90px; }
+.items-header .item-uc-col      { width:135px; }
+.items-header .item-total-col   { width:135px; }
+.items-header .item-actions-col { width:72px; }
+
 .search-wrap { position:relative; }
+
+/* Mobile */
+@media (max-width:767px) {
+  .item-row { flex-wrap:wrap; gap:6px; }
+  .item-search-col { flex:0 0 100%; }
+  .item-qty-col,.item-uc-col,.item-total-col { flex:1 1 auto; width:auto; }
+  .item-actions-col { flex:0 0 auto; width:auto; padding-top:20px; }
+  .items-header { display:none !important; }
+}
 </style>
 {% endblock %}
 
@@ -170,20 +212,15 @@
             <i class="bi bi-plus me-1"></i>إضافة بند
           </button>
         </div>
-        <div class="table-responsive">
-          <table class="table table-sm mb-0" id="items-table">
-            <thead>
-              <tr>
-                <th style="width:44%"><i class="bi bi-search me-1"></i>الصنف / SKU / الباركود</th>
-                <th style="width:11%">الكمية</th>
-                <th style="width:18%">تكلفة الوحدة</th>
-                <th style="width:14%">الإجمالي</th>
-                <th style="width:13%"></th>
-              </tr>
-            </thead>
-            <tbody id="items-body"></tbody>
-          </table>
+        <!-- Column headers — hidden on mobile -->
+        <div class="items-header d-none d-md-flex">
+          <div class="item-search-col"><i class="bi bi-search me-1"></i>الصنف / SKU / الباركود</div>
+          <div class="item-qty-col">الكمية</div>
+          <div class="item-uc-col">تكلفة الوحدة</div>
+          <div class="item-total-col">الإجمالي</div>
+          <div class="item-actions-col"></div>
         </div>
+        <div id="items-body"></div>
         <div class="text-end mt-2" id="running-total-row" style="display:none!important">
           <strong class="text-muted small">إجمالي البنود: </strong>
           <strong id="running-total" class="color-revenue">0.00 ر.س</strong>
@@ -264,46 +301,49 @@
   </div>
 </div>
 
-<!-- Quick-Add Product Modal -->
+<!-- Quick-Add Product Modal — large size, 2-col layout -->
 <div class="modal fade" id="quickAddModal" tabindex="-1" aria-labelledby="qaModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
       <div class="modal-header" style="background:#1a3a5c; color:#fff;">
         <h5 class="modal-title" id="qaModalLabel"><i class="bi bi-plus-circle me-2"></i>إضافة صنف جديد</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label fw-bold">اسم المنتج بالعربي <span class="text-danger">*</span></label>
-          <input type="text" id="qa-name-ar" class="form-control" placeholder="اسم المنتج...">
-        </div>
-        <div class="mb-3">
-          <label class="form-label fw-bold">اسم المنتج بالإنجليزي <span class="text-muted fw-normal small">(اختياري)</span></label>
-          <input type="text" id="qa-name-en" class="form-control" placeholder="Product name...">
-        </div>
-        <div class="row g-3 mb-3">
-          <div class="col-6">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label fw-bold">اسم المنتج بالعربي <span class="text-danger">*</span></label>
+            <input type="text" id="qa-name-ar" class="form-control" placeholder="اسم المنتج...">
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-bold">اسم المنتج بالإنجليزي <span class="text-muted fw-normal small">(اختياري)</span></label>
+            <input type="text" id="qa-name-en" class="form-control" placeholder="Product name in English...">
+          </div>
+          <div class="col-md-6">
             <label class="form-label fw-bold">SKU <span class="text-danger">*</span></label>
             <input type="text" id="qa-sku" class="form-control" placeholder="NOON-SKU-001">
           </div>
-          <div class="col-6">
+          <div class="col-md-6">
             <label class="form-label fw-bold">الباركود <span class="text-muted fw-normal small">(اختياري)</span></label>
             <input type="text" id="qa-barcode" class="form-control" placeholder="6281234567890">
           </div>
-        </div>
-        <div class="row g-3">
-          <div class="col-6">
+          <div class="col-md-6">
             <label class="form-label fw-bold">تكلفة الشراء الافتراضية</label>
-            <input type="number" id="qa-cost" class="form-control" value="0" min="0" step="0.01">
-          </div>
-          <div class="col-6 d-flex align-items-end pb-2">
-            <div class="form-check">
-              <input type="checkbox" id="qa-civ" class="form-check-input" checked>
-              <label class="form-check-label small" for="qa-civ">التكلفة شاملة الضريبة</label>
+            <div class="input-group">
+              <input type="number" id="qa-cost" class="form-control" value="0" min="0" step="0.01">
+              <span class="input-group-text">ر.س</span>
             </div>
           </div>
+          <div class="col-md-6 d-flex align-items-end pb-2">
+            <div class="form-check">
+              <input type="checkbox" id="qa-civ" class="form-check-input" checked>
+              <label class="form-check-label" for="qa-civ">التكلفة شاملة الضريبة (15%)</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div id="qa-error" class="alert alert-danger d-none py-2" style="font-size:.88rem;"></div>
+          </div>
         </div>
-        <div id="qa-error" class="alert alert-danger mt-3 d-none py-2" style="font-size:.88rem;"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
@@ -414,18 +454,24 @@ async function searchProducts(q) {
 
 function showDropdown(tr, results, query) {
   const dd = tr.querySelector('.item-dd');
+  const nf = tr.querySelector('.item-notfound');
+
   if (!results.length) {
-    dd.innerHTML = `
-      <div class="dd-notfound">
-        الصنف غير موجود، هل ترغب في إضافته؟
-        <button type="button" class="btn btn-sm btn-primary mt-2 w-100 open-qa-btn">
+    dd.style.display = 'none';
+    nf.innerHTML = `الصنف غير موجود، هل ترغب في إضافته؟
+      <div class="mt-2">
+        <button type="button" class="btn btn-primary btn-sm open-qa-btn">
           <i class="bi bi-plus-circle me-1"></i>إضافة صنف جديد
         </button>
       </div>`;
-    dd.querySelector('.open-qa-btn').addEventListener('click', () => {
-      hideDropdown(tr); openQuickAdd(tr, query);
+    nf.querySelector('.open-qa-btn').addEventListener('mousedown', e => {
+      e.preventDefault();
+      nf.style.display = 'none';
+      openQuickAdd(tr, query);
     });
+    nf.style.display = 'block';
   } else {
+    nf.style.display = 'none';
     dd.innerHTML = results.map((p, i) => {
       const name = p.name_ar || p.name_en || p.sku;
       const costText = p.avg_cost !== null && p.avg_cost > 0
@@ -441,8 +487,8 @@ function showDropdown(tr, results, query) {
       const idx = parseInt(item.dataset.idx);
       item.addEventListener('mousedown', e => { e.preventDefault(); selectProduct(tr, results[idx]); });
     });
+    dd.style.display = 'block';
   }
-  dd.style.display = 'block';
 }
 
 function hideDropdown(tr) {
@@ -455,21 +501,21 @@ function selectProduct(tr, product) {
   tr.querySelector('.item-name-val').value = product.name_ar || product.name_en || product.sku;
   tr.querySelector('.item-search').value   = product.name_ar || product.name_en || product.sku;
 
-  // Info chip
   const chip  = tr.querySelector('.item-selected-chip');
   const parts = [`SKU: ${product.sku}`];
   if (product.barcode) parts.push(`باركود: ${product.barcode}`);
-  chip.textContent  = parts.join(' · ');
+  chip.textContent   = parts.join(' · ');
   chip.style.display = 'inline-block';
 
-  // Pre-fill cost
+  const nf = tr.querySelector('.item-notfound');
+  if (nf) nf.style.display = 'none';
+
   const cost = (product.avg_cost !== null && product.avg_cost > 0) ? product.avg_cost : product.unit_cost;
   if (cost > 0) tr.querySelector('.item-uc').value = cost.toFixed(2);
 
   hideDropdown(tr);
   recalcRow(tr);
 
-  // Auto-add next empty row if this is the last one
   const tbody = document.getElementById('items-body');
   if (tr === tbody.lastElementChild) addItemRow(false);
 
@@ -488,10 +534,9 @@ function openQuickAdd(tr, prefill) {
   document.getElementById('qa-civ').checked    = true;
   document.getElementById('qa-error').classList.add('d-none');
 
-  // Smart pre-fill: barcode if pure digits 8-13, else SKU if short alphanumeric, else name
-  if (/^\d{8,13}$/.test(q))               document.getElementById('qa-barcode').value  = q;
-  else if (/^[\w\-]{1,30}$/.test(q))      document.getElementById('qa-sku').value       = q;
-  else                                     document.getElementById('qa-name-ar').value   = q;
+  if (/^\d{8,13}$/.test(q))          document.getElementById('qa-barcode').value = q;
+  else if (/^[\w\-]{1,30}$/.test(q)) document.getElementById('qa-sku').value     = q;
+  else                                document.getElementById('qa-name-ar').value = q;
 
   quickAddModal.show();
   setTimeout(() => {
@@ -556,84 +601,93 @@ function recalcRow(tr) {
 }
 
 function addItemRow(focus = true) {
-  const tr = document.createElement('tr');
-  tr.className = 'item-row';
-  tr.innerHTML = `
-    <td>
+  const row = document.createElement('div');
+  row.className = 'item-row';
+  row.innerHTML = `
+    <div class="item-search-col">
       <div class="search-wrap">
-        <input type="text" class="form-control form-control-sm item-search"
-               placeholder="اسم الصنف / SKU / الباركود" autocomplete="off" dir="auto">
+        <input type="text" class="form-control item-search"
+               placeholder="ابحث باسم الصنف أو SKU أو الباركود" autocomplete="off" dir="auto">
         <input type="hidden" name="item_sku[]"  class="item-sku-val">
         <input type="hidden" name="item_name[]" class="item-name-val">
         <div class="item-dd"></div>
       </div>
+      <div class="item-notfound"></div>
       <div class="item-selected-chip"></div>
-    </td>
-    <td><input type="number" name="item_qty[]" class="form-control form-control-sm item-qty"
-               value="1" min="1" step="1"></td>
-    <td><input type="number" name="item_unit_cost[]" class="form-control form-control-sm item-uc"
-               value="0" min="0" step="0.01"></td>
-    <td><input type="number" name="item_total[]" class="form-control form-control-sm item-total-input"
-               value="0" readonly style="background:#f8f9fa"></td>
-    <td>
-      <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 me-1 open-qa-row"
+    </div>
+    <div class="item-qty-col">
+      <label class="d-md-none form-label small mb-1">الكمية</label>
+      <input type="number" name="item_qty[]" class="form-control item-qty" value="1" min="1" step="1">
+    </div>
+    <div class="item-uc-col">
+      <label class="d-md-none form-label small mb-1">تكلفة الوحدة</label>
+      <input type="number" name="item_unit_cost[]" class="form-control item-uc" value="0" min="0" step="0.01">
+    </div>
+    <div class="item-total-col">
+      <label class="d-md-none form-label small mb-1">الإجمالي</label>
+      <input type="number" name="item_total[]" class="form-control item-total-input"
+             value="0" readonly style="background:#f8f9fa">
+    </div>
+    <div class="item-actions-col">
+      <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 open-qa-row"
               title="إضافة صنف جديد"><i class="bi bi-plus-circle"></i></button>
       <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 remove-row"
               title="حذف"><i class="bi bi-x-lg"></i></button>
-    </td>`;
+    </div>`;
 
-  const searchInput = tr.querySelector('.item-search');
+  const searchInput = row.querySelector('.item-search');
   const debouncedSearch = debounce(async q => {
-    if (q.length < 2) { hideDropdown(tr); return; }
+    if (q.length < 2) { hideDropdown(row); return; }
     const results = await searchProducts(q);
-    showDropdown(tr, results, q);
+    showDropdown(row, results, q);
   }, 200);
 
   searchInput.addEventListener('input', e => {
-    // Clear selection if user edits the field
+    const nf = row.querySelector('.item-notfound');
+    if (nf) nf.style.display = 'none';
     if (!e.target.value.trim()) {
-      tr.querySelector('.item-sku-val').value  = '';
-      tr.querySelector('.item-name-val').value = '';
-      tr.querySelector('.item-selected-chip').style.display = 'none';
+      row.querySelector('.item-sku-val').value  = '';
+      row.querySelector('.item-name-val').value = '';
+      row.querySelector('.item-selected-chip').style.display = 'none';
     }
     debouncedSearch(e.target.value.trim());
   });
-  searchInput.addEventListener('blur',    () => setTimeout(() => hideDropdown(tr), 160));
+  searchInput.addEventListener('blur',    () => setTimeout(() => hideDropdown(row), 160));
   searchInput.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { hideDropdown(tr); return; }
+    if (e.key === 'Escape') { hideDropdown(row); return; }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      const first = tr.querySelector('.dd-item');
+      const first = row.querySelector('.dd-item');
       if (first) first.focus();
       return;
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      const first = tr.querySelector('.dd-item');
+      const first = row.querySelector('.dd-item');
       if (first) first.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
     }
   });
 
-  tr.querySelector('.item-qty').addEventListener('input', () => recalcRow(tr));
-  tr.querySelector('.item-qty').addEventListener('keydown', e => {
+  row.querySelector('.item-qty').addEventListener('input', () => recalcRow(row));
+  row.querySelector('.item-qty').addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    const sku   = tr.querySelector('.item-sku-val').value;
+    const sku   = row.querySelector('.item-sku-val').value;
     if (!sku) return;
     const tbody = document.getElementById('items-body');
     const rows  = Array.from(tbody.querySelectorAll('.item-row'));
-    const idx   = rows.indexOf(tr);
+    const idx   = rows.indexOf(row);
     if (idx < rows.length - 1) rows[idx + 1].querySelector('.item-search').focus();
     else addItemRow(true);
   });
 
-  tr.querySelector('.item-uc').addEventListener('input', () => recalcRow(tr));
-  tr.querySelector('.remove-row').addEventListener('click',  () => { tr.remove(); updateRunningTotal(); });
-  tr.querySelector('.open-qa-row').addEventListener('click', () => openQuickAdd(tr, ''));
+  row.querySelector('.item-uc').addEventListener('input', () => recalcRow(row));
+  row.querySelector('.remove-row').addEventListener('click',  () => { row.remove(); updateRunningTotal(); });
+  row.querySelector('.open-qa-row').addEventListener('click', () => openQuickAdd(row, ''));
 
-  document.getElementById('items-body').appendChild(tr);
+  document.getElementById('items-body').appendChild(row);
   if (focus) searchInput.focus();
-  return tr;
+  return row;
 }
 
 // Start with one empty row
@@ -701,7 +755,6 @@ document.getElementById('invoice-form').addEventListener('submit', async e => {
   e.preventDefault();
   const btn = e.target.querySelector('[type=submit]');
 
-  // VAT manual sanity check
   const mode    = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
   const entered = parseFloat(document.getElementById('entered-amount').value) || 0;
   if (mode === 'manual') {
@@ -711,7 +764,6 @@ document.getElementById('invoice-form').addEventListener('submit', async e => {
     }
   }
 
-  // Warn if search text entered but no SKU selected
   for (const row of document.querySelectorAll('.item-row')) {
     const searchText = row.querySelector('.item-search').value.trim();
     const sku        = row.querySelector('.item-sku-val').value.trim();
@@ -720,7 +772,6 @@ document.getElementById('invoice-form').addEventListener('submit', async e => {
       row.querySelector('.item-search').focus();
       return;
     }
-    // Validate qty > 0 when SKU is set
     if (sku) {
       const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
       if (qty <= 0) {
