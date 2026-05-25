@@ -506,6 +506,8 @@ function selectProduct(tr, product) {
   tr.querySelector('.item-sku-val').value  = product.sku;
   tr.querySelector('.item-name-val').value = product.name_ar || product.name_en || product.sku;
   tr.querySelector('.item-search').value   = product.name_ar || product.name_en || product.sku;
+  tr.dataset.selected  = '1';
+  tr.dataset.searching = '';
 
   const chip  = tr.querySelector('.item-selected-chip');
   const parts = [`SKU: ${product.sku}`];
@@ -642,38 +644,58 @@ function addItemRow(focus = true) {
     </div>`;
 
   const searchInput = row.querySelector('.item-search');
-
-  // Per-row token: incremented on every input change so stale async responses are dropped
+  const nfDiv       = row.querySelector('.item-notfound');
   let rowSearchToken = 0;
 
+  // Initialise dataset state on the row element
+  row.dataset.selected  = '';  // '1' once a product is confirmed selected
+  row.dataset.searching = '';  // '1' while API is in flight — blocks Enter
+
   function clearRowSelection() {
-    row.querySelector('.item-sku-val').value   = '';
-    row.querySelector('.item-name-val').value  = '';
+    row.querySelector('.item-sku-val').value  = '';
+    row.querySelector('.item-name-val').value = '';
     row.querySelector('.item-selected-chip').style.display = 'none';
+    row.dataset.selected  = '';
+    row.dataset.searching = '';
     console.log('[search] selection cleared, input="' + searchInput.value + '"');
   }
 
   const debouncedSearch = debounce(async q => {
     const token = ++rowSearchToken;
-    console.log('[search] firing q="' + q + '" token=' + token);
-    if (q.length < 2) { hideDropdown(row); return; }
-    const results = await searchProducts(q);
-    if (token !== rowSearchToken) {
-      console.log('[search] stale response discarded, q="' + q + '" token=' + token + ' current=' + rowSearchToken);
+    console.log('[search] q="' + q + '" token=' + token);
+    if (q.length < 2) {
+      row.dataset.searching = '';
+      nfDiv.style.display   = 'none';
+      hideDropdown(row);
       return;
     }
+    const results = await searchProducts(q);
+    if (token !== rowSearchToken) {
+      console.log('[search] stale discarded token=' + token + ' current=' + rowSearchToken);
+      return;
+    }
+    row.dataset.searching = '';
     console.log('[search] results=' + results.length + ' for q="' + q + '"');
     showDropdown(row, results, q);
   }, 200);
 
   searchInput.addEventListener('input', e => {
-    const nf = row.querySelector('.item-notfound');
-    if (nf) nf.style.display = 'none';
-    // Always clear previous selection on ANY input change — not just when empty
+    const q = e.target.value.trim();
+    // 1. Immediately wipe dropdown DOM and selection — no stale state survives
+    hideDropdown(row);
     clearRowSelection();
-    debouncedSearch(e.target.value.trim());
+    nfDiv.style.display = 'none';
+    if (q.length >= 2) {
+      // 2. Gate Enter immediately — before debounce fires or API returns
+      row.dataset.searching = '1';
+      nfDiv.innerHTML = '<small class="text-muted"><i class="bi bi-hourglass-split me-1"></i>جاري البحث...</small>';
+      nfDiv.style.display = 'block';
+    }
+    debouncedSearch(q);
   });
-  searchInput.addEventListener('blur',    () => setTimeout(() => hideDropdown(row), 160));
+
+  searchInput.addEventListener('blur', () => setTimeout(() => hideDropdown(row), 160));
+
   searchInput.addEventListener('keydown', e => {
     if (e.key === 'Escape') { hideDropdown(row); return; }
     if (e.key === 'ArrowDown') {
@@ -684,13 +706,18 @@ function addItemRow(focus = true) {
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      const first = row.querySelector('.dd-item');
-      const currentSku = row.querySelector('.item-sku-val').value;
-      console.log('[enter] dd-visible=' + !!first + ' sku-val="' + currentSku + '"');
-      // Only dispatch if dropdown has visible results — never reuse stale sku-val
+      const isSearching = row.dataset.searching === '1';
+      const dd          = row.querySelector('.item-dd');
+      const ddVisible   = dd.style.display === 'block';
+      const first       = ddVisible ? dd.querySelector('.dd-item') : null;
+      console.log('[enter] searching=' + isSearching + ' dd-visible=' + ddVisible +
+                  ' sku-val="' + row.querySelector('.item-sku-val').value + '"');
+      if (isSearching) {
+        // API still in flight — do nothing, wait
+        console.log('[enter] blocked: search in progress');
+        return;
+      }
       if (first) first.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-      // If no dropdown items: sku-val is already cleared above, so form validation
-      // will warn the user to select from the list
     }
   });
 
@@ -793,10 +820,17 @@ document.getElementById('invoice-form').addEventListener('submit', async e => {
   for (const row of document.querySelectorAll('.item-row')) {
     const searchText = row.querySelector('.item-search').value.trim();
     const sku        = row.querySelector('.item-sku-val').value.trim();
+    if (row.dataset.searching === '1') {
+      showToast('انتظر اكتمال البحث قبل حفظ الفاتورة', 'error');
+      row.querySelector('.item-search').focus(); return;
+    }
     if (searchText && !sku) {
-      showToast('اختر الصنف من القائمة أو أضفه كصنف جديد', 'error');
-      row.querySelector('.item-search').focus();
-      return;
+      showToast('اختر الصنف من القائمة قبل حفظ الفاتورة', 'error');
+      row.querySelector('.item-search').focus(); return;
+    }
+    if (searchText && sku && row.dataset.selected !== '1') {
+      showToast('اختر الصنف من القائمة قبل حفظ الفاتورة', 'error');
+      row.querySelector('.item-search').focus(); return;
     }
     if (sku) {
       const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
