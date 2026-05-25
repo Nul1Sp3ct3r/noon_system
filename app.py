@@ -80,6 +80,7 @@ SKU_AGGREGATION_SQL = """
     SELECT
         p.sku, p.partner_sku, p.brand_en, p.brand_ar,
         p.name_en, p.name_ar, p.unit_cost, p.extra_costs, p.notes,
+        COALESCE(p.cost_includes_vat, 1) AS cost_includes_vat,
         COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN 1 ELSE 0 END), 0) AS units_sold,
         COALESCE(SUM(CASE WHEN o.item_status='returned'  THEN 1 ELSE 0 END), 0) AS units_returned,
         COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN o.net_proceeds ELSE 0 END), 0.0) AS revenue,
@@ -133,7 +134,9 @@ def compute_product_metrics(row):
     noon_fees = float(row['noon_fees'] or 0)
     unit_cost = float(row['unit_cost'] or 0)
     extra_costs = float(row['extra_costs'] or 0)
-    cogs = unit_cost * units_sold
+    cost_includes_vat = int(row['cost_includes_vat'] if row['cost_includes_vat'] is not None else 1)
+    cost_excl_vat = unit_cost / 1.15 if cost_includes_vat else unit_cost
+    cogs = cost_excl_vat * units_sold
     net_profit = revenue - noon_fees - cogs - extra_costs
     margin_pct = round(net_profit / revenue * 100, 2) if revenue else None
     has_cost = unit_cost > 0 or extra_costs > 0
@@ -160,6 +163,8 @@ def compute_product_metrics(row):
         'name_en': row['name_en'] or '',
         'name_ar': row['name_ar'] or '',
         'unit_cost': unit_cost,
+        'cost_includes_vat': cost_includes_vat,
+        'cost_excl_vat': round(cost_excl_vat, 2),
         'extra_costs': extra_costs,
         'notes': row['notes'] or '',
         'units_sold': units_sold,
@@ -196,6 +201,55 @@ def _parse_filters():
         'cost_min':  request.args.get('cost_min', None),
         'cost_max':  request.args.get('cost_max', None),
     }
+
+
+# =============================================================================
+# Inventory helpers
+# =============================================================================
+
+MOVEMENT_TYPE_AR = {
+    'purchase':     'شراء',
+    'sale':         'بيع',
+    'return':       'مرتجع',
+    'transfer_in':  'تحويل وارد',
+    'transfer_out': 'تحويل صادر',
+    'adjustment':   'تسوية',
+    'damaged':      'تالف',
+}
+
+REF_TYPE_AR = {
+    'invoice':      'فاتورة مورد',
+    'noon_monthly': 'ملف نون الشهري',
+    'transfer':     'تحويل',
+    'manual':       'يدوي',
+    'return':       'مرتجع',
+}
+
+
+def _create_inv_movement(db, sku, warehouse_id, movement_type, quantity,
+                          unit_cost=0.0, reference_type=None, reference_id=None, notes=None):
+    db.execute("""
+        INSERT INTO inventory_movements
+            (sku, warehouse_id, movement_type, quantity, unit_cost,
+             reference_type, reference_id, notes, is_void, created_at)
+        VALUES (?,?,?,?,?,?,?,?,0,?)
+    """, (sku, int(warehouse_id), movement_type, float(quantity), float(unit_cost or 0),
+          reference_type, str(reference_id) if reference_id is not None else None, notes,
+          datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+
+
+def _get_warehouse_id(code, db):
+    row = db.execute("SELECT id FROM warehouses WHERE code=?", (code,)).fetchone()
+    return int(row['id']) if row else None
+
+
+def _get_stock_balance(sku, warehouse_id, db):
+    row = db.execute(
+        "SELECT COALESCE(SUM(quantity), 0) AS bal FROM inventory_movements "
+        "WHERE sku=? AND warehouse_id=? AND is_void=0",
+        (sku, int(warehouse_id))
+    ).fetchone()
+    return float(row['bal']) if row else 0.0
 
 
 # =============================================================================
@@ -562,6 +616,15 @@ def import_upload():
         sales_count = returns_count = fees_count = 0
         total_sales = total_fees = fees_vat_sum = 0.0
 
+        # Get warehouse IDs for inventory movements (safe: None if not seeded yet)
+        try:
+            _fbn_wh = db.execute("SELECT id FROM warehouses WHERE code='FBN'").fetchone()
+            _ret_wh = db.execute("SELECT id FROM warehouses WHERE code='RETURNS'").fetchone()
+            fbn_wh_id = int(_fbn_wh['id']) if _fbn_wh else None
+            ret_wh_id = int(_ret_wh['id']) if _ret_wh else None
+        except Exception:
+            fbn_wh_id = ret_wh_id = None
+
         try:
             # -- Customer rows → orders --
             for _, row in customer_df.iterrows():
@@ -615,8 +678,28 @@ def import_upload():
                         if item_status == 'delivered':
                             sales_count += 1
                             total_sales += net_proceeds
+                            # Inventory: sale from FBN (never breaks import if stock < 0)
+                            if fbn_wh_id and sku:
+                                try:
+                                    _create_inv_movement(
+                                        db, sku, fbn_wh_id, 'sale', -1,
+                                        reference_type='noon_monthly',
+                                        reference_id=f'{order_nr}_{item_nr}',
+                                    )
+                                except Exception:
+                                    pass
                         else:
                             returns_count += 1
+                            # Inventory: return to RETURNS warehouse for inspection
+                            if ret_wh_id and sku:
+                                try:
+                                    _create_inv_movement(
+                                        db, sku, ret_wh_id, 'return', 1,
+                                        reference_type='noon_monthly',
+                                        reference_id=f'{order_nr}_{item_nr}',
+                                    )
+                                except Exception:
+                                    pass
                     else:
                         rows_ignored += 1
                 except Exception:
@@ -1081,6 +1164,7 @@ def costs_save():
     extra_costs_list = request.form.getlist('extra_costs[]')
     notes_list = request.form.getlist('notes[]')
     partner_skus = request.form.getlist('partner_sku[]')
+    civ_list = request.form.getlist('cost_includes_vat[]')
 
     if not skus:
         return jsonify({'success': False, 'error': 'لا توجد بيانات للحفظ'}), 400
@@ -1095,9 +1179,11 @@ def costs_save():
             ec = float(extra_costs_list[i]) if i < len(extra_costs_list) else 0.0
             note = notes_list[i] if i < len(notes_list) else ''
             psku = partner_skus[i] if i < len(partner_skus) else ''
+            civ = int(civ_list[i]) if i < len(civ_list) else 1
             db.execute(
-                "UPDATE products SET unit_cost=?, extra_costs=?, notes=?, partner_sku=?, updated_at=? WHERE sku=?",
-                (uc, ec, note, psku, now, sku))
+                "UPDATE products SET unit_cost=?, extra_costs=?, notes=?, partner_sku=?,"
+                " cost_includes_vat=?, updated_at=? WHERE sku=?",
+                (uc, ec, note, psku, civ, now, sku))
             updated += 1
         except (ValueError, IndexError):
             continue
@@ -1245,6 +1331,9 @@ def invoices_add():
         item_ucs = request.form.getlist('item_unit_cost[]')
         item_totals = request.form.getlist('item_total[]')
 
+        # Get MAIN warehouse for inventory movements
+        main_wh_id = _get_warehouse_id('MAIN', db)
+
         for i, sku in enumerate(item_skus):
             if not sku:
                 continue
@@ -1262,6 +1351,15 @@ def invoices_add():
                     db.execute(
                         "UPDATE products SET unit_cost=?, updated_at=? WHERE sku=?",
                         (uc, now, sku))
+                # Inventory movement: purchase into MAIN warehouse
+                if qty > 0 and main_wh_id:
+                    uc_ex_vat = round(uc / 1.15, 4) if vat_mode == 'includes_vat' else round(uc, 4)
+                    _create_inv_movement(
+                        db, sku, main_wh_id, 'purchase', qty,
+                        unit_cost=uc_ex_vat,
+                        reference_type='invoice',
+                        reference_id=str(invoice_id),
+                    )
             except (ValueError, IndexError):
                 continue
 
@@ -2346,6 +2444,297 @@ def settlements_page():
     return render_template('settlements.html',
                            settlements=settlements, totals=totals,
                            from_date=f['from_date'], to_date=f['to_date'])
+
+
+# =============================================================================
+# Inventory Management
+# =============================================================================
+
+@app.route('/inventory')
+def inventory_page():
+    db = get_db(DB_PATH)
+    warehouses = db.execute("SELECT * FROM warehouses WHERE is_active=1 ORDER BY id").fetchall()
+
+    # All SKUs that have any movements
+    sku_rows = db.execute("""
+        SELECT DISTINCT im.sku,
+               COALESCE(p.name_en, p.name_ar, im.sku) AS product_name
+        FROM inventory_movements im
+        LEFT JOIN products p ON p.sku = im.sku
+        WHERE im.is_void = 0
+        ORDER BY im.sku
+    """).fetchall()
+
+    # All balances per (sku, warehouse_id)
+    balance_rows = db.execute("""
+        SELECT sku, warehouse_id, COALESCE(SUM(quantity), 0) AS balance
+        FROM inventory_movements WHERE is_void=0
+        GROUP BY sku, warehouse_id
+    """).fetchall()
+
+    balance_map = {}
+    for b in balance_rows:
+        s = b['sku']
+        if s not in balance_map:
+            balance_map[s] = {}
+        balance_map[s][int(b['warehouse_id'])] = float(b['balance'])
+
+    # Weighted average cost per SKU (based on purchase movements)
+    cost_rows = db.execute("""
+        SELECT sku,
+            COALESCE(
+                SUM(CASE WHEN movement_type='purchase' THEN quantity * unit_cost ELSE 0 END) /
+                NULLIF(SUM(CASE WHEN movement_type='purchase' THEN quantity ELSE 0 END), 0),
+            0) AS avg_cost
+        FROM inventory_movements WHERE is_void=0
+        GROUP BY sku
+    """).fetchall()
+    cost_map = {c['sku']: float(c['avg_cost']) for c in cost_rows}
+
+    wh_by_code = {w['code']: int(w['id']) for w in warehouses}
+
+    sku_filter = request.args.get('sku', '').strip()
+    low_stock_only = request.args.get('low_stock', '') == '1'
+
+    inventory = []
+    for sr in sku_rows:
+        sku = sr['sku']
+        if sku_filter and sku_filter.lower() not in sku.lower():
+            continue
+        bmap = balance_map.get(sku, {})
+        main_qty = bmap.get(wh_by_code.get('MAIN'), 0.0)
+        fbn_qty = bmap.get(wh_by_code.get('FBN'), 0.0)
+        ret_qty = bmap.get(wh_by_code.get('RETURNS'), 0.0)
+        dmg_qty = bmap.get(wh_by_code.get('DAMAGED'), 0.0)
+        total_qty = sum(bmap.values())
+        avg_cost = cost_map.get(sku, 0.0)
+        stock_value = total_qty * avg_cost
+        low_stock = total_qty <= 0
+        if low_stock_only and not low_stock:
+            continue
+        inventory.append({
+            'sku': sku,
+            'product_name': sr['product_name'],
+            'main_qty': main_qty,
+            'fbn_qty': fbn_qty,
+            'returns_qty': ret_qty,
+            'damaged_qty': dmg_qty,
+            'total_qty': total_qty,
+            'avg_cost': avg_cost,
+            'stock_value': stock_value,
+            'low_stock': low_stock,
+        })
+
+    db.close()
+    return render_template('inventory.html',
+                           inventory=inventory,
+                           warehouses=warehouses,
+                           sku_filter=sku_filter,
+                           low_stock_only=low_stock_only)
+
+
+@app.route('/inventory/ledger')
+def inventory_ledger_page():
+    sku_filter = request.args.get('sku', '').strip()
+    wh_filter = request.args.get('warehouse_id', '').strip()
+    from_date = request.args.get('from_date', '').strip()
+    to_date = request.args.get('to_date', '').strip()
+    type_filter = request.args.get('movement_type', '').strip()
+
+    conditions = ['im.is_void = 0']
+    params = []
+    if sku_filter:
+        conditions.append('im.sku = ?')
+        params.append(sku_filter)
+    if wh_filter:
+        conditions.append('im.warehouse_id = ?')
+        params.append(int(wh_filter))
+    if from_date:
+        conditions.append("SUBSTR(im.created_at, 1, 10) >= ?")
+        params.append(from_date)
+    if to_date:
+        conditions.append("SUBSTR(im.created_at, 1, 10) <= ?")
+        params.append(to_date)
+    if type_filter:
+        conditions.append('im.movement_type = ?')
+        params.append(type_filter)
+
+    where = 'WHERE ' + ' AND '.join(conditions)
+    sql = f"""
+        SELECT im.*, w.name AS warehouse_name, w.code AS warehouse_code
+        FROM inventory_movements im
+        JOIN warehouses w ON w.id = im.warehouse_id
+        {where}
+        ORDER BY im.created_at ASC, im.id ASC
+    """
+
+    db = get_db(DB_PATH)
+    raw_movements = db.execute(sql, params).fetchall()
+    warehouses = db.execute("SELECT * FROM warehouses WHERE is_active=1 ORDER BY id").fetchall()
+    sku_list = db.execute(
+        "SELECT DISTINCT sku FROM inventory_movements WHERE is_void=0 ORDER BY sku"
+    ).fetchall()
+    db.close()
+
+    # Build ledger rows with running balance per (sku, warehouse_id)
+    running = {}
+    ledger_rows = []
+    for m in raw_movements:
+        key = (m['sku'], int(m['warehouse_id']))
+        prev = running.get(key, 0.0)
+        qty = float(m['quantity'])
+        new_bal = prev + qty
+        running[key] = new_bal
+        ledger_rows.append({
+            'id': m['id'],
+            'created_at': m['created_at'],
+            'sku': m['sku'],
+            'warehouse_name': m['warehouse_name'],
+            'warehouse_code': m['warehouse_code'],
+            'movement_type': m['movement_type'],
+            'movement_type_ar': MOVEMENT_TYPE_AR.get(m['movement_type'], m['movement_type']),
+            'qty_in': qty if qty > 0 else 0,
+            'qty_out': abs(qty) if qty < 0 else 0,
+            'running_balance': new_bal,
+            'reference_type': m['reference_type'] or '',
+            'reference_type_ar': REF_TYPE_AR.get(m['reference_type'] or '', m['reference_type'] or ''),
+            'reference_id': m['reference_id'] or '',
+            'notes': m['notes'] or '',
+            'unit_cost': float(m['unit_cost'] or 0),
+        })
+
+    return render_template('inventory_ledger.html',
+                           ledger_rows=ledger_rows,
+                           warehouses=warehouses,
+                           sku_list=sku_list,
+                           sku_filter=sku_filter,
+                           wh_filter=wh_filter,
+                           from_date=from_date,
+                           to_date=to_date,
+                           type_filter=type_filter,
+                           movement_types=MOVEMENT_TYPE_AR)
+
+
+@app.route('/inventory/transfers')
+def inventory_transfers_page():
+    db = get_db(DB_PATH)
+    warehouses = db.execute("SELECT * FROM warehouses WHERE is_active=1 ORDER BY id").fetchall()
+    sku_list = db.execute(
+        "SELECT DISTINCT sku FROM inventory_movements WHERE is_void=0 ORDER BY sku"
+    ).fetchall()
+
+    # Recent transfers (pairs: show transfer_out + transfer_in grouped by reference_id)
+    recent = db.execute("""
+        SELECT im.*, w.name AS warehouse_name
+        FROM inventory_movements im
+        JOIN warehouses w ON w.id = im.warehouse_id
+        WHERE im.movement_type IN ('transfer_in','transfer_out') AND im.is_void=0
+        ORDER BY im.created_at DESC, im.id DESC
+        LIMIT 200
+    """).fetchall()
+
+    db.close()
+
+    transfer_rows = []
+    for r in recent:
+        transfer_rows.append({
+            'created_at': r['created_at'],
+            'sku': r['sku'],
+            'warehouse_name': r['warehouse_name'],
+            'movement_type': r['movement_type'],
+            'movement_type_ar': MOVEMENT_TYPE_AR.get(r['movement_type'], ''),
+            'quantity': float(r['quantity']),
+            'reference_id': r['reference_id'] or '',
+            'notes': r['notes'] or '',
+        })
+
+    return render_template('inventory_transfers.html',
+                           warehouses=warehouses,
+                           sku_list=sku_list,
+                           transfer_rows=transfer_rows,
+                           movement_types=MOVEMENT_TYPE_AR)
+
+
+@app.route('/inventory/transfers/save', methods=['POST'])
+def inventory_transfer_save():
+    data = request.get_json(silent=True) or {}
+    try:
+        from_wh_id = int(data.get('from_warehouse_id', 0))
+        to_wh_id = int(data.get('to_warehouse_id', 0))
+        sku = str(data.get('sku', '')).strip()
+        qty = float(data.get('quantity', 0))
+        notes = str(data.get('notes', '')).strip()
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
+
+    if not sku or qty <= 0:
+        return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
+    if from_wh_id == to_wh_id:
+        return jsonify({'success': False, 'error': 'لا يمكن التحويل إلى نفس المستودع'}), 400
+
+    db = get_db(DB_PATH)
+    balance = _get_stock_balance(sku, from_wh_id, db)
+    if balance < qty:
+        db.close()
+        return jsonify({'success': False, 'error': 'الكمية غير متوفرة في المستودع'}), 400
+
+    ref = f'TRF-{datetime.now().strftime("%Y%m%d%H%M%S")}'
+    _create_inv_movement(db, sku, from_wh_id, 'transfer_out', -qty,
+                          reference_type='transfer', reference_id=ref, notes=notes or None)
+    _create_inv_movement(db, sku, to_wh_id, 'transfer_in', qty,
+                          reference_type='transfer', reference_id=ref, notes=notes or None)
+    db.commit()
+    db.close()
+    return jsonify({'success': True, 'reference': ref})
+
+
+@app.route('/inventory/adjustments/add', methods=['POST'])
+def inventory_adjustment_add():
+    data = request.get_json(silent=True) or {}
+    try:
+        sku = str(data.get('sku', '')).strip()
+        warehouse_id = int(data.get('warehouse_id', 0))
+        qty = float(data.get('quantity', 0))
+        adj_type = str(data.get('adjustment_type', '')).strip()
+        reason = str(data.get('reason', '')).strip()
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
+
+    if not sku or not warehouse_id or not adj_type or not reason:
+        return jsonify({'success': False, 'error': 'جميع الحقول مطلوبة'}), 400
+    if adj_type not in ('inventory_count', 'lost', 'damaged', 'found'):
+        return jsonify({'success': False, 'error': 'نوع التسوية غير صالح'}), 400
+    if qty == 0:
+        return jsonify({'success': False, 'error': 'الكمية يجب أن تكون غير صفر'}), 400
+
+    db = get_db(DB_PATH)
+    if qty < 0:
+        balance = _get_stock_balance(sku, warehouse_id, db)
+        if balance + qty < 0:
+            db.close()
+            return jsonify({'success': False, 'error': 'المخزون غير كافٍ'}), 400
+
+    notes = f'{adj_type}: {reason}'
+    _create_inv_movement(db, sku, warehouse_id, 'adjustment', qty,
+                          reference_type='manual', notes=notes)
+    db.commit()
+    db.close()
+    return jsonify({'success': True})
+
+
+@app.route('/inventory/stock-balance')
+def inventory_stock_balance():
+    sku = request.args.get('sku', '').strip()
+    warehouse_id = request.args.get('warehouse_id', '').strip()
+    if not sku or not warehouse_id:
+        return jsonify({'balance': 0})
+    try:
+        db = get_db(DB_PATH)
+        balance = _get_stock_balance(sku, int(warehouse_id), db)
+        db.close()
+        return jsonify({'balance': balance})
+    except Exception:
+        return jsonify({'balance': 0})
 
 
 # --- Browser auto-open ---

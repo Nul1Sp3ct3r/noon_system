@@ -134,7 +134,8 @@ _DDL = [
         unit_cost REAL DEFAULT 0,
         extra_costs REAL DEFAULT 0,
         notes TEXT,
-        updated_at TEXT
+        updated_at TEXT,
+        cost_includes_vat INTEGER DEFAULT 1
     )""",
     """CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,6 +213,29 @@ _DDL = [
         import_batch   TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)",
+    """CREATE TABLE IF NOT EXISTS warehouses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        code TEXT UNIQUE NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS inventory_movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sku TEXT NOT NULL,
+        warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+        movement_type TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit_cost REAL DEFAULT 0,
+        reference_type TEXT,
+        reference_id TEXT,
+        notes TEXT,
+        is_void INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku)",
+    "CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id)",
+    "CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type)",
 ]
 
 
@@ -263,7 +287,8 @@ def _init_sqlite(db_path):
             unit_cost REAL DEFAULT 0,
             extra_costs REAL DEFAULT 0,
             notes TEXT,
-            updated_at TEXT
+            updated_at TEXT,
+            cost_includes_vat INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS invoices (
@@ -351,6 +376,30 @@ def _init_sqlite(db_path):
             import_batch   TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch);
+
+        CREATE TABLE IF NOT EXISTS warehouses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            code TEXT UNIQUE NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS inventory_movements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT NOT NULL,
+            warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+            movement_type TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            unit_cost REAL DEFAULT 0,
+            reference_type TEXT,
+            reference_id TEXT,
+            notes TEXT,
+            is_void INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku);
+        CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id);
+        CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type);
     """)
 
     # Migration: upgrade imported_files if it has old schema
@@ -409,6 +458,38 @@ def _init_sqlite(db_path):
         import_batch   TEXT
     )""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)")
+
+    # Migration: add cost_includes_vat if missing
+    cur = conn.execute("PRAGMA table_info(products)")
+    prod_cols = {row[1] for row in cur.fetchall()}
+    if 'cost_includes_vat' not in prod_cols:
+        conn.execute("ALTER TABLE products ADD COLUMN cost_includes_vat INTEGER DEFAULT 1")
+
+    # Migration: create inventory tables if not exists
+    conn.execute("""CREATE TABLE IF NOT EXISTS warehouses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, code TEXT UNIQUE NOT NULL,
+        is_active INTEGER DEFAULT 1, created_at TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS inventory_movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sku TEXT NOT NULL, warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+        movement_type TEXT NOT NULL, quantity REAL NOT NULL,
+        unit_cost REAL DEFAULT 0, reference_type TEXT, reference_id TEXT,
+        notes TEXT, is_void INTEGER DEFAULT 0, created_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type)")
+
+    # Seed default warehouses
+    _wh_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for _wh_code, _wh_name in [('MAIN', 'المستودع الرئيسي'), ('FBN', 'مستودع نون FBN'),
+                                 ('RETURNS', 'مستودع المرتجعات'), ('DAMAGED', 'مستودع التالف')]:
+        conn.execute(
+            "INSERT OR IGNORE INTO warehouses (name, code, is_active, created_at) VALUES (?,?,1,?)",
+            (_wh_name, _wh_code, _wh_now)
+        )
 
     # Seed default admin if users table is empty
     cnt = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -496,6 +577,42 @@ def _init_turso():
             import_batch   TEXT
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)")
+
+        # Migration: add cost_includes_vat if missing
+        try:
+            cur = conn.execute("PRAGMA table_info(products)")
+            prod_cols = {row[1] for row in cur.fetchall()}
+            if 'cost_includes_vat' not in prod_cols:
+                conn.execute("ALTER TABLE products ADD COLUMN cost_includes_vat INTEGER DEFAULT 1")
+        except Exception:
+            pass
+
+        # Migration: create inventory tables if not exists
+        try:
+            conn.execute("""CREATE TABLE IF NOT EXISTS warehouses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL, code TEXT UNIQUE NOT NULL,
+                is_active INTEGER DEFAULT 1, created_at TEXT
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS inventory_movements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sku TEXT NOT NULL, warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+                movement_type TEXT NOT NULL, quantity REAL NOT NULL,
+                unit_cost REAL DEFAULT 0, reference_type TEXT, reference_id TEXT,
+                notes TEXT, is_void INTEGER DEFAULT 0, created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type)")
+            _wh_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            for _wh_code, _wh_name in [('MAIN', 'المستودع الرئيسي'), ('FBN', 'مستودع نون FBN'),
+                                         ('RETURNS', 'مستودع المرتجعات'), ('DAMAGED', 'مستودع التالف')]:
+                conn.execute(
+                    "INSERT OR IGNORE INTO warehouses (name, code, is_active, created_at) VALUES (?,?,1,?)",
+                    (_wh_name, _wh_code, _wh_now)
+                )
+        except Exception:
+            pass
 
         # Seed default admin if users table is empty
         cnt_row = conn.execute("SELECT COUNT(*) FROM users").fetchone()

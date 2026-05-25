@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% block title %}إدارة المخزون — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+.stock-badge-ok  { background:#d4edda; color:#3B6D11; border:1px solid #c3e6cb; padding:2px 8px; border-radius:12px; font-size:.8rem; font-weight:600; }
+.stock-badge-low { background:#f8d7da; color:#A32D2D; border:1px solid #f5c6cb; padding:2px 8px; border-radius:12px; font-size:.8rem; font-weight:600; }
+.num { text-align:right; white-space:nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <h4><i class="bi bi-boxes me-2 color-revenue"></i>إدارة المخزون</h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('inventory_ledger_page') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-journal-text me-1"></i>حركة المخزون
+    </a>
+    <a href="{{ url_for('inventory_transfers_page') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left-right me-1"></i>تحويل / تسوية
+    </a>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card stat-card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.82rem;">بحث SKU</label>
+        <input type="text" name="sku" value="{{ sku_filter }}" class="form-control form-control-sm" placeholder="SKU..." style="width:200px;">
+      </div>
+      <div class="col-auto">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" name="low_stock" value="1" id="chkLow" {% if low_stock_only %}checked{% endif %}>
+          <label class="form-check-label" for="chkLow" style="font-size:.88rem;">مخزون منخفض فقط</label>
+        </div>
+      </div>
+      <div class="col-auto mt-3">
+        <button type="submit" class="btn btn-sm btn-primary">بحث</button>
+        <a href="{{ url_for('inventory_page') }}" class="btn btn-sm btn-outline-secondary me-1">إعادة تعيين</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Summary cards -->
+{% set total_value = inventory | sum(attribute='stock_value') %}
+{% set total_units = inventory | sum(attribute='total_qty') %}
+{% set low_count = inventory | selectattr('low_stock') | list | length %}
+<div class="row g-3 mb-4">
+  <div class="col-md-3 col-6">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">عدد الأصناف</div>
+        <div class="stat-value color-revenue">{{ inventory | length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">إجمالي الوحدات</div>
+        <div class="stat-value">{{ total_units | round(0) | int }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">قيمة المخزون الكلية</div>
+        <div class="stat-value color-profit">{{ total_value | sar }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">أصناف مخزون منخفض</div>
+        <div class="stat-value color-loss">{{ low_count }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if inventory %}
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="noon-table">
+        <colgroup>
+          <col style="width:130px">
+          <col style="width:200px">
+          <col style="width:90px">
+          <col style="width:90px">
+          <col style="width:90px">
+          <col style="width:90px">
+          <col style="width:90px">
+          <col style="width:110px">
+          <col style="width:120px">
+          <col style="width:80px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>المنتج</th>
+            <th class="num">المستودع الرئيسي</th>
+            <th class="num">FBN نون</th>
+            <th class="num">المرتجعات</th>
+            <th class="num">التالف</th>
+            <th class="num">الإجمالي</th>
+            <th class="num">متوسط التكلفة</th>
+            <th class="num">قيمة المخزون</th>
+            <th class="ctr">الحالة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in inventory %}
+          <tr>
+            <td><span class="cell-trunc" title="{{ item.sku }}">{{ item.sku }}</span></td>
+            <td><span class="cell-trunc" title="{{ item.product_name }}">{{ item.product_name }}</span></td>
+            <td class="num">{{ item.main_qty | round(0) | int }}</td>
+            <td class="num">{{ item.fbn_qty | round(0) | int }}</td>
+            <td class="num">{{ item.returns_qty | round(0) | int }}</td>
+            <td class="num">{{ item.damaged_qty | round(0) | int }}</td>
+            <td class="num"><strong>{{ item.total_qty | round(0) | int }}</strong></td>
+            <td class="num">{{ item.avg_cost | sar }}</td>
+            <td class="num">{{ item.stock_value | sar }}</td>
+            <td class="ctr">
+              {% if item.low_stock %}
+                <span class="stock-badge-low">منخفض</span>
+              {% else %}
+                <span class="stock-badge-ok">طبيعي</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="6"><strong>الإجمالي</strong></td>
+            <td class="num"><strong>{{ total_units | round(0) | int }}</strong></td>
+            <td></td>
+            <td class="num"><strong>{{ total_value | sar }}</strong></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-inbox" style="font-size:3rem;opacity:.3;"></i>
+  <p class="mt-3">لا توجد بيانات مخزون.<br>أضف فواتير موردين أو استورد ملف نون الشهري لبدء تتبع المخزون.</p>
+  <a href="{{ url_for('invoices_page') }}" class="btn btn-primary btn-sm mt-2">إضافة فاتورة</a>
+</div>
+{% endif %}
+{% endblock %}
