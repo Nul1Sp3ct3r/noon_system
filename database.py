@@ -138,7 +138,6 @@ _DDL = [
         updated_at TEXT,
         cost_includes_vat INTEGER DEFAULT 1
     )""",
-    "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)",
     """CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         invoice_nr TEXT,
@@ -593,7 +592,8 @@ def _init_turso():
                 conn.execute("ALTER TABLE products ADD COLUMN cost_includes_vat INTEGER DEFAULT 1")
             if 'barcode' not in prod_cols:
                 conn.execute("ALTER TABLE products ADD COLUMN barcode TEXT")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)")
+            # Always ensure index exists — safe whether column was just added or already present
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)")
         except Exception:
             pass
 
