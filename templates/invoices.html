@@ -502,6 +502,7 @@ function hideDropdown(tr) {
 }
 
 function selectProduct(tr, product) {
+  console.log('[select] sku="' + product.sku + '" input="' + tr.querySelector('.item-search').value + '"');
   tr.querySelector('.item-sku-val').value  = product.sku;
   tr.querySelector('.item-name-val').value = product.name_ar || product.name_en || product.sku;
   tr.querySelector('.item-search').value   = product.name_ar || product.name_en || product.sku;
@@ -641,20 +642,35 @@ function addItemRow(focus = true) {
     </div>`;
 
   const searchInput = row.querySelector('.item-search');
+
+  // Per-row token: incremented on every input change so stale async responses are dropped
+  let rowSearchToken = 0;
+
+  function clearRowSelection() {
+    row.querySelector('.item-sku-val').value   = '';
+    row.querySelector('.item-name-val').value  = '';
+    row.querySelector('.item-selected-chip').style.display = 'none';
+    console.log('[search] selection cleared, input="' + searchInput.value + '"');
+  }
+
   const debouncedSearch = debounce(async q => {
+    const token = ++rowSearchToken;
+    console.log('[search] firing q="' + q + '" token=' + token);
     if (q.length < 2) { hideDropdown(row); return; }
     const results = await searchProducts(q);
+    if (token !== rowSearchToken) {
+      console.log('[search] stale response discarded, q="' + q + '" token=' + token + ' current=' + rowSearchToken);
+      return;
+    }
+    console.log('[search] results=' + results.length + ' for q="' + q + '"');
     showDropdown(row, results, q);
   }, 200);
 
   searchInput.addEventListener('input', e => {
     const nf = row.querySelector('.item-notfound');
     if (nf) nf.style.display = 'none';
-    if (!e.target.value.trim()) {
-      row.querySelector('.item-sku-val').value  = '';
-      row.querySelector('.item-name-val').value = '';
-      row.querySelector('.item-selected-chip').style.display = 'none';
-    }
+    // Always clear previous selection on ANY input change — not just when empty
+    clearRowSelection();
     debouncedSearch(e.target.value.trim());
   });
   searchInput.addEventListener('blur',    () => setTimeout(() => hideDropdown(row), 160));
@@ -669,7 +685,12 @@ function addItemRow(focus = true) {
     if (e.key === 'Enter') {
       e.preventDefault();
       const first = row.querySelector('.dd-item');
+      const currentSku = row.querySelector('.item-sku-val').value;
+      console.log('[enter] dd-visible=' + !!first + ' sku-val="' + currentSku + '"');
+      // Only dispatch if dropdown has visible results — never reuse stale sku-val
       if (first) first.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+      // If no dropdown items: sku-val is already cleared above, so form validation
+      // will warn the user to select from the list
     }
   });
 
