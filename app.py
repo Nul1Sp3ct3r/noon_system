@@ -429,10 +429,14 @@ def login():
                         (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user['id'])
                     )
                     _ensure_org_warehouses(db2, session['org_id'])
+                    org_row = db2.execute(
+                        "SELECT name FROM organizations WHERE id=?", (session['org_id'],)
+                    ).fetchone()
+                    session['org_name'] = org_row['name'] if org_row else ''
                     db2.commit()
                     db2.close()
                 except Exception:
-                    pass
+                    session['org_name'] = ''
                 log_audit('login_success', 'user', session['user_id'])
                 return redirect(url_for('dashboard'))
         else:
@@ -1336,7 +1340,6 @@ def dashboard():
     """, (org_id,)).fetchone()
 
     products = get_all_product_metrics(db, org_id)
-    db.close()
 
     revenue = float(row['revenue'])
     total_cogs = sum(p['cogs'] for p in products)
@@ -1354,7 +1357,84 @@ def dashboard():
         'net_profit': net_profit,
         'margin_pct': margin_pct,
     }
-    return render_template('dashboard.html', summary=summary)
+
+    # Widget: low stock (balance < 10, positive)
+    try:
+        low_stock = db.execute("""
+            SELECT sku, name, balance FROM (
+                SELECT p.sku,
+                       COALESCE(p.name_ar, p.name_en, p.sku) AS name,
+                       COALESCE(SUM(CASE WHEN m.is_void=0 THEN m.quantity ELSE 0 END), 0) AS balance
+                FROM products p
+                LEFT JOIN inventory_movements m ON m.sku=p.sku AND m.organization_id=?
+                WHERE p.organization_id=?
+                GROUP BY p.sku
+            ) sub WHERE balance > 0 AND balance < 10
+            ORDER BY balance ASC LIMIT 5
+        """, (org_id, org_id)).fetchall()
+    except Exception:
+        low_stock = []
+
+    # Widget: products with no cost
+    try:
+        no_cost = db.execute("""
+            SELECT sku, COALESCE(name_ar, name_en, sku) AS name
+            FROM products
+            WHERE organization_id=? AND (unit_cost IS NULL OR unit_cost=0)
+            ORDER BY sku LIMIT 5
+        """, (org_id,)).fetchall()
+        no_cost_count = db.execute(
+            "SELECT COUNT(*) AS cnt FROM products WHERE organization_id=? AND (unit_cost IS NULL OR unit_cost=0)",
+            (org_id,)
+        ).fetchone()
+        no_cost_total = no_cost_count['cnt'] if no_cost_count else 0
+    except Exception:
+        no_cost = []
+        no_cost_total = 0
+
+    # Widget: latest supplier invoices
+    try:
+        recent_invoices = db.execute("""
+            SELECT id, invoice_nr, supplier_name, invoice_date, total_amount
+            FROM invoices WHERE organization_id=?
+            ORDER BY created_at DESC LIMIT 5
+        """, (org_id,)).fetchall()
+    except Exception:
+        recent_invoices = []
+
+    # Widget: latest inventory movements
+    try:
+        recent_movements = db.execute("""
+            SELECT m.sku, m.movement_type, m.quantity, m.created_at,
+                   COALESCE(w.name, '—') AS warehouse_name
+            FROM inventory_movements m
+            LEFT JOIN warehouses w ON w.id=m.warehouse_id
+            WHERE m.organization_id=? AND m.is_void=0
+            ORDER BY m.created_at DESC LIMIT 5
+        """, (org_id,)).fetchall()
+    except Exception:
+        recent_movements = []
+
+    # Widget: latest imports
+    try:
+        recent_imports = db.execute("""
+            SELECT statement_nr, statement_date, filename, imported_at, rows_added
+            FROM imported_files WHERE organization_id=?
+            ORDER BY imported_at DESC LIMIT 5
+        """, (org_id,)).fetchall()
+    except Exception:
+        recent_imports = []
+
+    db.close()
+    return render_template('dashboard.html',
+        summary=summary,
+        low_stock=low_stock,
+        no_cost=no_cost,
+        no_cost_total=no_cost_total,
+        recent_invoices=recent_invoices,
+        recent_movements=recent_movements,
+        recent_imports=recent_imports,
+    )
 
 
 @app.route('/api/dashboard-data')
@@ -1442,7 +1522,12 @@ def orders_page():
     status_filter = request.args.get('status', '')
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
+    try:
+        page = max(1, int(request.args.get('page', 1) or 1))
+    except (ValueError, TypeError):
+        page = 1
 
+    per_page = 100
     org_id = get_org_id()
     conditions, params = ["organization_id = ?"], [org_id]
     if status_filter:
@@ -1459,15 +1544,26 @@ def orders_page():
         params += [f'%{search}%', f'%{search}%', f'%{search}%', f'%{search}%']
 
     where = "WHERE " + " AND ".join(conditions)
-    sql = "SELECT * FROM orders " + where + " ORDER BY ordered_date DESC"
 
     db = get_db(DB_PATH)
-    orders = db.execute(sql, params).fetchall()
+    total = db.execute("SELECT COUNT(*) FROM orders " + where, params).fetchone()[0]
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+
+    offset = (page - 1) * per_page
+    sql = "SELECT * FROM orders " + where + " ORDER BY ordered_date DESC LIMIT ? OFFSET ?"
+    orders = db.execute(sql, params + [per_page, offset]).fetchall()
     db.close()
+
+    start_row = (page - 1) * per_page + 1 if total > 0 else 0
+    end_row = min(page * per_page, total)
 
     return render_template('orders.html', orders=orders,
                            search=search, status_filter=status_filter,
-                           from_date=from_date, to_date=to_date)
+                           from_date=from_date, to_date=to_date,
+                           page=page, per_page=per_page,
+                           total=total, total_pages=total_pages,
+                           start_row=start_row, end_row=end_row)
 
 
 # --- Costs ---
