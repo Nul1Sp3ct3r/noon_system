@@ -104,6 +104,11 @@ class _TursoConnection:
 # ---------------------------------------------------------------------------
 
 _DDL = [
+    """CREATE TABLE IF NOT EXISTS organizations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_at TEXT
+    )""",
     """CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_nr TEXT,
@@ -122,7 +127,8 @@ _DDL = [
         referral_fee REAL DEFAULT 0,
         fbn_outbound_fee REAL DEFAULT 0,
         total_payment REAL DEFAULT 0,
-        import_batch TEXT
+        import_batch TEXT,
+        organization_id INTEGER DEFAULT 1
     )""",
     """CREATE TABLE IF NOT EXISTS products (
         sku TEXT PRIMARY KEY,
@@ -136,7 +142,8 @@ _DDL = [
         extra_costs REAL DEFAULT 0,
         notes TEXT,
         updated_at TEXT,
-        cost_includes_vat INTEGER DEFAULT 1
+        cost_includes_vat INTEGER DEFAULT 1,
+        organization_id INTEGER DEFAULT 1
     )""",
     """CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,7 +156,8 @@ _DDL = [
         notes TEXT,
         pdf_filename TEXT,
         pdf_original_name TEXT,
-        created_at TEXT
+        created_at TEXT,
+        organization_id INTEGER DEFAULT 1
     )""",
     """CREATE TABLE IF NOT EXISTS invoice_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,7 +166,8 @@ _DDL = [
         product_name TEXT,
         quantity INTEGER,
         unit_cost REAL,
-        total_cost REAL
+        total_cost REAL,
+        organization_id INTEGER DEFAULT 1
     )""",
     """CREATE TABLE IF NOT EXISTS imported_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,7 +178,8 @@ _DDL = [
         imported_at TEXT,
         rows_added INTEGER DEFAULT 0,
         rows_updated INTEGER DEFAULT 0,
-        rows_ignored INTEGER DEFAULT 0
+        rows_ignored INTEGER DEFAULT 0,
+        organization_id INTEGER DEFAULT 1
     )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup ON orders(order_nr, item_nr, item_status)",
     "CREATE INDEX IF NOT EXISTS idx_orders_sku ON orders(sku)",
@@ -181,14 +191,16 @@ _DDL = [
         description TEXT NOT NULL,
         source_type TEXT,
         source_id   TEXT,
-        created_at  TEXT NOT NULL
+        created_at  TEXT NOT NULL,
+        organization_id INTEGER DEFAULT 1
     )""",
     """CREATE TABLE IF NOT EXISTS journal_lines (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         journal_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
         account_ar TEXT NOT NULL,
         debit      REAL DEFAULT 0,
-        credit     REAL DEFAULT 0
+        credit     REAL DEFAULT 0,
+        organization_id INTEGER DEFAULT 1
     )""",
     "CREATE INDEX IF NOT EXISTS idx_journal_lines_j ON journal_lines(journal_id)",
     """CREATE TABLE IF NOT EXISTS users (
@@ -199,7 +211,8 @@ _DDL = [
         role TEXT DEFAULT 'user',
         is_active INTEGER DEFAULT 0,
         created_at TEXT,
-        last_login TEXT
+        last_login TEXT,
+        organization_id INTEGER DEFAULT 1
     )""",
     "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
     """CREATE TABLE IF NOT EXISTS noon_statement_fees (
@@ -211,15 +224,17 @@ _DDL = [
         excl_vat       REAL DEFAULT 0,
         vat_amount     REAL DEFAULT 0,
         incl_vat       REAL DEFAULT 0,
-        import_batch   TEXT
+        import_batch   TEXT,
+        organization_id INTEGER DEFAULT 1
     )""",
     "CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch)",
     """CREATE TABLE IF NOT EXISTS warehouses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        code TEXT UNIQUE NOT NULL,
+        code TEXT NOT NULL,
         is_active INTEGER DEFAULT 1,
-        created_at TEXT
+        created_at TEXT,
+        organization_id INTEGER DEFAULT 1
     )""",
     """CREATE TABLE IF NOT EXISTS inventory_movements (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -232,7 +247,8 @@ _DDL = [
         reference_id TEXT,
         notes TEXT,
         is_void INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        organization_id INTEGER DEFAULT 1
     )""",
     "CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku)",
     "CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id)",
@@ -257,6 +273,12 @@ def _init_sqlite(db_path):
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS organizations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            created_at TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_nr TEXT,
@@ -275,7 +297,8 @@ def _init_sqlite(db_path):
             referral_fee REAL DEFAULT 0,
             fbn_outbound_fee REAL DEFAULT 0,
             total_payment REAL DEFAULT 0,
-            import_batch TEXT
+            import_batch TEXT,
+            organization_id INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS products (
@@ -290,7 +313,8 @@ def _init_sqlite(db_path):
             extra_costs REAL DEFAULT 0,
             notes TEXT,
             updated_at TEXT,
-            cost_includes_vat INTEGER DEFAULT 1
+            cost_includes_vat INTEGER DEFAULT 1,
+            organization_id INTEGER DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 
@@ -305,7 +329,8 @@ def _init_sqlite(db_path):
             notes TEXT,
             pdf_filename TEXT,
             pdf_original_name TEXT,
-            created_at TEXT
+            created_at TEXT,
+            organization_id INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS invoice_items (
@@ -315,7 +340,8 @@ def _init_sqlite(db_path):
             product_name TEXT,
             quantity INTEGER,
             unit_cost REAL,
-            total_cost REAL
+            total_cost REAL,
+            organization_id INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS imported_files (
@@ -327,7 +353,8 @@ def _init_sqlite(db_path):
             imported_at TEXT,
             rows_added INTEGER DEFAULT 0,
             rows_updated INTEGER DEFAULT 0,
-            rows_ignored INTEGER DEFAULT 0
+            rows_ignored INTEGER DEFAULT 0,
+            organization_id INTEGER DEFAULT 1
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_dedup ON orders(order_nr, item_nr, item_status);
@@ -341,7 +368,8 @@ def _init_sqlite(db_path):
             description TEXT NOT NULL,
             source_type TEXT,
             source_id   TEXT,
-            created_at  TEXT NOT NULL
+            created_at  TEXT NOT NULL,
+            organization_id INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS journal_lines (
@@ -349,7 +377,8 @@ def _init_sqlite(db_path):
             journal_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
             account_ar TEXT NOT NULL,
             debit      REAL DEFAULT 0,
-            credit     REAL DEFAULT 0
+            credit     REAL DEFAULT 0,
+            organization_id INTEGER DEFAULT 1
         );
 
         CREATE INDEX IF NOT EXISTS idx_journal_lines_j ON journal_lines(journal_id);
@@ -362,7 +391,8 @@ def _init_sqlite(db_path):
             role TEXT DEFAULT 'user',
             is_active INTEGER DEFAULT 0,
             created_at TEXT,
-            last_login TEXT
+            last_login TEXT,
+            organization_id INTEGER DEFAULT 1
         );
 
         CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -376,16 +406,18 @@ def _init_sqlite(db_path):
             excl_vat       REAL DEFAULT 0,
             vat_amount     REAL DEFAULT 0,
             incl_vat       REAL DEFAULT 0,
-            import_batch   TEXT
+            import_batch   TEXT,
+            organization_id INTEGER DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS idx_nsf_batch ON noon_statement_fees(import_batch);
 
         CREATE TABLE IF NOT EXISTS warehouses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            code TEXT UNIQUE NOT NULL,
+            code TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
-            created_at TEXT
+            created_at TEXT,
+            organization_id INTEGER DEFAULT 1
         );
         CREATE TABLE IF NOT EXISTS inventory_movements (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -398,7 +430,8 @@ def _init_sqlite(db_path):
             reference_id TEXT,
             notes TEXT,
             is_void INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            organization_id INTEGER DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku);
         CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id);
@@ -474,35 +507,58 @@ def _init_sqlite(db_path):
     # Migration: create inventory tables if not exists
     conn.execute("""CREATE TABLE IF NOT EXISTS warehouses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL, code TEXT UNIQUE NOT NULL,
-        is_active INTEGER DEFAULT 1, created_at TEXT
+        name TEXT NOT NULL, code TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1, created_at TEXT,
+        organization_id INTEGER DEFAULT 1
     )""")
     conn.execute("""CREATE TABLE IF NOT EXISTS inventory_movements (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         sku TEXT NOT NULL, warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
         movement_type TEXT NOT NULL, quantity REAL NOT NULL,
         unit_cost REAL DEFAULT 0, reference_type TEXT, reference_id TEXT,
-        notes TEXT, is_void INTEGER DEFAULT 0, created_at TEXT NOT NULL
+        notes TEXT, is_void INTEGER DEFAULT 0, created_at TEXT NOT NULL,
+        organization_id INTEGER DEFAULT 1
     )""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type)")
 
-    # Seed default warehouses
-    _wh_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    for _wh_code, _wh_name in [('MAIN', 'المستودع الرئيسي'), ('FBN', 'مستودع نون FBN'),
-                                 ('RETURNS', 'مستودع المرتجعات'), ('DAMAGED', 'مستودع التالف')]:
-        conn.execute(
-            "INSERT OR IGNORE INTO warehouses (name, code, is_active, created_at) VALUES (?,?,1,?)",
-            (_wh_name, _wh_code, _wh_now)
-        )
+    # Migration: organizations table
+    conn.execute("""CREATE TABLE IF NOT EXISTS organizations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_at TEXT
+    )""")
+    conn.execute("""INSERT OR IGNORE INTO organizations (id, name, created_at)
+        VALUES (1, 'المنظمة الافتراضية', '2024-01-01 00:00:00')""")
+
+    # Migration: add organization_id to business tables if missing
+    for _tbl in ['orders', 'products', 'invoices', 'invoice_items',
+                 'imported_files', 'noon_statement_fees', 'warehouses',
+                 'inventory_movements', 'journal_entries', 'journal_lines']:
+        try:
+            _cur = conn.execute(f"PRAGMA table_info({_tbl})")
+            _cols = {row[1] for row in _cur.fetchall()}
+            if 'organization_id' not in _cols:
+                conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN organization_id INTEGER DEFAULT 1")
+        except Exception:
+            pass
+
+    # Migration: add organization_id to users if missing
+    try:
+        _cur = conn.execute("PRAGMA table_info(users)")
+        _cols = {row[1] for row in _cur.fetchall()}
+        if 'organization_id' not in _cols:
+            conn.execute("ALTER TABLE users ADD COLUMN organization_id INTEGER DEFAULT 1")
+    except Exception:
+        pass
 
     # Seed default admin if users table is empty
     cnt = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     if cnt == 0:
         conn.execute(
-            "INSERT INTO users (username, password_hash, full_name, role, is_active, created_at)"
-            " VALUES (?,?,?,?,1,?)",
+            "INSERT INTO users (username, password_hash, full_name, role, is_active, organization_id, created_at)"
+            " VALUES (?,?,?,?,1,1,?)",
             ('admin', generate_password_hash('admin123'), 'المدير', 'admin',
              datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         )
@@ -601,26 +657,54 @@ def _init_turso():
         try:
             conn.execute("""CREATE TABLE IF NOT EXISTS warehouses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL, code TEXT UNIQUE NOT NULL,
-                is_active INTEGER DEFAULT 1, created_at TEXT
+                name TEXT NOT NULL, code TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1, created_at TEXT,
+                organization_id INTEGER DEFAULT 1
             )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS inventory_movements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sku TEXT NOT NULL, warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
                 movement_type TEXT NOT NULL, quantity REAL NOT NULL,
                 unit_cost REAL DEFAULT 0, reference_type TEXT, reference_id TEXT,
-                notes TEXT, is_void INTEGER DEFAULT 0, created_at TEXT NOT NULL
+                notes TEXT, is_void INTEGER DEFAULT 0, created_at TEXT NOT NULL,
+                organization_id INTEGER DEFAULT 1
             )""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type)")
-            _wh_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            for _wh_code, _wh_name in [('MAIN', 'المستودع الرئيسي'), ('FBN', 'مستودع نون FBN'),
-                                         ('RETURNS', 'مستودع المرتجعات'), ('DAMAGED', 'مستودع التالف')]:
-                conn.execute(
-                    "INSERT OR IGNORE INTO warehouses (name, code, is_active, created_at) VALUES (?,?,1,?)",
-                    (_wh_name, _wh_code, _wh_now)
-                )
+        except Exception:
+            pass
+
+        # Migration: organizations table
+        try:
+            conn.execute("""CREATE TABLE IF NOT EXISTS organizations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                created_at TEXT
+            )""")
+            conn.execute("""INSERT OR IGNORE INTO organizations (id, name, created_at)
+                VALUES (1, 'المنظمة الافتراضية', '2024-01-01 00:00:00')""")
+        except Exception:
+            pass
+
+        # Migration: add organization_id to business tables if missing
+        for _tbl in ['orders', 'products', 'invoices', 'invoice_items',
+                     'imported_files', 'noon_statement_fees', 'warehouses',
+                     'inventory_movements', 'journal_entries', 'journal_lines']:
+            try:
+                _cur = conn.execute(f"PRAGMA table_info({_tbl})")
+                _cols = {row[1] for row in _cur.fetchall()}
+                if 'organization_id' not in _cols:
+                    conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN organization_id INTEGER DEFAULT 1")
+            except Exception:
+                pass
+
+        # Migration: add organization_id to users if missing
+        try:
+            _cur = conn.execute("PRAGMA table_info(users)")
+            _cols = {row[1] for row in _cur.fetchall()}
+            if 'organization_id' not in _cols:
+                conn.execute("ALTER TABLE users ADD COLUMN organization_id INTEGER DEFAULT 1")
         except Exception:
             pass
 
@@ -628,8 +712,8 @@ def _init_turso():
         cnt_row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
         if cnt_row is not None and int(cnt_row[0]) == 0:
             conn.execute(
-                "INSERT INTO users (username, password_hash, full_name, role, is_active, created_at)"
-                " VALUES (?,?,?,?,1,?)",
+                "INSERT INTO users (username, password_hash, full_name, role, is_active, organization_id, created_at)"
+                " VALUES (?,?,?,?,1,1,?)",
                 ('admin', generate_password_hash('admin123'), 'المدير', 'admin',
                  datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             )

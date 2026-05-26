@@ -57,7 +57,7 @@ def _brand_where(brand, alias='p'):
 # Data functions
 # ---------------------------------------------------------------------------
 
-def get_vat_data(db_path, from_date='', to_date=''):
+def get_vat_data(db_path, from_date='', to_date='', org_id=1):
     """Monthly VAT breakdown using verified formulas.
 
     output_vat      = SUM(net_proceeds WHERE delivered) * 15/115
@@ -69,7 +69,9 @@ def get_vat_data(db_path, from_date='', to_date=''):
 
     # Orders query
     cond, params = _date_where(from_date, to_date, 'o.ordered_date', 10)
-    where = ("WHERE " + " AND ".join(cond) + " AND o.ordered_date != ''") if cond else "WHERE o.ordered_date != ''"
+    cond.append("o.organization_id = ?")
+    params.append(org_id)
+    where = "WHERE " + " AND ".join(cond) + " AND o.ordered_date != ''"
 
     orders_sql = f"""
         SELECT
@@ -86,7 +88,9 @@ def get_vat_data(db_path, from_date='', to_date=''):
 
     # Supplier VAT from invoices (grouped by month of invoice_date)
     inv_cond, inv_params = _date_where(from_date, to_date, 'i.invoice_date', 10)
-    where_inv = ("WHERE " + " AND ".join(inv_cond)) if inv_cond else ""
+    inv_cond.append("i.organization_id = ?")
+    inv_params.append(org_id)
+    where_inv = "WHERE " + " AND ".join(inv_cond)
     inv_sql = f"""
         SELECT
             strftime('%Y-%m', i.invoice_date) AS month,
@@ -99,9 +103,9 @@ def get_vat_data(db_path, from_date='', to_date=''):
 
     # Statement-level fee VAT from monthly-format imports
     nsf_cond2, nsf_params2 = _date_where(from_date, to_date, 'statement_date', 7)
-    nsf_where2 = (
-        "WHERE " + " AND ".join(nsf_cond2) + " AND statement_date != ''"
-    ) if nsf_cond2 else "WHERE statement_date != ''"
+    nsf_cond2.append("organization_id = ?")
+    nsf_params2.append(org_id)
+    nsf_where2 = "WHERE " + " AND ".join(nsf_cond2) + " AND statement_date != ''"
     nsf_vat_sql = f"""
         SELECT
             strftime('%Y-%m', statement_date) AS month,
@@ -147,7 +151,7 @@ def get_vat_data(db_path, from_date='', to_date=''):
     return result
 
 
-def get_settlements_data(db_path, from_date='', to_date=''):
+def get_settlements_data(db_path, from_date='', to_date='', org_id=1):
     """Per-import-batch settlement reconciliation.
 
     Query drives from orders (has historical data) and LEFT JOINs imported_files
@@ -162,7 +166,9 @@ def get_settlements_data(db_path, from_date='', to_date=''):
 
     # Filter on import_batch (timestamp), prefix 7 for YYYY-MM month inputs
     cond, params = _date_where(from_date, to_date, 'o.import_batch', 7)
-    where = ("WHERE " + " AND ".join(cond)) if cond else ""
+    cond.append("o.organization_id = ?")
+    params.append(org_id)
+    where = "WHERE " + " AND ".join(cond)
 
     sql = f"""
         SELECT
@@ -180,6 +186,7 @@ def get_settlements_data(db_path, from_date='', to_date=''):
             COALESCE(SUM(o.total_payment),           0.0) AS actual_payout
         FROM orders o
         LEFT JOIN imported_files f ON f.imported_at = o.import_batch
+            AND f.organization_id = o.organization_id
         {where}
         GROUP BY o.import_batch
         ORDER BY o.import_batch DESC
@@ -193,8 +200,9 @@ def get_settlements_data(db_path, from_date='', to_date=''):
                COALESCE(SUM(ABS(vat_amount)), 0.0) AS fee_vat,
                COALESCE(SUM(ABS(incl_vat)),   0.0) AS fees_incl
         FROM noon_statement_fees
+        WHERE organization_id = ?
         GROUP BY import_batch
-    """).fetchall()
+    """, (org_id,)).fetchall()
     db.close()
 
     nsf_by_batch = {
@@ -248,7 +256,7 @@ def get_settlements_data(db_path, from_date='', to_date=''):
 
 
 def get_profitability_data(db_path, from_date='', to_date='',
-                           sku_search='', badge_filter=''):
+                           sku_search='', badge_filter='', org_id=1):
     """Per-SKU profitability with date filtering and new badge thresholds.
 
     Reuses compute_product_metrics via an inline import to avoid circular deps.
@@ -271,6 +279,7 @@ def get_profitability_data(db_path, from_date='', to_date='',
         SELECT
             p.sku, p.partner_sku, p.brand_en, p.brand_ar,
             p.name_en, p.name_ar, p.unit_cost, p.extra_costs, p.notes,
+            COALESCE(p.cost_includes_vat, 1) AS cost_includes_vat,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN 1 ELSE 0 END), 0) AS units_sold,
             COALESCE(SUM(CASE WHEN o.item_status='returned'  THEN 1 ELSE 0 END), 0) AS units_returned,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN o.net_proceeds ELSE 0 END), 0.0) AS revenue,
@@ -278,16 +287,18 @@ def get_profitability_data(db_path, from_date='', to_date='',
         FROM products p
         LEFT JOIN orders o
             ON  o.sku = p.sku
+            AND o.organization_id = p.organization_id
             AND ('' = ? OR SUBSTR(o.ordered_date, 1, 7) >= ?)
             AND ('' = ? OR SUBSTR(o.ordered_date, 1, 7) <= ?)
+        WHERE p.organization_id = ?
         GROUP BY p.sku
         ORDER BY p.name_en
     """
-    rows = db.execute(sql, (fd, fd, td, td)).fetchall()
+    rows = db.execute(sql, (fd, fd, td, td, org_id)).fetchall()
 
     # Check whether any noon_statement_fees exist in the filtered period
-    nsf_where_p = "WHERE statement_date != ''"
-    nsf_params_p = []
+    nsf_where_p = "WHERE statement_date != '' AND organization_id = ?"
+    nsf_params_p = [org_id]
     if fd:
         nsf_where_p += " AND SUBSTR(statement_date, 1, 7) >= ?"
         nsf_params_p.append(fd)
@@ -333,21 +344,25 @@ def get_profitability_data(db_path, from_date='', to_date='',
     return result
 
 
-def get_pl_data(db_path, from_date='', to_date=''):
+def get_pl_data(db_path, from_date='', to_date='', org_id=1):
     """P&L grouped by month."""
     db = get_db(db_path)
     cond, params = _date_where(from_date, to_date, 'o.ordered_date', 10)
-    where = ("WHERE " + " AND ".join(cond) + " AND o.ordered_date != ''") if cond else "WHERE o.ordered_date != ''"
+    cond.append("o.organization_id = ?")
+    params.append(org_id)
+    where = "WHERE " + " AND ".join(cond) + " AND o.ordered_date != ''"
 
     sql = f"""
         SELECT
             strftime('%Y-%m', o.ordered_date) AS month,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN o.net_proceeds ELSE 0 END), 0.0) AS revenue,
             COALESCE(SUM(ABS(o.referral_fee) + ABS(o.fbn_outbound_fee)), 0.0) AS fees,
-            COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN COALESCE(p.unit_cost, 0) ELSE 0 END), 0.0) AS cogs,
+            COALESCE(SUM(CASE WHEN o.item_status='delivered'
+                THEN COALESCE(p.unit_cost, 0) / CASE WHEN COALESCE(p.cost_includes_vat, 1) = 1 THEN 1.15 ELSE 1 END
+                ELSE 0 END), 0.0) AS cogs,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN COALESCE(p.extra_costs, 0) ELSE 0 END), 0.0) AS extra
         FROM orders o
-        LEFT JOIN products p ON p.sku = o.sku
+        LEFT JOIN products p ON p.sku = o.sku AND p.organization_id = o.organization_id
         {where}
         GROUP BY strftime('%Y-%m', o.ordered_date)
         ORDER BY month
@@ -378,18 +393,17 @@ def get_pl_data(db_path, from_date='', to_date=''):
     return result
 
 
-def get_sales_data(db_path, from_date='', to_date='', brand='', sort_by='profit', status=''):
+def get_sales_data(db_path, from_date='', to_date='', brand='', sort_by='profit', status='',
+                   org_id=1):
     """Sales breakdown per SKU."""
     db = get_db(db_path)
 
     date_cond, date_params = _date_where(from_date, to_date, 'o.ordered_date', 10)
     brand_cond, brand_params = _brand_where(brand, 'p')
 
-    all_cond = date_cond + brand_cond
-    if date_cond or brand_cond:
-        where = "WHERE " + " AND ".join(all_cond)
-    else:
-        where = ""
+    all_cond = ["p.organization_id = ?"] + date_cond + brand_cond
+    all_params = [org_id] + date_params + brand_params
+    where = "WHERE " + " AND ".join(all_cond)
 
     sql = f"""
         SELECT
@@ -401,16 +415,17 @@ def get_sales_data(db_path, from_date='', to_date='', brand='', sort_by='profit'
             p.brand_ar,
             p.unit_cost,
             p.extra_costs,
+            COALESCE(p.cost_includes_vat, 1) AS cost_includes_vat,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN 1 ELSE 0 END), 0) AS units_sold,
             COALESCE(SUM(CASE WHEN o.item_status='returned'  THEN 1 ELSE 0 END), 0) AS units_returned,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN o.net_proceeds ELSE 0 END), 0.0) AS revenue,
             COALESCE(SUM(ABS(o.referral_fee) + ABS(o.fbn_outbound_fee)), 0.0) AS noon_fees
         FROM products p
-        LEFT JOIN orders o ON o.sku = p.sku
+        LEFT JOIN orders o ON o.sku = p.sku AND o.organization_id = p.organization_id
         {where}
         GROUP BY p.sku
     """
-    rows = db.execute(sql, date_params + brand_params).fetchall()
+    rows = db.execute(sql, all_params).fetchall()
     db.close()
 
     result = []
@@ -421,7 +436,9 @@ def get_sales_data(db_path, from_date='', to_date='', brand='', sort_by='profit'
         noon_fees = float(r['noon_fees'] or 0)
         unit_cost = float(r['unit_cost'] or 0)
         extra_costs = float(r['extra_costs'] or 0)
-        cogs = unit_cost * units_sold
+        cost_includes_vat = int(r['cost_includes_vat'] if r['cost_includes_vat'] is not None else 1)
+        cost_excl_vat = unit_cost / 1.15 if cost_includes_vat else unit_cost
+        cogs = cost_excl_vat * units_sold
         net_profit = revenue - noon_fees - cogs - extra_costs
         margin_pct = round(net_profit / revenue * 100, 2) if revenue else None
 
@@ -470,15 +487,16 @@ def get_sales_data(db_path, from_date='', to_date='', brand='', sort_by='profit'
     return result
 
 
-def get_fees_data(db_path, from_date='', to_date='', brand=''):
+def get_fees_data(db_path, from_date='', to_date='', brand='', org_id=1):
     """Fee breakdown per SKU."""
     db = get_db(db_path)
 
     date_cond, date_params = _date_where(from_date, to_date, 'o.ordered_date', 10)
     brand_cond, brand_params = _brand_where(brand, 'p')
 
-    all_cond = date_cond + brand_cond
-    where = ("WHERE " + " AND ".join(all_cond)) if all_cond else ""
+    all_cond = ["p.organization_id = ?"] + date_cond + brand_cond
+    all_params = [org_id] + date_params + brand_params
+    where = "WHERE " + " AND ".join(all_cond)
 
     sql = f"""
         SELECT
@@ -493,11 +511,11 @@ def get_fees_data(db_path, from_date='', to_date='', brand=''):
             COALESCE(SUM(ABS(o.fbn_outbound_fee)), 0.0) AS fbn,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN o.net_proceeds ELSE 0 END), 0.0) AS revenue
         FROM products p
-        LEFT JOIN orders o ON o.sku = p.sku
+        LEFT JOIN orders o ON o.sku = p.sku AND o.organization_id = p.organization_id
         {where}
         GROUP BY p.sku
     """
-    rows = db.execute(sql, date_params + brand_params).fetchall()
+    rows = db.execute(sql, all_params).fetchall()
     db.close()
 
     result = []
@@ -529,13 +547,13 @@ def get_fees_data(db_path, from_date='', to_date='', brand=''):
     return result
 
 
-def get_inventory_data(db_path, brand='', cost_min=None, cost_max=None):
+def get_inventory_data(db_path, brand='', cost_min=None, cost_max=None, org_id=1):
     """Inventory & cost data per SKU."""
     db = get_db(db_path)
 
     brand_cond, brand_params = _brand_where(brand, 'p')
-    cond = list(brand_cond)
-    params = list(brand_params)
+    cond = ["p.organization_id = ?"] + list(brand_cond)
+    params = [org_id] + list(brand_params)
 
     if cost_min is not None:
         try:
@@ -550,7 +568,7 @@ def get_inventory_data(db_path, brand='', cost_min=None, cost_max=None):
         except (TypeError, ValueError):
             pass
 
-    where = ("WHERE " + " AND ".join(cond)) if cond else ""
+    where = "WHERE " + " AND ".join(cond)
 
     sql = f"""
         SELECT
@@ -561,12 +579,15 @@ def get_inventory_data(db_path, brand='', cost_min=None, cost_max=None):
             p.brand_en,
             p.unit_cost,
             p.extra_costs,
+            COALESCE(p.cost_includes_vat, 1) AS cost_includes_vat,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN 1 ELSE 0 END), 0) AS units_sold,
             COALESCE(SUM(CASE WHEN o.item_status='returned'  THEN 1 ELSE 0 END), 0) AS units_returned,
-            COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN COALESCE(p.unit_cost, 0) ELSE 0 END), 0.0) AS total_cogs,
+            COALESCE(SUM(CASE WHEN o.item_status='delivered'
+                THEN COALESCE(p.unit_cost, 0) / CASE WHEN COALESCE(p.cost_includes_vat, 1) = 1 THEN 1.15 ELSE 1 END
+                ELSE 0 END), 0.0) AS total_cogs,
             COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN COALESCE(p.extra_costs, 0) ELSE 0 END), 0.0) AS total_extra
         FROM products p
-        LEFT JOIN orders o ON o.sku = p.sku
+        LEFT JOIN orders o ON o.sku = p.sku AND o.organization_id = p.organization_id
         {where}
         GROUP BY p.sku
     """
@@ -577,7 +598,9 @@ def get_inventory_data(db_path, brand='', cost_min=None, cost_max=None):
     for r in rows:
         unit_cost = float(r['unit_cost'] or 0)
         extra_costs = float(r['extra_costs'] or 0)
-        total_per_unit = unit_cost + extra_costs
+        cost_includes_vat = int(r['cost_includes_vat'] if r['cost_includes_vat'] is not None else 1)
+        cost_excl_vat = unit_cost / 1.15 if cost_includes_vat else unit_cost
+        total_per_unit = cost_excl_vat + extra_costs
         units_sold = int(r['units_sold'] or 0)
         units_returned = int(r['units_returned'] or 0)
         total_cogs = float(r['total_cogs'] or 0)
@@ -591,6 +614,7 @@ def get_inventory_data(db_path, brand='', cost_min=None, cost_max=None):
             'name_ar': r['name_ar'] or '',
             'brand_en': r['brand_en'] or '',
             'unit_cost': round(unit_cost, 2),
+            'cost_excl_vat': round(cost_excl_vat, 2),
             'extra_costs': round(extra_costs, 2),
             'total_per_unit': round(total_per_unit, 2),
             'units_sold': units_sold,
@@ -602,11 +626,11 @@ def get_inventory_data(db_path, brand='', cost_min=None, cost_max=None):
     return result
 
 
-def get_invoices_report_data(db_path, supplier='', from_date='', to_date=''):
+def get_invoices_report_data(db_path, supplier='', from_date='', to_date='', org_id=1):
     """Invoice list with per-invoice aggregates."""
     db = get_db(db_path)
 
-    cond, params = [], []
+    cond, params = ["i.organization_id = ?"], [org_id]
     if supplier:
         cond.append("i.supplier_name = ?")
         params.append(supplier)
@@ -614,7 +638,7 @@ def get_invoices_report_data(db_path, supplier='', from_date='', to_date=''):
     cond += date_cond
     params += date_params
 
-    where = ("WHERE " + " AND ".join(cond)) if cond else ""
+    where = "WHERE " + " AND ".join(cond)
 
     sql = f"""
         SELECT

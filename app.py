@@ -86,7 +86,8 @@ SKU_AGGREGATION_SQL = """
         COALESCE(SUM(CASE WHEN o.item_status='delivered' THEN o.net_proceeds ELSE 0 END), 0.0) AS revenue,
         COALESCE(SUM(ABS(o.referral_fee) + ABS(o.fbn_outbound_fee)), 0.0) AS noon_fees
     FROM products p
-    LEFT JOIN orders o ON o.sku = p.sku
+    LEFT JOIN orders o ON o.sku = p.sku AND o.organization_id = p.organization_id
+    WHERE p.organization_id = ?
     GROUP BY p.sku
 """
 
@@ -185,8 +186,8 @@ def compute_product_metrics(row):
     }
 
 
-def get_all_product_metrics(db):
-    rows = db.execute(SKU_AGGREGATION_SQL).fetchall()
+def get_all_product_metrics(db, org_id=1):
+    rows = db.execute(SKU_AGGREGATION_SQL, (org_id,)).fetchall()
     return [compute_product_metrics(r) for r in rows]
 
 
@@ -227,19 +228,23 @@ REF_TYPE_AR = {
 
 
 def _create_inv_movement(db, sku, warehouse_id, movement_type, quantity,
-                          unit_cost=0.0, reference_type=None, reference_id=None, notes=None):
+                          unit_cost=0.0, reference_type=None, reference_id=None, notes=None,
+                          org_id=None):
     db.execute("""
         INSERT INTO inventory_movements
             (sku, warehouse_id, movement_type, quantity, unit_cost,
-             reference_type, reference_id, notes, is_void, created_at)
-        VALUES (?,?,?,?,?,?,?,?,0,?)
+             reference_type, reference_id, notes, is_void, organization_id, created_at)
+        VALUES (?,?,?,?,?,?,?,?,0,?,?)
     """, (sku, int(warehouse_id), movement_type, float(quantity), float(unit_cost or 0),
           reference_type, str(reference_id) if reference_id is not None else None, notes,
+          org_id or 1,
           datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
 
-def _get_warehouse_id(code, db):
-    row = db.execute("SELECT id FROM warehouses WHERE code=?", (code,)).fetchone()
+def _get_warehouse_id(code, db, org_id=1):
+    row = db.execute(
+        "SELECT id FROM warehouses WHERE code=? AND organization_id=?", (code, org_id)
+    ).fetchone()
     return int(row['id']) if row else None
 
 
@@ -276,6 +281,28 @@ def admin_required(f):
     return decorated
 
 
+def get_org_id():
+    """Return current user's organization_id from session (0 if not logged in)."""
+    return int(session.get('org_id', 0))
+
+
+def _ensure_org_warehouses(db, org_id):
+    """Seed the 4 default warehouses for an org if they don't exist yet."""
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for code, name in [('MAIN', 'المستودع الرئيسي'), ('FBN', 'مستودع نون FBN'),
+                        ('RETURNS', 'مستودع المرتجعات'), ('DAMAGED', 'مستودع التالف')]:
+        existing = db.execute(
+            "SELECT id FROM warehouses WHERE code=? AND organization_id=?",
+            (code, org_id)
+        ).fetchone()
+        if not existing:
+            db.execute(
+                "INSERT INTO warehouses (name, code, is_active, organization_id, created_at)"
+                " VALUES (?,?,1,?,?)",
+                (name, code, org_id, now)
+            )
+
+
 @app.before_request
 def check_login():
     public = {'login', 'logout', 'register', 'static'}
@@ -307,12 +334,14 @@ def login():
                 session['username']  = user['username']
                 session['full_name'] = user['full_name'] or user['username']
                 session['role']      = user['role']
+                session['org_id']    = int(user['organization_id'] or 1)
                 try:
                     db2 = get_db(DB_PATH)
                     db2.execute(
                         "UPDATE users SET last_login = ? WHERE id = ?",
                         (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user['id'])
                     )
+                    _ensure_org_warehouses(db2, session['org_id'])
                     db2.commit()
                     db2.close()
                 except Exception:
@@ -350,12 +379,19 @@ def register():
             error = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'
         else:
             try:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 db = get_db(DB_PATH)
+                # Create a new organization for this user
                 db.execute(
-                    "INSERT INTO users (username, password_hash, full_name, role, is_active, created_at)"
-                    " VALUES (?,?,?,?,0,?)",
-                    (username, generate_password_hash(password), full_name, 'user',
-                     datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                    "INSERT INTO organizations (name, created_at) VALUES (?,?)",
+                    (f"منظمة {full_name}", now)
+                )
+                org_row = db.execute("SELECT last_insert_rowid() AS id").fetchone()
+                org_id = int(org_row['id'] if org_row else 1)
+                db.execute(
+                    "INSERT INTO users (username, password_hash, full_name, role, is_active, organization_id, created_at)"
+                    " VALUES (?,?,?,?,0,?,?)",
+                    (username, generate_password_hash(password), full_name, 'user', org_id, now)
                 )
                 db.commit()
                 db.close()
@@ -487,7 +523,9 @@ def admin_user_reset_password(uid):
 @app.route('/')
 def index():
     db = get_db(DB_PATH)
-    count = db.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+    count = db.execute(
+        "SELECT COUNT(*) FROM orders WHERE organization_id=?", (get_org_id(),)
+    ).fetchone()[0]
     db.close()
     return redirect(url_for('import_page') if count == 0 else url_for('dashboard'))
 
@@ -497,16 +535,18 @@ def index():
 @app.route('/import')
 def import_page():
     db = get_db(DB_PATH)
+    org_id = get_org_id()
     imports = db.execute(
-        "SELECT * FROM imported_files ORDER BY imported_at DESC"
+        "SELECT * FROM imported_files WHERE organization_id=? ORDER BY imported_at DESC",
+        (org_id,)
     ).fetchall()
 
     order_stats_rows = db.execute("""
         SELECT import_batch,
                COALESCE(SUM(CASE WHEN item_status='delivered' THEN 1 ELSE 0 END),0) AS delivered,
                COALESCE(SUM(CASE WHEN item_status='returned'  THEN 1 ELSE 0 END),0) AS returned
-        FROM orders GROUP BY import_batch
-    """).fetchall()
+        FROM orders WHERE organization_id=? GROUP BY import_batch
+    """, (org_id,)).fetchall()
     order_stats = {
         r['import_batch']: {'delivered': int(r['delivered']), 'returned': int(r['returned'])}
         for r in order_stats_rows
@@ -514,8 +554,8 @@ def import_page():
 
     fee_stats_rows = db.execute("""
         SELECT import_batch, COUNT(*) AS fees
-        FROM noon_statement_fees GROUP BY import_batch
-    """).fetchall()
+        FROM noon_statement_fees WHERE organization_id=? GROUP BY import_batch
+    """, (org_id,)).fetchall()
     fee_stats = {r['import_batch']: int(r['fees']) for r in fee_stats_rows}
 
     db.close()
@@ -606,6 +646,7 @@ def import_upload():
             statement_date = _s(fr.get('Document Date',  ''))
 
         import_batch = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        org_id = get_org_id()
         try:
             db = get_db(DB_PATH)
         except Exception as e:
@@ -618,8 +659,12 @@ def import_upload():
 
         # Get warehouse IDs for inventory movements (safe: None if not seeded yet)
         try:
-            _fbn_wh = db.execute("SELECT id FROM warehouses WHERE code='FBN'").fetchone()
-            _ret_wh = db.execute("SELECT id FROM warehouses WHERE code='RETURNS'").fetchone()
+            _fbn_wh = db.execute(
+                "SELECT id FROM warehouses WHERE code='FBN' AND organization_id=?", (org_id,)
+            ).fetchone()
+            _ret_wh = db.execute(
+                "SELECT id FROM warehouses WHERE code='RETURNS' AND organization_id=?", (org_id,)
+            ).fetchone()
             fbn_wh_id = int(_fbn_wh['id']) if _fbn_wh else None
             ret_wh_id = int(_ret_wh['id']) if _ret_wh else None
         except Exception:
@@ -655,8 +700,9 @@ def import_upload():
                         continue
 
                     existing = db.execute(
-                        "SELECT id FROM orders WHERE order_nr=? AND item_nr=? AND item_status=?",
-                        (order_nr, item_nr, item_status)
+                        "SELECT id FROM orders WHERE order_nr=? AND item_nr=? AND item_status=?"
+                        " AND organization_id=?",
+                        (order_nr, item_nr, item_status, org_id)
                     ).fetchone()
 
                     if existing is None:
@@ -666,13 +712,13 @@ def import_upload():
                                  product_title_en, item_status,
                                  ordered_date, delivered_date, returned_date,
                                  net_proceeds, referral_fee, fbn_outbound_fee,
-                                 total_payment, import_batch)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,0,0,?,?)
+                                 total_payment, import_batch, organization_id)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,0,0,?,?,?)
                         """, (
                             order_nr, item_nr, sku, partner_sku,
                             product_title_en, item_status,
                             doc_date, delivered_date, returned_date,
-                            net_proceeds, net_proceeds, import_batch,
+                            net_proceeds, net_proceeds, import_batch, org_id,
                         ))
                         rows_added += 1
                         if item_status == 'delivered':
@@ -685,6 +731,7 @@ def import_upload():
                                         db, sku, fbn_wh_id, 'sale', -1,
                                         reference_type='noon_monthly',
                                         reference_id=f'{order_nr}_{item_nr}',
+                                        org_id=org_id,
                                     )
                                 except Exception:
                                     pass
@@ -697,6 +744,7 @@ def import_upload():
                                         db, sku, ret_wh_id, 'return', 1,
                                         reference_type='noon_monthly',
                                         reference_id=f'{order_nr}_{item_nr}',
+                                        org_id=org_id,
                                     )
                                 except Exception:
                                     pass
@@ -718,11 +766,11 @@ def import_upload():
                     db.execute("""
                         INSERT INTO noon_statement_fees
                             (statement_nr, statement_date, fee_type, description,
-                             excl_vat, vat_amount, incl_vat, import_batch)
-                        VALUES (?,?,?,?,?,?,?,?)
+                             excl_vat, vat_amount, incl_vat, import_batch, organization_id)
+                        VALUES (?,?,?,?,?,?,?,?,?)
                     """, (
                         fee_snr, fee_sdate, fee_type, desc,
-                        excl_vat, vat_amount, incl_vat, import_batch,
+                        excl_vat, vat_amount, incl_vat, import_batch, org_id,
                     ))
                     fees_count    += 1
                     total_fees    += abs(excl_vat)
@@ -741,25 +789,25 @@ def import_upload():
                     psku  = _s(sr.get('Partner SKU', ''))
                     pname = _s(sr.get('Description',  ''))
                     cur_p = db.execute("""
-                        INSERT OR IGNORE INTO products (sku, partner_sku, name_en, updated_at)
-                        VALUES (?,?,?,?)
-                    """, (sku_str, psku, pname, now))
+                        INSERT OR IGNORE INTO products (sku, partner_sku, name_en, updated_at, organization_id)
+                        VALUES (?,?,?,?,?)
+                    """, (sku_str, psku, pname, now, org_id))
                     if cur_p.rowcount == 0 and psku:
                         db.execute(
                             "UPDATE products SET partner_sku=?, updated_at=? "
-                            "WHERE sku=? AND (partner_sku IS NULL OR partner_sku='')",
-                            (psku, now, sku_str)
+                            "WHERE sku=? AND organization_id=? AND (partner_sku IS NULL OR partner_sku='')",
+                            (psku, now, sku_str, org_id)
                         )
 
             # -- Log import --
             db.execute("""
                 INSERT INTO imported_files
                     (statement_nr, statement_date, filename, file_hash, imported_at,
-                     rows_added, rows_updated, rows_ignored)
-                VALUES (?,?,?,?,?,?,0,?)
+                     rows_added, rows_updated, rows_ignored, organization_id)
+                VALUES (?,?,?,?,?,?,0,?,?)
             """, (
                 statement_nr, statement_date, file.filename, file_hash,
-                import_batch, rows_added, rows_ignored,
+                import_batch, rows_added, rows_ignored, org_id,
             ))
             db.commit()
             db.close()
@@ -816,6 +864,7 @@ def import_upload():
     statement_date = _safe_meta('statement_date')
 
     import_batch = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    org_id = get_org_id()
     try:
         db = get_db(DB_PATH)
     except Exception as e:
@@ -844,8 +893,8 @@ def import_upload():
                 )
 
                 existing = db.execute(
-                    "SELECT * FROM orders WHERE order_nr=? AND item_nr=?",
-                    (order_nr, item_nr)
+                    "SELECT * FROM orders WHERE order_nr=? AND item_nr=? AND organization_id=?",
+                    (order_nr, item_nr, org_id)
                 ).fetchone()
 
                 def _insert_row():
@@ -854,8 +903,9 @@ def import_upload():
                             (order_nr, item_nr, sku, partner_sku, brand_en, brand_ar,
                              product_title_en, product_title_ar, item_status,
                              ordered_date, delivered_date, returned_date,
-                             net_proceeds, referral_fee, fbn_outbound_fee, total_payment, import_batch)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                             net_proceeds, referral_fee, fbn_outbound_fee, total_payment,
+                             import_batch, organization_id)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """, (
                         order_nr, item_nr,
                         str(row.get('sku', '')), str(row.get('partner_sku', '')),
@@ -864,7 +914,7 @@ def import_upload():
                         str(row.get('item_status', '')),
                         str(row.get('ordered_date', '')), str(row.get('delivered_date', '')),
                         str(row.get('returned_date', '')),
-                        new_net, new_ref, new_fbn, new_pay, import_batch,
+                        new_net, new_ref, new_fbn, new_pay, import_batch, org_id,
                     ))
 
                 if is_shipping_only:
@@ -876,8 +926,8 @@ def import_upload():
                             UPDATE orders
                             SET fbn_outbound_fee = fbn_outbound_fee + ?,
                                 total_payment    = total_payment    + ?
-                            WHERE order_nr=? AND item_nr=?
-                        """, (new_fbn, new_pay, order_nr, item_nr))
+                            WHERE order_nr=? AND item_nr=? AND organization_id=?
+                        """, (new_fbn, new_pay, order_nr, item_nr, org_id))
                         rows_updated += 1
                     else:
                         rows_ignored += 1
@@ -898,8 +948,8 @@ def import_upload():
                                 UPDATE orders
                                 SET net_proceeds = ?, referral_fee = ?,
                                     fbn_outbound_fee = ?, total_payment = ?
-                                WHERE order_nr=? AND item_nr=?
-                            """, (new_net, new_ref, new_fbn, new_pay, order_nr, item_nr))
+                                WHERE order_nr=? AND item_nr=? AND organization_id=?
+                            """, (new_net, new_ref, new_fbn, new_pay, order_nr, item_nr, org_id))
                             rows_updated += 1
 
             except Exception:
@@ -917,29 +967,29 @@ def import_upload():
                     csv_psku = ''
                 cur = db.execute("""
                     INSERT OR IGNORE INTO products
-                        (sku, partner_sku, brand_en, brand_ar, name_en, name_ar, updated_at)
-                    VALUES (?,?,?,?,?,?,?)
+                        (sku, partner_sku, brand_en, brand_ar, name_en, name_ar, updated_at, organization_id)
+                    VALUES (?,?,?,?,?,?,?,?)
                 """, (
                     str(sku), csv_psku,
                     str(sr.get('brand_en', '')), str(sr.get('brand_ar', '')),
                     str(sr.get('product_title_en', '')), str(sr.get('product_title_ar', '')),
-                    now,
+                    now, org_id,
                 ))
                 if cur.rowcount == 0 and csv_psku:
                     db.execute(
-                        "UPDATE products SET partner_sku=?, updated_at=? WHERE sku=?",
-                        (csv_psku, now, str(sku))
+                        "UPDATE products SET partner_sku=?, updated_at=? WHERE sku=? AND organization_id=?",
+                        (csv_psku, now, str(sku), org_id)
                     )
 
         # Always log — never blocks import
         db.execute("""
             INSERT INTO imported_files
                 (statement_nr, statement_date, filename, file_hash, imported_at,
-                 rows_added, rows_updated, rows_ignored)
-            VALUES (?,?,?,?,?,?,?,?)
+                 rows_added, rows_updated, rows_ignored, organization_id)
+            VALUES (?,?,?,?,?,?,?,?,?)
         """, (
             statement_nr, statement_date, file.filename, file_hash,
-            import_batch, rows_added, rows_updated, rows_ignored,
+            import_batch, rows_added, rows_updated, rows_ignored, org_id,
         ))
         db.commit()
         db.close()
@@ -969,16 +1019,21 @@ def import_delete_batch():
     if not import_batch:
         return jsonify({'success': False, 'error': 'دفعة الاستيراد غير محددة'}), 400
 
+    org_id = get_org_id()
     try:
         db = get_db(DB_PATH)
         count_row = db.execute(
-            "SELECT COUNT(*) FROM orders WHERE import_batch = ?", (import_batch,)
+            "SELECT COUNT(*) FROM orders WHERE import_batch = ? AND organization_id=?",
+            (import_batch, org_id)
         ).fetchone()
         orders_deleted = int(count_row[0]) if count_row else 0
 
-        db.execute("DELETE FROM orders WHERE import_batch = ?", (import_batch,))
-        db.execute("DELETE FROM noon_statement_fees WHERE import_batch = ?", (import_batch,))
-        db.execute("DELETE FROM imported_files WHERE imported_at = ?", (import_batch,))
+        db.execute("DELETE FROM orders WHERE import_batch = ? AND organization_id=?",
+                   (import_batch, org_id))
+        db.execute("DELETE FROM noon_statement_fees WHERE import_batch = ? AND organization_id=?",
+                   (import_batch, org_id))
+        db.execute("DELETE FROM imported_files WHERE imported_at = ? AND organization_id=?",
+                   (import_batch, org_id))
         db.commit()
         db.close()
         return jsonify({'success': True, 'orders_deleted': orders_deleted})
@@ -995,6 +1050,7 @@ def import_delete_batch():
 @app.route('/dashboard')
 def dashboard():
     db = get_db(DB_PATH)
+    org_id = get_org_id()
     row = db.execute("""
         SELECT
             COALESCE(SUM(CASE WHEN item_status='delivered' THEN net_proceeds ELSE 0 END), 0) AS revenue,
@@ -1002,10 +1058,10 @@ def dashboard():
             COALESCE(SUM(ABS(referral_fee) + ABS(fbn_outbound_fee)), 0) AS fees,
             COUNT(CASE WHEN item_status='delivered' THEN 1 END) AS delivered_count,
             COUNT(CASE WHEN item_status='returned'  THEN 1 END) AS returned_count
-        FROM orders
-    """).fetchone()
+        FROM orders WHERE organization_id=?
+    """, (org_id,)).fetchone()
 
-    products = get_all_product_metrics(db)
+    products = get_all_product_metrics(db, org_id)
     db.close()
 
     revenue = float(row['revenue'])
@@ -1030,25 +1086,26 @@ def dashboard():
 @app.route('/api/dashboard-data')
 def api_dashboard_data():
     db = get_db(DB_PATH)
+    org_id = get_org_id()
 
     daily = db.execute("""
         SELECT
             SUBSTR(ordered_date, 1, 10) AS date,
             COALESCE(SUM(CASE WHEN item_status='delivered' THEN net_proceeds ELSE 0 END), 0) AS revenue
         FROM orders
-        WHERE ordered_date != ''
+        WHERE ordered_date != '' AND organization_id=?
         GROUP BY SUBSTR(ordered_date, 1, 10)
         ORDER BY date
-    """).fetchall()
+    """, (org_id,)).fetchall()
 
-    products = get_all_product_metrics(db)
+    products = get_all_product_metrics(db, org_id)
 
     status_row = db.execute("""
         SELECT
             COUNT(CASE WHEN item_status='delivered' THEN 1 END) AS delivered,
             COUNT(CASE WHEN item_status='returned'  THEN 1 END) AS returned
-        FROM orders
-    """).fetchone()
+        FROM orders WHERE organization_id=?
+    """, (org_id,)).fetchone()
 
     db.close()
 
@@ -1080,7 +1137,7 @@ def products_page():
     status_filter = request.args.get('status', '')
 
     db = get_db(DB_PATH)
-    all_products = get_all_product_metrics(db)
+    all_products = get_all_product_metrics(db, get_org_id())
     db.close()
 
     brands = sorted({p['brand_en'] for p in all_products if p['brand_en']})
@@ -1112,7 +1169,8 @@ def orders_page():
     from_date = request.args.get('from_date', '')
     to_date = request.args.get('to_date', '')
 
-    conditions, params = [], []
+    org_id = get_org_id()
+    conditions, params = ["organization_id = ?"], [org_id]
     if status_filter:
         conditions.append("item_status = ?")
         params.append(status_filter)
@@ -1126,7 +1184,7 @@ def orders_page():
         conditions.append("(order_nr LIKE ? OR sku LIKE ? OR partner_sku LIKE ? OR product_title_en LIKE ?)")
         params += [f'%{search}%', f'%{search}%', f'%{search}%', f'%{search}%']
 
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    where = "WHERE " + " AND ".join(conditions)
     sql = f"SELECT * FROM orders {where} ORDER BY ordered_date DESC"
 
     db = get_db(DB_PATH)
@@ -1143,7 +1201,7 @@ def orders_page():
 @app.route('/costs')
 def costs_page():
     db = get_db(DB_PATH)
-    products = get_all_product_metrics(db)
+    products = get_all_product_metrics(db, get_org_id())
     db.close()
 
     totals = {
@@ -1169,6 +1227,7 @@ def costs_save():
     if not skus:
         return jsonify({'success': False, 'error': 'لا توجد بيانات للحفظ'}), 400
 
+    org_id = get_org_id()
     db = get_db(DB_PATH)
     updated = 0
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1182,8 +1241,8 @@ def costs_save():
             civ = int(civ_list[i]) if i < len(civ_list) else 1
             db.execute(
                 "UPDATE products SET unit_cost=?, extra_costs=?, notes=?, partner_sku=?,"
-                " cost_includes_vat=?, updated_at=? WHERE sku=?",
-                (uc, ec, note, psku, civ, now, sku))
+                " cost_includes_vat=?, updated_at=? WHERE sku=? AND organization_id=?",
+                (uc, ec, note, psku, civ, now, sku, org_id))
             updated += 1
         except (ValueError, IndexError):
             continue
@@ -1200,8 +1259,8 @@ def update_partner_sku(sku):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     db = get_db(DB_PATH)
     result = db.execute(
-        "UPDATE products SET partner_sku=?, updated_at=? WHERE sku=?",
-        (partner_sku, now, sku))
+        "UPDATE products SET partner_sku=?, updated_at=? WHERE sku=? AND organization_id=?",
+        (partner_sku, now, sku, get_org_id()))
     db.commit()
     db.close()
     if result.rowcount == 0:
@@ -1214,9 +1273,18 @@ def update_partner_sku(sku):
 @app.route('/invoices')
 def invoices_page():
     db = get_db(DB_PATH)
-    invoices = db.execute("SELECT * FROM invoices ORDER BY created_at DESC").fetchall()
-    products = db.execute("SELECT sku, name_en FROM products ORDER BY name_en").fetchall()
-    count = db.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
+    org_id = get_org_id()
+    invoices = db.execute(
+        "SELECT * FROM invoices WHERE organization_id=? ORDER BY created_at DESC",
+        (org_id,)
+    ).fetchall()
+    products = db.execute(
+        "SELECT sku, name_en FROM products WHERE organization_id=? ORDER BY name_en",
+        (org_id,)
+    ).fetchall()
+    count = db.execute(
+        "SELECT COUNT(*) FROM invoices WHERE organization_id=?", (org_id,)
+    ).fetchone()[0]
     db.close()
     next_invoice_nr = f'INV-{count + 1:04d}'
     return render_template('invoices.html', invoices=invoices, products=products,
@@ -1281,11 +1349,14 @@ def invoices_add():
 
     try:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        org_id = get_org_id()
         db = get_db(DB_PATH)
 
         invoice_nr = request.form.get('invoice_nr', '').strip()
         if not invoice_nr:
-            cnt = db.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
+            cnt = db.execute(
+                "SELECT COUNT(*) FROM invoices WHERE organization_id=?", (org_id,)
+            ).fetchone()[0]
             invoice_nr = f'INV-{cnt + 1:04d}'
 
         # VAT calculation based on mode
@@ -1310,8 +1381,8 @@ def invoices_add():
         cur = db.execute("""
             INSERT INTO invoices
                 (invoice_nr, supplier_name, invoice_date, total_amount, vat_amount,
-                 currency, notes, pdf_filename, pdf_original_name, created_at)
-            VALUES (?,?,?,?,?,'SAR',?,?,?,?)
+                 currency, notes, pdf_filename, pdf_original_name, created_at, organization_id)
+            VALUES (?,?,?,?,?,'SAR',?,?,?,?,?)
         """, (
             invoice_nr,
             request.form.get('supplier_name', ''),
@@ -1322,6 +1393,7 @@ def invoices_add():
             pdf_filename,
             pdf_original_name,
             now,
+            org_id,
         ))
         invoice_id = cur.lastrowid
 
@@ -1332,7 +1404,7 @@ def invoices_add():
         item_totals = request.form.getlist('item_total[]')
 
         # Get MAIN warehouse for inventory movements
-        main_wh_id = _get_warehouse_id('MAIN', db)
+        main_wh_id = _get_warehouse_id('MAIN', db, org_id)
 
         for i, sku in enumerate(item_skus):
             if not sku:
@@ -1344,13 +1416,14 @@ def invoices_add():
                 pname = item_names[i] if i < len(item_names) else ''
                 db.execute("""
                     INSERT INTO invoice_items
-                        (invoice_id, sku, product_name, quantity, unit_cost, total_cost)
-                    VALUES (?,?,?,?,?,?)
-                """, (invoice_id, sku, pname, qty, uc, tc))
+                        (invoice_id, sku, product_name, quantity, unit_cost, total_cost,
+                         organization_id)
+                    VALUES (?,?,?,?,?,?,?)
+                """, (invoice_id, sku, pname, qty, uc, tc, org_id))
                 if uc > 0:
                     db.execute(
-                        "UPDATE products SET unit_cost=?, updated_at=? WHERE sku=?",
-                        (uc, now, sku))
+                        "UPDATE products SET unit_cost=?, updated_at=? WHERE sku=? AND organization_id=?",
+                        (uc, now, sku, org_id))
                 # Inventory movement: purchase into MAIN warehouse
                 if qty > 0 and main_wh_id:
                     uc_ex_vat = round(uc / 1.15, 4) if vat_mode == 'includes_vat' else round(uc, 4)
@@ -1359,6 +1432,7 @@ def invoices_add():
                         unit_cost=uc_ex_vat,
                         reference_type='invoice',
                         reference_id=str(invoice_id),
+                        org_id=org_id,
                     )
             except (ValueError, IndexError):
                 continue
@@ -1374,12 +1448,17 @@ def invoices_add():
 @app.route('/invoices/<int:invoice_id>')
 def invoice_detail(invoice_id):
     db = get_db(DB_PATH)
-    invoice = db.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+    org_id = get_org_id()
+    invoice = db.execute(
+        "SELECT * FROM invoices WHERE id=? AND organization_id=?", (invoice_id, org_id)
+    ).fetchone()
     if not invoice:
         db.close()
         return "الفاتورة غير موجودة", 404
     items = db.execute(
-        "SELECT * FROM invoice_items WHERE invoice_id=?", (invoice_id,)).fetchall()
+        "SELECT * FROM invoice_items WHERE invoice_id=? AND organization_id=?",
+        (invoice_id, org_id)
+    ).fetchall()
     db.close()
     return render_template('invoice_detail.html', invoice=invoice, items=items)
 
@@ -1387,13 +1466,16 @@ def invoice_detail(invoice_id):
 @app.route('/invoices/<int:invoice_id>/delete', methods=['POST'])
 def invoice_delete(invoice_id):
     db = get_db(DB_PATH)
+    org_id = get_org_id()
     inv = db.execute(
-        "SELECT pdf_filename FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+        "SELECT pdf_filename FROM invoices WHERE id=? AND organization_id=?",
+        (invoice_id, org_id)
+    ).fetchone()
     if not inv:
         db.close()
         return jsonify({'success': False, 'error': 'الفاتورة غير موجودة'}), 404
 
-    db.execute("DELETE FROM invoices WHERE id=?", (invoice_id,))
+    db.execute("DELETE FROM invoices WHERE id=? AND organization_id=?", (invoice_id, org_id))
     db.commit()
     db.close()
 
@@ -1422,11 +1504,14 @@ def view_pdf(filename):
 @app.route('/reports')
 def reports_page():
     db = get_db(DB_PATH)
+    org_id = get_org_id()
     brand_rows = db.execute(
-        "SELECT DISTINCT brand_en FROM products WHERE brand_en != '' ORDER BY brand_en"
+        "SELECT DISTINCT brand_en FROM products WHERE brand_en != '' AND organization_id=? ORDER BY brand_en",
+        (org_id,)
     ).fetchall()
     supplier_rows = db.execute(
-        "SELECT DISTINCT supplier_name FROM invoices WHERE supplier_name != '' ORDER BY supplier_name"
+        "SELECT DISTINCT supplier_name FROM invoices WHERE supplier_name != '' AND organization_id=? ORDER BY supplier_name",
+        (org_id,)
     ).fetchall()
     db.close()
     brands = [r['brand_en'] for r in brand_rows]
@@ -1440,7 +1525,7 @@ def reports_page():
 def report_pl():
     f = _parse_filters()
     try:
-        data = rp.get_pl_data(DB_PATH, f['from_date'], f['to_date'])
+        data = rp.get_pl_data(DB_PATH, f['from_date'], f['to_date'], org_id=get_org_id())
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1518,7 +1603,7 @@ def report_pl():
 def report_vat():
     f = _parse_filters()
     try:
-        data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'])
+        data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'], org_id=get_org_id())
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1585,7 +1670,7 @@ def report_vat():
 @app.route('/reports/vat/excel')
 def report_vat_excel():
     f = _parse_filters()
-    data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'])
+    data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'], org_id=get_org_id())
     headers = [
         'الشهر', 'المبيعات شامل الضريبة', 'ضريبة المخرجات',
         'رسوم نون (قبل الضريبة)', 'ضريبة المدخلات — نون',
@@ -1623,7 +1708,7 @@ def report_sales():
     f = _parse_filters()
     try:
         data = rp.get_sales_data(DB_PATH, f['from_date'], f['to_date'],
-                                 f['brand'], f['sort_by'], f['status'])
+                                 f['brand'], f['sort_by'], f['status'], org_id=get_org_id())
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1706,7 +1791,7 @@ def report_sales():
 def report_fees():
     f = _parse_filters()
     try:
-        data = rp.get_fees_data(DB_PATH, f['from_date'], f['to_date'], f['brand'])
+        data = rp.get_fees_data(DB_PATH, f['from_date'], f['to_date'], f['brand'], org_id=get_org_id())
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1776,7 +1861,7 @@ def report_fees():
 def report_inventory():
     f = _parse_filters()
     try:
-        data = rp.get_inventory_data(DB_PATH, f['brand'], f['cost_min'], f['cost_max'])
+        data = rp.get_inventory_data(DB_PATH, f['brand'], f['cost_min'], f['cost_max'], org_id=get_org_id())
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1851,7 +1936,7 @@ def report_inventory():
 def report_invoices_report():
     f = _parse_filters()
     try:
-        data = rp.get_invoices_report_data(DB_PATH, f['supplier'], f['from_date'], f['to_date'])
+        data = rp.get_invoices_report_data(DB_PATH, f['supplier'], f['from_date'], f['to_date'], org_id=get_org_id())
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1947,7 +2032,7 @@ def report_invoices_report():
 @app.route('/reports/pl/excel')
 def report_pl_excel():
     f = _parse_filters()
-    data = rp.get_pl_data(DB_PATH, f['from_date'], f['to_date'])
+    data = rp.get_pl_data(DB_PATH, f['from_date'], f['to_date'], org_id=get_org_id())
     headers = ['الشهر', 'الإيرادات', 'رسوم noon', 'تكلفة البضاعة',
                'تكاليف إضافية', 'مجمل الربح', 'صافي الربح', 'الهامش %']
     rows = []
@@ -1977,7 +2062,7 @@ def report_pl_excel():
 def report_sales_excel():
     f = _parse_filters()
     data = rp.get_sales_data(DB_PATH, f['from_date'], f['to_date'],
-                             f['brand'], f['sort_by'], f['status'])
+                             f['brand'], f['sort_by'], f['status'], org_id=get_org_id())
     headers = ['SKU noon', 'SKU الشريك', 'المنتج', 'العلامة', 'مباع', 'مرتجع', 'نسبة الإرجاع%',
                'الإيرادات', 'رسوم noon', 'التكاليف', 'صافي الربح', 'الهامش%', 'الحالة']
     rows = []
@@ -2009,7 +2094,7 @@ def report_sales_excel():
 @app.route('/reports/fees/excel')
 def report_fees_excel():
     f = _parse_filters()
-    data = rp.get_fees_data(DB_PATH, f['from_date'], f['to_date'], f['brand'])
+    data = rp.get_fees_data(DB_PATH, f['from_date'], f['to_date'], f['brand'], org_id=get_org_id())
     headers = ['SKU noon', 'SKU الشريك', 'المنتج', 'مسلَّم', 'مرتجع', 'رسوم الإحالة',
                'رسوم FBN', 'إجمالي الرسوم', '% من الإيرادات', 'صافي بعد الرسوم']
     rows = []
@@ -2037,7 +2122,7 @@ def report_fees_excel():
 @app.route('/reports/inventory/excel')
 def report_inventory_excel():
     f = _parse_filters()
-    data = rp.get_inventory_data(DB_PATH, f['brand'], f['cost_min'], f['cost_max'])
+    data = rp.get_inventory_data(DB_PATH, f['brand'], f['cost_min'], f['cost_max'], org_id=get_org_id())
     headers = ['SKU noon', 'SKU الشريك', 'المنتج', 'العلامة', 'تكلفة الوحدة', 'تكاليف إضافية',
                'إجمالي/وحدة', 'مباع', 'مرتجع', 'إجمالي COGS', 'إجمالي ت. إضافية', 'إجمالي الاستثمار']
     rows = []
@@ -2065,7 +2150,7 @@ def report_inventory_excel():
 @app.route('/reports/invoices-report/excel')
 def report_invoices_excel():
     f = _parse_filters()
-    data = rp.get_invoices_report_data(DB_PATH, f['supplier'], f['from_date'], f['to_date'])
+    data = rp.get_invoices_report_data(DB_PATH, f['supplier'], f['from_date'], f['to_date'], org_id=get_org_id())
     headers = ['رقم الفاتورة', 'المورد', 'التاريخ', 'الإجمالي',
                'الضريبة', 'الصافي', 'البنود', 'PDF']
     rows = []
@@ -2093,7 +2178,7 @@ def report_invoices_excel():
 @app.route('/reports/pl/pdf')
 def report_pl_pdf():
     f = _parse_filters()
-    data = rp.get_pl_data(DB_PATH, f['from_date'], f['to_date'])
+    data = rp.get_pl_data(DB_PATH, f['from_date'], f['to_date'], org_id=get_org_id())
     headers = ['الشهر', 'الإيرادات', 'رسوم noon', 'تكلفة البضاعة',
                'تكاليف إضافية', 'مجمل الربح', 'صافي الربح', 'الهامش %']
     rows = []
@@ -2120,7 +2205,7 @@ def report_pl_pdf():
 def report_sales_pdf():
     f = _parse_filters()
     data = rp.get_sales_data(DB_PATH, f['from_date'], f['to_date'],
-                             f['brand'], f['sort_by'], f['status'])
+                             f['brand'], f['sort_by'], f['status'], org_id=get_org_id())
     headers = ['SKU noon', 'SKU الشريك', 'المنتج', 'مباع', 'مرتجع', 'الإيرادات',
                'رسوم noon', 'التكاليف', 'صافي الربح', 'الهامش%']
     rows = []
@@ -2147,7 +2232,7 @@ def report_sales_pdf():
 @app.route('/reports/fees/pdf')
 def report_fees_pdf():
     f = _parse_filters()
-    data = rp.get_fees_data(DB_PATH, f['from_date'], f['to_date'], f['brand'])
+    data = rp.get_fees_data(DB_PATH, f['from_date'], f['to_date'], f['brand'], org_id=get_org_id())
     headers = ['SKU noon', 'SKU الشريك', 'المنتج', 'مسلَّم', 'مرتجع', 'رسوم الإحالة',
                'رسوم FBN', 'إجمالي الرسوم', '% الإيرادات', 'صافي بعد الرسوم']
     rows = []
@@ -2172,7 +2257,7 @@ def report_fees_pdf():
 @app.route('/reports/inventory/pdf')
 def report_inventory_pdf():
     f = _parse_filters()
-    data = rp.get_inventory_data(DB_PATH, f['brand'], f['cost_min'], f['cost_max'])
+    data = rp.get_inventory_data(DB_PATH, f['brand'], f['cost_min'], f['cost_max'], org_id=get_org_id())
     headers = ['SKU noon', 'SKU الشريك', 'المنتج', 'العلامة', 'تكلفة الوحدة', 'إجمالي/وحدة',
                'مباع', 'مرتجع', 'إجمالي COGS', 'إجمالي الاستثمار']
     rows = []
@@ -2197,7 +2282,7 @@ def report_inventory_pdf():
 @app.route('/reports/invoices-report/pdf')
 def report_invoices_pdf():
     f = _parse_filters()
-    data = rp.get_invoices_report_data(DB_PATH, f['supplier'], f['from_date'], f['to_date'])
+    data = rp.get_invoices_report_data(DB_PATH, f['supplier'], f['from_date'], f['to_date'], org_id=get_org_id())
     headers = ['رقم الفاتورة', 'المورد', 'التاريخ', 'الإجمالي',
                'الضريبة', 'الصافي', 'البنود']
     rows = []
@@ -2223,6 +2308,7 @@ def reports_export():
     if export_type not in ('pl', 'orders'):
         return "نوع التصدير غير صالح", 400
 
+    org_id = get_org_id()
     db = get_db(DB_PATH)
     wb = Workbook()
     ws = wb.active
@@ -2233,7 +2319,7 @@ def reports_export():
         ws.append(['SKU', 'الاسم (EN)', 'الوحدات المباعة', 'الإيرادات (ر.س)',
                    'رسوم نون (ر.س)', 'تكلفة البضاعة (ر.س)',
                    'تكاليف إضافية (ر.س)', 'صافي الربح (ر.س)', 'هامش %'])
-        for p in get_all_product_metrics(db):
+        for p in get_all_product_metrics(db, org_id):
             ws.append([
                 p['sku'], p['name_en'], p['units_sold'],
                 round(p['revenue'], 2), round(p['noon_fees'], 2),
@@ -2249,7 +2335,10 @@ def reports_export():
                    'العلامة (EN)', 'العلامة (AR)', 'المنتج (EN)', 'المنتج (AR)',
                    'الحالة', 'تاريخ الطلب', 'تاريخ التسليم', 'تاريخ الإرجاع',
                    'صافي العائد', 'رسوم الإحالة', 'رسوم FBN', 'إجمالي الدفع'])
-        for o in db.execute("SELECT * FROM orders ORDER BY ordered_date DESC").fetchall():
+        for o in db.execute(
+            "SELECT * FROM orders WHERE organization_id=? ORDER BY ordered_date DESC",
+            (org_id,)
+        ).fetchall():
             ws.append([
                 o['order_nr'], o['item_nr'], o['sku'], o['partner_sku'],
                 o['brand_en'], o['brand_ar'],
@@ -2335,7 +2424,7 @@ def profitability_page():
     badge_filter = request.args.get('badge_filter', '').strip()
 
     products = rp.get_profitability_data(
-        DB_PATH, f['from_date'], f['to_date'], sku_search, badge_filter
+        DB_PATH, f['from_date'], f['to_date'], sku_search, badge_filter, org_id=get_org_id()
     )
 
     totals = {
@@ -2365,7 +2454,7 @@ def profitability_excel():
     badge_filter = request.args.get('badge_filter', '').strip()
 
     products = rp.get_profitability_data(
-        DB_PATH, f['from_date'], f['to_date'], sku_search, badge_filter
+        DB_PATH, f['from_date'], f['to_date'], sku_search, badge_filter, org_id=get_org_id()
     )
 
     headers = [
@@ -2413,7 +2502,7 @@ def profitability_excel():
 @app.route('/vat-center')
 def vat_center_page():
     f = _parse_filters()
-    data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'])
+    data = rp.get_vat_data(DB_PATH, f['from_date'], f['to_date'], org_id=get_org_id())
     totals = {
         'sales_incl':     round(sum(d['sales_incl']     for d in data), 2),
         'output_vat':     round(sum(d['output_vat']     for d in data), 2),
@@ -2432,7 +2521,7 @@ def vat_center_page():
 @app.route('/settlements')
 def settlements_page():
     f = _parse_filters()
-    settlements = rp.get_settlements_data(DB_PATH, f['from_date'], f['to_date'])
+    settlements = rp.get_settlements_data(DB_PATH, f['from_date'], f['to_date'], org_id=get_org_id())
     totals = {
         'gross_sales':    round(sum(s['gross_sales']   for s in settlements), 2),
         'total_fees':     round(sum(s['total_fees']    for s in settlements), 2),
@@ -2456,6 +2545,7 @@ def api_products_search():
     if len(q) < 2:
         return jsonify([])
     like = f'%{q}%'
+    org_id = get_org_id()
     db = get_db(DB_PATH)
     try:
         rows = db.execute("""
@@ -2470,13 +2560,15 @@ def api_products_search():
                         ELSE NULL END AS avg_cost
             FROM products p
             LEFT JOIN inventory_movements im ON im.sku = p.sku AND im.is_void = 0
-            WHERE p.sku LIKE ?
+                AND im.organization_id = p.organization_id
+            WHERE p.organization_id = ?
+              AND (p.sku LIKE ?
                OR COALESCE(p.partner_sku,'') LIKE ?
                OR COALESCE(p.barcode,'') LIKE ?
                OR COALESCE(p.name_en,'') LIKE ?
                OR COALESCE(p.name_ar,'') LIKE ?
                OR COALESCE(p.brand_en,'') LIKE ?
-               OR COALESCE(p.brand_ar,'') LIKE ?
+               OR COALESCE(p.brand_ar,'') LIKE ?)
             GROUP BY p.sku
             ORDER BY
                 CASE WHEN p.sku = ? THEN 0
@@ -2487,7 +2579,7 @@ def api_products_search():
                      ELSE 5 END,
                 p.sku
             LIMIT 10
-        """, (like, like, like, like, like, like, like,
+        """, (org_id, like, like, like, like, like, like, like,
               q, q, q, f'{q}%', f'{q}%')).fetchall()
     except Exception as e:
         db.close()
@@ -2526,10 +2618,13 @@ def api_products_quick_create():
     if not name_ar:
         return jsonify({'success': False, 'error': 'اسم المنتج بالعربي مطلوب'}), 400
 
+    org_id = get_org_id()
     db = get_db(DB_PATH)
 
-    # If SKU already exists, return it instead of erroring
-    existing = db.execute("SELECT * FROM products WHERE sku=?", (sku,)).fetchone()
+    # If SKU already exists for this org, return it instead of erroring
+    existing = db.execute(
+        "SELECT * FROM products WHERE sku=? AND organization_id=?", (sku, org_id)
+    ).fetchone()
     if existing:
         db.close()
         return jsonify({
@@ -2545,10 +2640,10 @@ def api_products_quick_create():
             }
         })
 
-    # Check barcode uniqueness
+    # Check barcode uniqueness within org
     if barcode:
         bc_conflict = db.execute(
-            "SELECT sku FROM products WHERE barcode=?", (barcode,)
+            "SELECT sku FROM products WHERE barcode=? AND organization_id=?", (barcode, org_id)
         ).fetchone()
         if bc_conflict:
             db.close()
@@ -2561,9 +2656,9 @@ def api_products_quick_create():
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     db.execute("""
         INSERT INTO products
-            (sku, name_ar, name_en, barcode, unit_cost, cost_includes_vat, updated_at)
-        VALUES (?,?,?,?,?,?,?)
-    """, (sku, name_ar, name_en or None, barcode, unit_cost, cost_includes_vat, now))
+            (sku, name_ar, name_en, barcode, unit_cost, cost_includes_vat, updated_at, organization_id)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (sku, name_ar, name_en or None, barcode, unit_cost, cost_includes_vat, now, org_id))
     db.commit()
     db.close()
 
@@ -2588,24 +2683,28 @@ def api_products_quick_create():
 @app.route('/inventory')
 def inventory_page():
     db = get_db(DB_PATH)
-    warehouses = db.execute("SELECT * FROM warehouses WHERE is_active=1 ORDER BY id").fetchall()
+    org_id = get_org_id()
+    warehouses = db.execute(
+        "SELECT * FROM warehouses WHERE is_active=1 AND organization_id=? ORDER BY id",
+        (org_id,)
+    ).fetchall()
 
     # All SKUs that have any movements
     sku_rows = db.execute("""
         SELECT DISTINCT im.sku,
                COALESCE(p.name_en, p.name_ar, im.sku) AS product_name
         FROM inventory_movements im
-        LEFT JOIN products p ON p.sku = im.sku
-        WHERE im.is_void = 0
+        LEFT JOIN products p ON p.sku = im.sku AND p.organization_id = im.organization_id
+        WHERE im.is_void = 0 AND im.organization_id = ?
         ORDER BY im.sku
-    """).fetchall()
+    """, (org_id,)).fetchall()
 
     # All balances per (sku, warehouse_id)
     balance_rows = db.execute("""
         SELECT sku, warehouse_id, COALESCE(SUM(quantity), 0) AS balance
-        FROM inventory_movements WHERE is_void=0
+        FROM inventory_movements WHERE is_void=0 AND organization_id=?
         GROUP BY sku, warehouse_id
-    """).fetchall()
+    """, (org_id,)).fetchall()
 
     balance_map = {}
     for b in balance_rows:
@@ -2621,9 +2720,9 @@ def inventory_page():
                 SUM(CASE WHEN movement_type='purchase' THEN quantity * unit_cost ELSE 0 END) /
                 NULLIF(SUM(CASE WHEN movement_type='purchase' THEN quantity ELSE 0 END), 0),
             0) AS avg_cost
-        FROM inventory_movements WHERE is_void=0
+        FROM inventory_movements WHERE is_void=0 AND organization_id=?
         GROUP BY sku
-    """).fetchall()
+    """, (org_id,)).fetchall()
     cost_map = {c['sku']: float(c['avg_cost']) for c in cost_rows}
 
     wh_by_code = {w['code']: int(w['id']) for w in warehouses}
@@ -2676,8 +2775,9 @@ def inventory_ledger_page():
     to_date = request.args.get('to_date', '').strip()
     type_filter = request.args.get('movement_type', '').strip()
 
-    conditions = ['im.is_void = 0']
-    params = []
+    org_id = get_org_id()
+    conditions = ['im.is_void = 0', 'im.organization_id = ?']
+    params = [org_id]
     if sku_filter:
         conditions.append('im.sku = ?')
         params.append(sku_filter)
@@ -2705,9 +2805,13 @@ def inventory_ledger_page():
 
     db = get_db(DB_PATH)
     raw_movements = db.execute(sql, params).fetchall()
-    warehouses = db.execute("SELECT * FROM warehouses WHERE is_active=1 ORDER BY id").fetchall()
+    warehouses = db.execute(
+        "SELECT * FROM warehouses WHERE is_active=1 AND organization_id=? ORDER BY id",
+        (org_id,)
+    ).fetchall()
     sku_list = db.execute(
-        "SELECT DISTINCT sku FROM inventory_movements WHERE is_void=0 ORDER BY sku"
+        "SELECT DISTINCT sku FROM inventory_movements WHERE is_void=0 AND organization_id=? ORDER BY sku",
+        (org_id,)
     ).fetchall()
     db.close()
 
@@ -2753,9 +2857,14 @@ def inventory_ledger_page():
 @app.route('/inventory/transfers')
 def inventory_transfers_page():
     db = get_db(DB_PATH)
-    warehouses = db.execute("SELECT * FROM warehouses WHERE is_active=1 ORDER BY id").fetchall()
+    org_id = get_org_id()
+    warehouses = db.execute(
+        "SELECT * FROM warehouses WHERE is_active=1 AND organization_id=? ORDER BY id",
+        (org_id,)
+    ).fetchall()
     sku_list = db.execute(
-        "SELECT DISTINCT sku FROM inventory_movements WHERE is_void=0 ORDER BY sku"
+        "SELECT DISTINCT sku FROM inventory_movements WHERE is_void=0 AND organization_id=? ORDER BY sku",
+        (org_id,)
     ).fetchall()
 
     # Recent transfers (pairs: show transfer_out + transfer_in grouped by reference_id)
@@ -2764,9 +2873,10 @@ def inventory_transfers_page():
         FROM inventory_movements im
         JOIN warehouses w ON w.id = im.warehouse_id
         WHERE im.movement_type IN ('transfer_in','transfer_out') AND im.is_void=0
+          AND im.organization_id=?
         ORDER BY im.created_at DESC, im.id DESC
         LIMIT 200
-    """).fetchall()
+    """, (org_id,)).fetchall()
 
     db.close()
 
@@ -2807,6 +2917,7 @@ def inventory_transfer_save():
     if from_wh_id == to_wh_id:
         return jsonify({'success': False, 'error': 'لا يمكن التحويل إلى نفس المستودع'}), 400
 
+    org_id = get_org_id()
     db = get_db(DB_PATH)
     balance = _get_stock_balance(sku, from_wh_id, db)
     if balance < qty:
@@ -2815,9 +2926,11 @@ def inventory_transfer_save():
 
     ref = f'TRF-{datetime.now().strftime("%Y%m%d%H%M%S")}'
     _create_inv_movement(db, sku, from_wh_id, 'transfer_out', -qty,
-                          reference_type='transfer', reference_id=ref, notes=notes or None)
+                          reference_type='transfer', reference_id=ref, notes=notes or None,
+                          org_id=org_id)
     _create_inv_movement(db, sku, to_wh_id, 'transfer_in', qty,
-                          reference_type='transfer', reference_id=ref, notes=notes or None)
+                          reference_type='transfer', reference_id=ref, notes=notes or None,
+                          org_id=org_id)
     db.commit()
     db.close()
     return jsonify({'success': True, 'reference': ref})
@@ -2842,6 +2955,7 @@ def inventory_adjustment_add():
     if qty == 0:
         return jsonify({'success': False, 'error': 'الكمية يجب أن تكون غير صفر'}), 400
 
+    org_id = get_org_id()
     db = get_db(DB_PATH)
     if qty < 0:
         balance = _get_stock_balance(sku, warehouse_id, db)
@@ -2851,7 +2965,7 @@ def inventory_adjustment_add():
 
     notes = f'{adj_type}: {reason}'
     _create_inv_movement(db, sku, warehouse_id, 'adjustment', qty,
-                          reference_type='manual', notes=notes)
+                          reference_type='manual', notes=notes, org_id=org_id)
     db.commit()
     db.close()
     return jsonify({'success': True})
