@@ -78,6 +78,7 @@
 
     {% if not success %}
     <form method="post" action="/register">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label class="form-label" for="full_name">الاسم الكامل</label>
         <input type="text" id="full_name" name="full_name" class="form-control"

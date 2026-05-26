@@ -472,25 +472,39 @@ function showDropdown(tr, results, query) {
     nf.style.display = 'block';
   } else {
     nf.style.display = 'none';
-    dd.innerHTML = results.map((p, i) => {
-      const name = p.name_ar || p.name_en || p.sku;
+    dd.innerHTML = '';
+    results.forEach((p, i) => {
+      const item = document.createElement('div');
+      item.className = 'dd-item';
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'dd-name';
+      nameDiv.textContent = p.name_ar || p.name_en || p.sku || '';
+      item.appendChild(nameDiv);
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'dd-meta';
+
+      const addSpan = (text, cls) => {
+        const s = document.createElement('span');
+        if (cls) s.className = cls;
+        s.textContent = text;
+        metaDiv.appendChild(s);
+      };
+
+      addSpan('SKU noon: ' + (p.sku || ''));
+      if (p.partner_sku) addSpan('كود الشريك: ' + p.partner_sku);
+      if (p.barcode)     addSpan('الباركود: ' + p.barcode);
       const brand = p.brand_ar || p.brand_en;
-      const costText = p.avg_cost !== null && p.avg_cost > 0
-        ? `<span class="dd-cost">متوسط التكلفة: ${p.avg_cost.toFixed(2)} ر.س</span>`
-        : (p.unit_cost > 0 ? `<span class="dd-cost">تكلفة: ${p.unit_cost.toFixed(2)} ر.س</span>` : '');
-      const metaParts = [`<span>SKU noon: ${p.sku}</span>`];
-      if (p.partner_sku) metaParts.push(`<span>كود الشريك: ${p.partner_sku}</span>`);
-      if (p.barcode)     metaParts.push(`<span>الباركود: ${p.barcode}</span>`);
-      if (brand)         metaParts.push(`<span>${brand}</span>`);
-      if (costText)      metaParts.push(costText);
-      return `<div class="dd-item" data-idx="${i}">
-        <div class="dd-name">${name}</div>
-        <div class="dd-meta">${metaParts.join('')}</div>
-      </div>`;
-    }).join('');
-    dd.querySelectorAll('.dd-item').forEach(item => {
-      const idx = parseInt(item.dataset.idx);
-      item.addEventListener('mousedown', e => { e.preventDefault(); selectProduct(tr, results[idx]); });
+      if (brand)         addSpan(brand);
+      if (p.avg_cost !== null && p.avg_cost > 0)
+        addSpan('متوسط التكلفة: ' + p.avg_cost.toFixed(2) + ' ر.س', 'dd-cost');
+      else if (p.unit_cost > 0)
+        addSpan('تكلفة: ' + p.unit_cost.toFixed(2) + ' ر.س', 'dd-cost');
+
+      item.appendChild(metaDiv);
+      item.addEventListener('mousedown', e => { e.preventDefault(); selectProduct(tr, results[i]); });
+      dd.appendChild(item);
     });
     dd.style.display = 'block';
   }

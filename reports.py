@@ -306,7 +306,7 @@ def get_profitability_data(db_path, from_date='', to_date='',
         nsf_where_p += " AND SUBSTR(statement_date, 1, 7) <= ?"
         nsf_params_p.append(td)
     nsf_cnt = db.execute(
-        f"SELECT COUNT(*) FROM noon_statement_fees {nsf_where_p}", nsf_params_p
+        "SELECT COUNT(*) FROM noon_statement_fees " + nsf_where_p, nsf_params_p
     ).fetchone()
     has_stmt_fees = int(nsf_cnt[0] if nsf_cnt else 0) > 0
     db.close()

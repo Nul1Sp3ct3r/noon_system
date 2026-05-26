@@ -1,11 +1,14 @@
 import sys
 import os
 import re
+import secrets
 import hashlib
 import threading
 import webbrowser
 import time
 import io
+import logging
+from collections import defaultdict
 from datetime import datetime
 from functools import wraps
 from itertools import groupby
@@ -32,7 +35,33 @@ app = Flask(__name__,
             template_folder=os.path.join(BUNDLE_DIR, 'templates'),
             static_folder=os.path.join(BUNDLE_DIR, 'static'))
 
-app.secret_key = os.environ.get('SECRET_KEY', 'noon-dev-secret-do-not-use-in-production')
+_DEFAULT_SECRET = 'noon-dev-secret-do-not-use-in-production'
+app.secret_key = os.environ.get('SECRET_KEY', _DEFAULT_SECRET)
+if app.secret_key == _DEFAULT_SECRET:
+    logging.warning('SECURITY: Using default SECRET_KEY — set SECRET_KEY env var in production.')
+
+# Session cookie hardening (CRITICAL)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+if os.environ.get('VERCEL'):
+    app.config['SESSION_COOKIE_SECURE'] = True
+
+# Limit upload size to 25 MB
+app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
+
+# ---------------------------------------------------------------------------
+# Rate limiting (in-memory, per IP)
+# ---------------------------------------------------------------------------
+_rl_store: dict = defaultdict(list)
+
+def _rate_limited(key: str, max_attempts: int = 10, window: int = 300) -> bool:
+    """Return True if the key is rate-limited (too many attempts)."""
+    now = time.time()
+    _rl_store[key] = [t for t in _rl_store[key] if now - t < window]
+    if len(_rl_store[key]) >= max_attempts:
+        return True
+    _rl_store[key].append(now)
+    return False
 
 if os.environ.get('VERCEL'):
     DB_PATH = '/tmp/data/noon.db'
@@ -281,6 +310,24 @@ def admin_required(f):
     return decorated
 
 
+def _csrf_token() -> str:
+    """Return (generating if needed) the session CSRF token."""
+    if '_csrf' not in session:
+        session['_csrf'] = secrets.token_hex(32)
+    return session['_csrf']
+
+app.jinja_env.globals['csrf_token'] = _csrf_token
+
+
+@app.after_request
+def _security_headers(response):
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('X-XSS-Protection', '1; mode=block')
+    return response
+
+
 def get_org_id():
     """Return current user's organization_id from session (0 if not logged in)."""
     return int(session.get('org_id', 0))
@@ -310,6 +357,15 @@ def check_login():
         return
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    # CSRF validation for all authenticated POST requests
+    if request.method == 'POST':
+        submitted = (request.form.get('csrf_token') or
+                     request.headers.get('X-CSRF-Token', ''))
+        expected = session.get('_csrf', '')
+        if not submitted or not expected or not secrets.compare_digest(str(submitted), str(expected)):
+            if request.is_json or request.headers.get('Accept', '').startswith('application/json'):
+                return jsonify({'success': False, 'error': 'طلب غير صالح'}), 403
+            return redirect(url_for('dashboard'))
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -318,6 +374,9 @@ def login():
         return redirect(url_for('dashboard'))
     error = None
     if request.method == 'POST':
+        if _rate_limited(f'login:{request.remote_addr}', max_attempts=10, window=300):
+            error = 'محاولات كثيرة جداً، يرجى الانتظار 5 دقائق ثم المحاولة مجدداً'
+            return render_template('login.html', error=error)
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         db = get_db(DB_PATH)
@@ -365,6 +424,9 @@ def register():
     error = None
     success = None
     if request.method == 'POST':
+        if _rate_limited(f'register:{request.remote_addr}', max_attempts=5, window=3600):
+            error = 'محاولات كثيرة جداً، يرجى الانتظار ساعة ثم المحاولة مجدداً'
+            return render_template('register.html', error=error, success=None)
         full_name = request.form.get('full_name', '').strip()
         username  = request.form.get('username', '').strip()
         password  = request.form.get('password', '')
@@ -1185,7 +1247,7 @@ def orders_page():
         params += [f'%{search}%', f'%{search}%', f'%{search}%', f'%{search}%']
 
     where = "WHERE " + " AND ".join(conditions)
-    sql = f"SELECT * FROM orders {where} ORDER BY ordered_date DESC"
+    sql = "SELECT * FROM orders " + where + " ORDER BY ordered_date DESC"
 
     db = get_db(DB_PATH)
     orders = db.execute(sql, params).fetchall()
