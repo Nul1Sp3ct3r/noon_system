@@ -253,6 +253,22 @@ _DDL = [
     "CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku)",
     "CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id)",
     "CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type)",
+    """CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER,
+        user_id INTEGER,
+        action TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        before_json TEXT,
+        after_json TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_logs(organization_id)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)",
 ]
 
 
@@ -436,6 +452,23 @@ def _init_sqlite(db_path):
         CREATE INDEX IF NOT EXISTS idx_inv_mov_sku ON inventory_movements(sku);
         CREATE INDEX IF NOT EXISTS idx_inv_mov_wh ON inventory_movements(warehouse_id);
         CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type);
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            entity_type TEXT,
+            entity_id TEXT,
+            before_json TEXT,
+            after_json TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_logs(organization_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+        CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
     """)
 
     # Migration: upgrade imported_files if it has old schema
@@ -552,6 +585,24 @@ def _init_sqlite(db_path):
             conn.execute("ALTER TABLE users ADD COLUMN organization_id INTEGER DEFAULT 1")
     except Exception:
         pass
+
+    # Migration: create audit_logs table if missing
+    conn.execute("""CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER,
+        user_id INTEGER,
+        action TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        before_json TEXT,
+        after_json TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_logs(organization_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)")
 
     # Seed default admin if users table is empty
     cnt = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -705,6 +756,27 @@ def _init_turso():
             _cols = {row[1] for row in _cur.fetchall()}
             if 'organization_id' not in _cols:
                 conn.execute("ALTER TABLE users ADD COLUMN organization_id INTEGER DEFAULT 1")
+        except Exception:
+            pass
+
+        # Migration: create audit_logs table if missing
+        try:
+            conn.execute("""CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER,
+                user_id INTEGER,
+                action TEXT NOT NULL,
+                entity_type TEXT,
+                entity_id TEXT,
+                before_json TEXT,
+                after_json TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                created_at TEXT NOT NULL
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_logs(organization_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)")
         except Exception:
             pass
 

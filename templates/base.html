@@ -165,6 +165,12 @@
     <a href="{{ url_for('admin_users') }}" class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}">
       <i class="bi bi-people-fill"></i> إدارة المستخدمين
     </a>
+    <a href="{{ url_for('admin_audit_logs') }}" class="nav-link {% if request.endpoint == 'admin_audit_logs' %}active{% endif %}">
+      <i class="bi bi-shield-check"></i> سجل التدقيق
+    </a>
+    <a href="{{ url_for('admin_backups') }}" class="nav-link {% if request.endpoint == 'admin_backups' %}active{% endif %}">
+      <i class="bi bi-cloud-download"></i> النسخ الاحتياطية
+    </a>
     {% endif %}
   </div>
   <div class="nav-section">

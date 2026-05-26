@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+{% block title %}سجل التدقيق — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+.section-card { border:none; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.07); margin-bottom:24px; }
+.section-header { background:#1a3a5c; color:#fff; border-radius:12px 12px 0 0; padding:12px 20px; font-weight:700; font-size:.95rem; }
+.action-badge {
+  padding:2px 8px; border-radius:10px; font-size:.75rem; font-weight:600; white-space:nowrap;
+}
+.act-login_success    { background:#d4edda; color:#155724; }
+.act-login_failed     { background:#f8d7da; color:#721c24; }
+.act-logout           { background:#e2e3e5; color:#383d41; }
+.act-register         { background:#cce5ff; color:#004085; }
+.act-import_file      { background:#d1ecf1; color:#0c5460; }
+.act-delete_import_batch { background:#f8d7da; color:#721c24; }
+.act-invoice_create   { background:#d4edda; color:#155724; }
+.act-product_update   { background:#fff3cd; color:#856404; }
+.act-inventory_transfer   { background:#e2d9f3; color:#5a2d82; }
+.act-inventory_adjustment { background:#f3e2d9; color:#82360a; }
+.act-user_approve     { background:#d4edda; color:#155724; }
+.act-user_disable     { background:#f8d7da; color:#721c24; }
+.act-backup_export    { background:#cce5ff; color:#004085; }
+.json-pre { font-size:.75rem; max-width:260px; white-space:pre-wrap; word-break:break-all; margin:0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <h4><i class="bi bi-shield-check me-2 color-revenue"></i>سجل التدقيق</h4>
+  <a href="{{ url_for('admin_users') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-people me-1"></i>إدارة المستخدمين
+  </a>
+</div>
+
+<!-- Filters -->
+<div class="section-card mb-3">
+  <div class="section-header"><i class="bi bi-funnel me-2"></i>تصفية السجلات</div>
+  <div class="p-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-6 col-md-2">
+        <label class="form-label fw-bold" style="font-size:.82rem;">من تاريخ</label>
+        <input type="date" name="from_date" class="form-control form-control-sm" value="{{ filters.from_date }}">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label fw-bold" style="font-size:.82rem;">إلى تاريخ</label>
+        <input type="date" name="to_date" class="form-control form-control-sm" value="{{ filters.to_date }}">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label fw-bold" style="font-size:.82rem;">المستخدم</label>
+        <select name="user_id" class="form-select form-select-sm">
+          <option value="">الكل</option>
+          {% for u in users_list %}
+          <option value="{{ u.id }}" {% if filters.user_id == u.id|string %}selected{% endif %}>
+            {{ u.username }}{% if u.full_name %} — {{ u.full_name }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label fw-bold" style="font-size:.82rem;">الإجراء</label>
+        <select name="action" class="form-select form-select-sm">
+          <option value="">الكل</option>
+          {% for act in distinct_actions %}
+          <option value="{{ act }}" {% if filters.action == act %}selected{% endif %}>{{ act }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label fw-bold" style="font-size:.82rem;">نوع الكيان</label>
+        <input type="text" name="entity_type" class="form-control form-control-sm"
+               placeholder="مثال: invoice" value="{{ filters.entity_type }}">
+      </div>
+      <div class="col-6 col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-search me-1"></i>بحث
+        </button>
+        <a href="{{ url_for('admin_audit_logs') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-lg"></i>
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Log Table -->
+<div class="section-card">
+  <div class="section-header">
+    <i class="bi bi-list-ul me-2"></i>
+    السجلات
+    <span class="badge bg-light text-dark ms-2">{{ logs|length }}</span>
+  </div>
+  {% if logs %}
+  <div class="table-responsive">
+    <table class="noon-table">
+      <colgroup>
+        <col style="width:150px">
+        <col style="width:130px">
+        <col style="width:130px">
+        <col style="width:120px">
+        <col style="width:110px">
+        <col style="width:110px">
+        <col style="width:200px">
+        <col style="width:200px">
+        <col style="width:130px">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>التاريخ</th>
+          <th>المستخدم</th>
+          <th>المنظمة</th>
+          <th>الإجراء</th>
+          <th>نوع الكيان</th>
+          <th>معرف الكيان</th>
+          <th>قبل</th>
+          <th>بعد</th>
+          <th>عنوان IP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in logs %}
+        <tr>
+          <td style="font-size:.8rem;">{{ r.created_at[:16] if r.created_at else '—' }}</td>
+          <td>
+            <span class="cell-trunc" style="font-size:.82rem;" title="{{ r.full_name or '' }}">
+              {{ r.username or '(نظام)' }}
+            </span>
+          </td>
+          <td>
+            <span class="cell-trunc" style="font-size:.82rem;" title="{{ r.org_name or '' }}">
+              {{ r.org_name or '—' }}
+            </span>
+          </td>
+          <td>
+            <span class="action-badge act-{{ r.action }}">{{ r.action }}</span>
+          </td>
+          <td style="font-size:.82rem;">{{ r.entity_type or '—' }}</td>
+          <td>
+            <span class="cell-trunc" style="font-size:.8rem;" title="{{ r.entity_id or '' }}">
+              {{ r.entity_id or '—' }}
+            </span>
+          </td>
+          <td>
+            {% if r.before_json and r.before_json != 'null' %}
+            <pre class="json-pre text-muted">{{ r.before_json }}</pre>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td>
+            {% if r.after_json and r.after_json != 'null' %}
+            <pre class="json-pre">{{ r.after_json }}</pre>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td style="font-size:.78rem; color:#6c757d;">{{ r.ip_address or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-4 text-center text-muted">
+    <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+    لا توجد سجلات تدقيق تطابق الفلاتر المحددة
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

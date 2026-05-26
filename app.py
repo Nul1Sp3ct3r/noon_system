@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import json
 import secrets
 import hashlib
 import threading
@@ -328,6 +329,33 @@ def _security_headers(response):
     return response
 
 
+def log_audit(action, entity_type=None, entity_id=None, before=None, after=None):
+    """Write an audit row. Never raises — failures are warned, not fatal."""
+    try:
+        db = get_db(DB_PATH)
+        db.execute(
+            "INSERT INTO audit_logs (organization_id, user_id, action, entity_type, entity_id,"
+            " before_json, after_json, ip_address, user_agent, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                session.get('org_id'),
+                session.get('user_id'),
+                action,
+                entity_type,
+                str(entity_id) if entity_id is not None else None,
+                json.dumps(before, ensure_ascii=False, default=str) if before is not None else None,
+                json.dumps(after,  ensure_ascii=False, default=str) if after  is not None else None,
+                request.remote_addr,
+                str(request.user_agent)[:500] if request.user_agent else None,
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            )
+        )
+        db.commit()
+        db.close()
+    except Exception as exc:
+        logging.warning('audit log failed: %s', exc)
+
+
 def get_org_id():
     """Return current user's organization_id from session (0 if not logged in)."""
     return int(session.get('org_id', 0))
@@ -405,14 +433,17 @@ def login():
                     db2.close()
                 except Exception:
                     pass
+                log_audit('login_success', 'user', session['user_id'])
                 return redirect(url_for('dashboard'))
         else:
             error = 'اسم المستخدم أو كلمة المرور غير صحيحة'
+            log_audit('login_failed', 'user', after={'username': username})
     return render_template('login.html', error=error)
 
 
 @app.route('/logout')
 def logout():
+    log_audit('logout', 'user', session.get('user_id'))
     session.clear()
     return redirect(url_for('login'))
 
@@ -457,6 +488,7 @@ def register():
                 )
                 db.commit()
                 db.close()
+                log_audit('register', 'user', after={'username': username, 'org_id': org_id})
                 success = 'تم إنشاء الحساب بنجاح، بانتظار موافقة الإدارة'
             except Exception as e:
                 if 'UNIQUE' in str(e):
@@ -497,6 +529,7 @@ def admin_user_activate(uid):
         db.execute("UPDATE users SET is_active=1 WHERE id=?", (uid,))
         db.commit()
         db.close()
+        log_audit('user_approve', 'user', uid)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -514,6 +547,7 @@ def admin_user_deactivate(uid):
         db.execute("UPDATE users SET is_active=0 WHERE id=?", (uid,))
         db.commit()
         db.close()
+        log_audit('user_disable', 'user', uid)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -576,6 +610,176 @@ def admin_user_reset_password(uid):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Admin — Audit Logs
+# =============================================================================
+
+@app.route('/admin/audit-logs')
+@admin_required
+def admin_audit_logs():
+    org_id      = get_org_id()
+    from_date   = request.args.get('from_date', '')
+    to_date     = request.args.get('to_date', '')
+    filter_user = request.args.get('user_id', '')
+    filter_org  = request.args.get('org_id', '')
+    filter_act  = request.args.get('action', '')
+    filter_ent  = request.args.get('entity_type', '')
+
+    db = get_db(DB_PATH)
+
+    conditions, params = [], []
+    # Non-super-admin sees only own org
+    if filter_org and session.get('role') == 'admin':
+        conditions.append("al.organization_id = ?")
+        params.append(int(filter_org))
+    elif session.get('role') != 'super_admin':
+        conditions.append("al.organization_id = ?")
+        params.append(org_id)
+
+    if from_date:
+        conditions.append("al.created_at >= ?")
+        params.append(from_date + ' 00:00:00')
+    if to_date:
+        conditions.append("al.created_at <= ?")
+        params.append(to_date + ' 23:59:59')
+    if filter_user:
+        conditions.append("al.user_id = ?")
+        params.append(int(filter_user))
+    if filter_act:
+        conditions.append("al.action = ?")
+        params.append(filter_act)
+    if filter_ent:
+        conditions.append("al.entity_type = ?")
+        params.append(filter_ent)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    logs = db.execute(
+        "SELECT al.*, u.username, u.full_name, o.name AS org_name"
+        " FROM audit_logs al"
+        " LEFT JOIN users u ON u.id = al.user_id"
+        " LEFT JOIN organizations o ON o.id = al.organization_id "
+        + where +
+        " ORDER BY al.created_at DESC LIMIT 500",
+        params
+    ).fetchall()
+
+    users_list = db.execute(
+        "SELECT id, username, full_name FROM users WHERE organization_id=? ORDER BY username",
+        (org_id,)
+    ).fetchall()
+    orgs_list = db.execute("SELECT id, name FROM organizations ORDER BY name").fetchall()
+    db.close()
+
+    distinct_actions = [
+        'login_success', 'login_failed', 'logout', 'register',
+        'import_file', 'delete_import_batch',
+        'invoice_create', 'product_update',
+        'inventory_transfer', 'inventory_adjustment',
+        'user_approve', 'user_disable', 'backup_export',
+    ]
+
+    return render_template(
+        'admin_audit_logs.html',
+        logs=logs,
+        users_list=users_list,
+        orgs_list=orgs_list,
+        distinct_actions=distinct_actions,
+        filters={
+            'from_date': from_date, 'to_date': to_date,
+            'user_id': filter_user, 'org_id': filter_org,
+            'action': filter_act, 'entity_type': filter_ent,
+        },
+    )
+
+
+# =============================================================================
+# Admin — Backups
+# =============================================================================
+
+_BACKUP_TABLES = [
+    'products', 'orders', 'invoices', 'invoice_items',
+    'imported_files', 'noon_statement_fees',
+    'warehouses', 'inventory_movements', 'audit_logs',
+]
+_EXCLUDED_COLS = {'password_hash', 'auth_token', 'csrf_token', 'secret_key'}
+
+
+def _rows_to_dicts(rows):
+    result = []
+    for row in rows:
+        d = {}
+        for key in row.keys():
+            if key.lower() not in _EXCLUDED_COLS:
+                d[key] = row[key]
+        result.append(d)
+    return result
+
+
+@app.route('/admin/backups')
+@admin_required
+def admin_backups():
+    db = get_db(DB_PATH)
+    orgs = db.execute("SELECT id, name FROM organizations ORDER BY name").fetchall()
+    db.close()
+    return render_template('admin_backups.html', orgs=orgs)
+
+
+@app.route('/admin/backups/download')
+@admin_required
+def admin_backups_download():
+    if _rate_limited(f'backup:{session.get("user_id")}', max_attempts=5, window=3600):
+        return jsonify({'error': 'طلبات كثيرة جداً، يرجى الانتظار ساعة'}), 429
+
+    target_org = request.args.get('org_id', '')
+    org_id = get_org_id()
+
+    if target_org:
+        try:
+            target_org_id = int(target_org)
+        except ValueError:
+            return jsonify({'error': 'معرف المنظمة غير صالح'}), 400
+    else:
+        target_org_id = org_id
+
+    db = get_db(DB_PATH)
+    payload = {
+        'meta': {
+            'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'organization_id': target_org_id,
+            'exported_by_user_id': session.get('user_id'),
+            'app': 'Noon Financial',
+            'version': '1.0',
+        },
+        'data': {},
+    }
+
+    for table in _BACKUP_TABLES:
+        try:
+            rows = db.execute(
+                "SELECT * FROM " + table + " WHERE organization_id=?",
+                (target_org_id,)
+            ).fetchall()
+            payload['data'][table] = _rows_to_dicts(rows)
+        except Exception as exc:
+            payload['data'][table] = []
+            logging.warning('backup table %s failed: %s', table, exc)
+
+    db.close()
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'backup_org_{target_org_id}_{timestamp}.json'
+    json_bytes = json.dumps(payload, ensure_ascii=False, indent=2, default=str).encode('utf-8')
+
+    log_audit('backup_export', 'backup', after={'org_id': target_org_id, 'filename': filename})
+
+    return send_file(
+        io.BytesIO(json_bytes),
+        mimetype='application/json',
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 # =============================================================================
@@ -882,6 +1086,9 @@ def import_upload():
             return jsonify({'success': False,
                             'error': f'حدث خطأ أثناء الاستيراد: {str(e)}'}), 500
 
+        log_audit('import_file', 'imported_file',
+                  after={'format': 'monthly', 'batch': import_batch,
+                         'rows_added': rows_added, 'filename': file.filename})
         return jsonify({
             'success':        True,
             'format':         'monthly',
@@ -1062,6 +1269,9 @@ def import_upload():
             pass
         return jsonify({'success': False, 'error': f'حدث خطأ أثناء الاستيراد: {str(e)}'}), 500
 
+    log_audit('import_file', 'imported_file',
+              after={'format': 'old', 'batch': import_batch,
+                     'rows_added': rows_added, 'filename': file.filename})
     return jsonify({
         'success': True,
         'format': 'old',
@@ -1098,6 +1308,8 @@ def import_delete_batch():
                    (import_batch, org_id))
         db.commit()
         db.close()
+        log_audit('delete_import_batch', 'imported_file',
+                  after={'batch': import_batch, 'orders_deleted': orders_deleted})
         return jsonify({'success': True, 'orders_deleted': orders_deleted})
     except Exception as e:
         try:
@@ -1311,6 +1523,8 @@ def costs_save():
 
     db.commit()
     db.close()
+    if updated:
+        log_audit('product_update', 'product', after={'skus_updated': skus[:10], 'count': updated})
     return jsonify({'success': True, 'updated': updated})
 
 
@@ -1501,6 +1715,9 @@ def invoices_add():
 
         db.commit()
         db.close()
+        log_audit('invoice_create', 'invoice', invoice_id,
+                  after={'invoice_nr': invoice_nr, 'total': total_amount,
+                         'supplier': request.form.get('supplier_name', '')})
         return jsonify({'success': True, 'invoice_id': invoice_id})
 
     except Exception as e:
@@ -2995,6 +3212,8 @@ def inventory_transfer_save():
                           org_id=org_id)
     db.commit()
     db.close()
+    log_audit('inventory_transfer', 'inventory_movement', ref,
+              after={'sku': sku, 'qty': qty, 'from': from_wh_id, 'to': to_wh_id, 'notes': notes})
     return jsonify({'success': True, 'reference': ref})
 
 
@@ -3030,6 +3249,9 @@ def inventory_adjustment_add():
                           reference_type='manual', notes=notes, org_id=org_id)
     db.commit()
     db.close()
+    log_audit('inventory_adjustment', 'inventory_movement',
+              after={'sku': sku, 'warehouse_id': warehouse_id,
+                     'adj_type': adj_type, 'qty': qty, 'reason': reason})
     return jsonify({'success': True})
 
 
