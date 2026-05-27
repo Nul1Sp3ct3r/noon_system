@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
-import compression from 'compression';
+import compression = require('compression');
 import express from 'express';
 import helmet from 'helmet';
 import { AppModule } from '../src/app.module';
