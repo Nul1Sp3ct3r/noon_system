@@ -47,15 +47,16 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users         User[]
-  refreshTokens RefreshToken[]
-  products      Product[]
-  invoices      Invoice[]
-  warehouses    Warehouse[]
-  movements     InventoryMovement[]
-  orders        Order[]
-  importBatches ImportBatch[]
-  auditLogs     AuditLog[]
+  users          User[]
+  refreshTokens  RefreshToken[]
+  products       Product[]
+  invoices       Invoice[]
+  warehouses     Warehouse[]
+  movements      InventoryMovement[]
+  orders         Order[]
+  importBatches  ImportBatch[]
+  statementFees  StatementFee[]
+  auditLogs      AuditLog[]
 
   @@map("organizations")
 }
@@ -231,6 +232,7 @@ model Order {
   id             Int       @id @default(autoincrement())
   organizationId Int       @map("organization_id")
   orderNr        String    @map("order_nr")
+  itemNr         String?   @map("item_nr")
   sku            String?
   partnerSku     String?   @map("partner_sku")
   productTitleEn String?   @map("product_title_en")
@@ -248,6 +250,7 @@ model Order {
 
   @@index([organizationId])
   @@index([orderNr])
+  @@index([itemNr])
   @@index([sku])
   @@index([partnerSku])
   @@index([importBatch])
@@ -263,8 +266,14 @@ model ImportBatch {
   batchId        String     @unique @map("batch_id")
   importType     ImportType @map("import_type")
   fileName       String?    @map("file_name")
+  fileHash       String?    @map("file_hash")
   rowsImported   Int        @default(0) @map("rows_imported")
   rowsSkipped    Int        @default(0) @map("rows_skipped")
+  salesCount     Int        @default(0) @map("sales_count")
+  returnsCount   Int        @default(0) @map("returns_count")
+  feesCount      Int        @default(0) @map("fees_count")
+  statementNr    String?    @map("statement_nr")
+  statementDate  String?    @map("statement_date")
   status         String     @default("completed")
   createdAt      DateTime   @default(now()) @map("created_at")
 
@@ -274,6 +283,29 @@ model ImportBatch {
   @@index([batchId])
   @@index([createdAt])
   @@map("import_batches")
+}
+
+// ─── Statement Fees ────────────────────────────────────────────────────────────
+
+model StatementFee {
+  id             Int      @id @default(autoincrement())
+  organizationId Int      @map("organization_id")
+  statementNr    String?  @map("statement_nr")
+  statementDate  String?  @map("statement_date")
+  feeType        String   @map("fee_type")
+  description    String?
+  exclVat        Decimal  @map("excl_vat") @db.Decimal(14, 4)
+  vatAmount      Decimal  @map("vat_amount") @db.Decimal(12, 4)
+  inclVat        Decimal  @map("incl_vat") @db.Decimal(14, 4)
+  importBatch    String   @map("import_batch")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([importBatch])
+  @@index([statementNr])
+  @@map("statement_fees")
 }
 
 // ─── Audit Logs ────────────────────────────────────────────────────────────────
