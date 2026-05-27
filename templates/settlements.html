@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+{% block title %}كشوف التسوية — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-bank me-2 color-revenue"></i>كشوف التسوية</h4>
+</div>
+
+<!-- Filter -->
+<div class="card stat-card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-1">من شهر</label>
+        <input type="month" name="from_date" class="form-control form-control-sm"
+               value="{{ from_date }}">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">إلى شهر</label>
+        <input type="month" name="to_date" class="form-control form-control-sm"
+               value="{{ to_date }}">
+      </div>
+      <div class="col-auto d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-funnel me-1"></i>عرض
+        </button>
+        {% if from_date or to_date %}
+        <a href="{{ url_for('settlements_page') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-circle me-1"></i>مسح
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if settlements %}
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">إجمالي المبيعات (شامل الضريبة)</div>
+          <div class="stat-value color-revenue">{{ totals.gross_sales | sar }}</div>
+        </div>
+        <i class="bi bi-currency-dollar stat-icon color-revenue"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">إجمالي رسوم نون (قبل الضريبة)</div>
+          <div class="stat-value color-fees">{{ totals.total_fees | sar }}</div>
+        </div>
+        <i class="bi bi-percent stat-icon color-fees"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">صافي المدفوعات المتوقع</div>
+          <div class="stat-value color-profit">{{ totals.our_net | sar }}</div>
+        </div>
+        <i class="bi bi-bank stat-icon color-profit"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">كشوف بها تباين</div>
+          <div class="stat-value {% if totals.mismatch_count > 0 %}color-loss{% else %}color-profit{% endif %}">
+            {{ totals.mismatch_count }}
+          </div>
+        </div>
+        <i class="bi bi-exclamation-triangle stat-icon {% if totals.mismatch_count > 0 %}color-loss{% else %}color-profit{% endif %}"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if totals.mismatch_count > 0 %}
+<div class="alert alert-warning py-2 small mb-4">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  يوجد <strong>{{ totals.mismatch_count }}</strong> كشف/كشوف بها تباين بين صافي المدفوعات المحسوب والفعلي.
+  تحقق من الصفوف المميزة باللون الأحمر أدناه.
+</div>
+{% endif %}
+
+<!-- VAT info note -->
+<div class="alert alert-info py-2 small mb-4">
+  <i class="bi bi-info-circle me-1"></i>
+  ضريبة رسوم نون تُخصم على مستوى كشف الحساب كاملاً كضريبة منفصلة وليس ضمن كل صف.
+  لذلك لا تُطرح من صافي المدفوعات المحسوب هنا — هي للإفصاح الضريبي فقط.
+</div>
+
+<!-- Settlements Table -->
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="noon-table">
+        <colgroup>
+          <col style="width:130px">
+          <col style="width:110px">
+          <col style="width:100px">
+          <col style="width:140px">
+          <col style="width:120px">
+          <col style="width:100px">
+          <col style="width:120px">
+          <col style="width:130px">
+          <col style="width:105px">
+          <col style="width:95px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>رقم الكشف</th>
+            <th>تاريخ الكشف</th>
+            <th class="ctr">الصفوف</th>
+            <th class="num">إجمالي المبيعات</th>
+            <th class="num">رسوم نون</th>
+            <th class="num">ضريبة الرسوم</th>
+            <th class="num">صافي محسوب</th>
+            <th class="num">صافي فعلي (نون)</th>
+            <th class="num">التباين</th>
+            <th class="ctr">الحالة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in settlements %}
+          <tr {% if s.has_mismatch %}style="background:#fff3cd!important"{% endif %}>
+            <td>
+              <span class="cell-trunc" title="{{ s.statement_nr }}">{{ s.statement_nr }}</span>
+            </td>
+            <td>{{ s.statement_date }}</td>
+            <td class="ctr">{{ s.rows_added }}</td>
+            <td class="num">{{ s.gross_sales | sar }}</td>
+            <td class="num color-fees">{{ s.total_fees | sar }}</td>
+            <td class="num color-fees">{{ s.vat_on_fees | sar }}</td>
+            <td class="num color-profit">{{ s.our_net | sar }}</td>
+            <td class="num color-revenue">{{ s.actual_payout | sar }}</td>
+            <td class="num {% if s.has_mismatch %}color-loss{% endif %}">
+              {% if s.has_mismatch %}{{ s.mismatch | sar }}{% else %}—{% endif %}
+            </td>
+            <td class="ctr">
+              {% if s.has_mismatch %}
+              <span class="badge" style="background:#f8d7da;color:#A32D2D;font-size:.75rem">
+                <i class="bi bi-exclamation-triangle me-1"></i>تباين
+              </span>
+              {% else %}
+              <span class="badge" style="background:#d4edda;color:#3B6D11;font-size:.75rem">
+                <i class="bi bi-check-circle me-1"></i>مطابق
+              </span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3"><strong>الإجمالي</strong></td>
+            <td class="num">{{ totals.gross_sales | sar }}</td>
+            <td class="num">{{ totals.total_fees | sar }}</td>
+            <td class="num">{{ totals.vat_on_fees | sar }}</td>
+            <td class="num">{{ totals.our_net | sar }}</td>
+            <td class="num">{{ totals.actual_payout | sar }}</td>
+            <td class="num">
+              {{ (totals.our_net - totals.actual_payout) | abs | sar }}
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="card stat-card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-bank" style="font-size:3rem"></i>
+    <p class="mt-3">لا توجد كشوف تسوية.<br>استورد ملفات CSV من نون لعرض التسويات.</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

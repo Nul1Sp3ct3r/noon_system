@@ -1,0 +1,902 @@
+{% extends 'base.html' %}
+{% block title %}الفواتير — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+/* Drop zone */
+.drop-zone {
+  border:2px dashed #adb5bd; border-radius:10px; padding:32px 16px;
+  text-align:center; cursor:pointer; transition:border-color .2s,background .2s; background:#fafafa;
+}
+.drop-zone:hover,.drop-zone.dz-over { border-color:#185FA5; background:#f0f4ff; }
+.drop-zone .dz-icon { font-size:2.4rem; color:#adb5bd; display:block; margin-bottom:8px; }
+
+/* File chips */
+#files-area { border:1.5px solid #d4edda; border-radius:10px; background:#f8fff9; padding:12px; }
+.file-chip { display:flex; align-items:center; gap:7px; background:#fff; border:1.5px solid #dee2e6;
+  border-radius:8px; padding:5px 8px; max-width:200px; min-width:0; }
+.file-chip .chip-thumb { width:30px; height:30px; object-fit:cover; border-radius:4px; flex-shrink:0; }
+.file-chip .chip-icon { font-size:1.4rem; flex-shrink:0; line-height:1; }
+.file-chip .chip-name { font-size:.75rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+.file-chip .chip-del { background:none; border:none; padding:0; color:#adb5bd; cursor:pointer; flex-shrink:0; font-size:.8rem; line-height:1; }
+.file-chip .chip-del:hover { color:#A32D2D; }
+
+/* Search dropdown */
+.item-dd {
+  display:none; position:absolute; top:100%; right:0; left:0; z-index:1050;
+  background:#fff; border:1px solid #dee2e6; border-radius:8px;
+  box-shadow:0 6px 20px rgba(0,0,0,.15); max-height:300px; overflow-y:auto;
+  min-width:280px;
+}
+.dd-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid #f4f4f4; transition:background .1s; }
+.dd-item:last-child { border-bottom:none; }
+.dd-item:hover { background:#f0f4ff; }
+.dd-item .dd-name { font-weight:600; font-size:.92rem; margin-bottom:3px; }
+.dd-item .dd-meta { font-size:.78rem; color:#6c757d; display:flex; gap:10px; flex-wrap:wrap; }
+.dd-item .dd-cost { color:#3B6D11; font-weight:600; }
+
+/* Not-found alert — shown inline below search field */
+.item-notfound {
+  display:none; margin-top:8px; padding:10px 14px;
+  background:#fff8e1; border:1px solid #ffe082; border-radius:8px;
+  font-size:.88rem; color:#5d4037;
+}
+.item-notfound .btn { font-size:.84rem; }
+
+/* Selected item info chip */
+.item-selected-chip {
+  display:none; margin-top:5px; padding:3px 9px; background:#e8f0fe;
+  border-radius:10px; font-size:.76rem; color:#185FA5; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; max-width:100%;
+}
+
+/* ── Item rows — flex layout ── */
+.items-header {
+  display:flex; gap:8px; padding:6px 12px 6px;
+  font-size:.78rem; color:#6c757d; font-weight:700;
+  border-bottom:2px solid #e9ecef; margin-bottom:6px;
+}
+.item-row {
+  display:flex; align-items:flex-start; gap:8px;
+  padding:10px 12px; border:1px solid #e9ecef; border-radius:10px;
+  margin-bottom:8px; background:#fff; min-height:56px;
+  transition:border-color .15s;
+}
+.item-row:hover { border-color:#c6d4e8; }
+
+.item-search-col  { flex:1 1 0; min-width:0; }
+.item-qty-col     { width:90px;  flex-shrink:0; }
+.item-uc-col      { width:135px; flex-shrink:0; }
+.item-total-col   { width:135px; flex-shrink:0; }
+.item-actions-col { width:72px;  flex-shrink:0; display:flex; align-items:flex-start;
+                    justify-content:flex-end; padding-top:3px; gap:3px; }
+
+/* header col alignment matches row cols */
+.items-header .item-search-col  { flex:1 1 0; }
+.items-header .item-qty-col     { width:90px; }
+.items-header .item-uc-col      { width:135px; }
+.items-header .item-total-col   { width:135px; }
+.items-header .item-actions-col { width:72px; }
+
+.search-wrap { position:relative; }
+
+/* Mobile */
+@media (max-width:767px) {
+  .item-row { flex-wrap:wrap; gap:6px; }
+  .item-search-col { flex:0 0 100%; }
+  .item-qty-col,.item-uc-col,.item-total-col { flex:1 1 auto; width:auto; }
+  .item-actions-col { flex:0 0 auto; width:auto; padding-top:20px; }
+  .items-header { display:none !important; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4><i class="bi bi-file-earmark-text me-2 color-revenue"></i>إدارة الفواتير</h4>
+</div>
+
+<!-- Add Invoice Form -->
+<div class="card stat-card mb-4">
+  <div class="card-body">
+    <h6 class="fw-bold mb-3"><i class="bi bi-plus-circle me-2 color-revenue"></i>إضافة فاتورة جديدة</h6>
+    <form id="invoice-form" enctype="multipart/form-data">
+
+      <!-- Row 1: identification -->
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label small fw-600">رقم الفاتورة</label>
+          <input type="text" name="invoice_nr" class="form-control" value="{{ next_invoice_nr }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-600">اسم المورد</label>
+          <input type="text" name="supplier_name" class="form-control" placeholder="اسم المورد">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-600">تاريخ الفاتورة</label>
+          <input type="date" name="invoice_date" class="form-control">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-600">ملاحظات</label>
+          <input type="text" name="notes" class="form-control" placeholder="ملاحظات اختيارية...">
+        </div>
+      </div>
+
+      <!-- Row 2: VAT mode + amounts + live preview -->
+      <div class="row g-3 mb-3 align-items-start">
+        <div class="col-md-3">
+          <label class="form-label small fw-600 mb-1">طريقة احتساب الضريبة</label>
+          <div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="vat_mode" id="mode-incl" value="includes_vat" checked>
+              <label class="form-check-label small" for="mode-incl">شامل الضريبة</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="vat_mode" id="mode-excl" value="excludes_vat">
+              <label class="form-check-label small" for="mode-excl">غير شامل</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="vat_mode" id="mode-manual" value="manual">
+              <label class="form-check-label small" for="mode-manual">يدوي</label>
+            </div>
+          </div>
+          <div class="form-text small mt-1" id="mode-hint" style="color:#185FA5">
+            إذا كان السعر شامل الضريبة سيتم احتساب الضريبة تلقائياً
+          </div>
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label small fw-600" id="amount-label">المبلغ الإجمالي (شامل الضريبة)</label>
+          <input type="number" name="entered_amount" id="entered-amount"
+                 class="form-control" step="0.01" min="0" placeholder="0.00">
+        </div>
+
+        <div class="col-md-3 d-none" id="manual-vat-row">
+          <label class="form-label small fw-600">ضريبة القيمة المضافة (يدوي)</label>
+          <input type="number" name="vat_amount_manual" id="vat-amount-manual"
+                 class="form-control" step="0.01" min="0" placeholder="0.00">
+          <div id="vat-warning" class="form-text fw-600 d-none" style="color:#856404">
+            <i class="bi bi-exclamation-triangle me-1"></i>ضريبة القيمة المضافة غير منطقية، تحقق من المبلغ
+          </div>
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label small fw-600 invisible">x</label>
+          <div class="border rounded-3 bg-light p-2" style="font-size:.82rem" id="vat-preview">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="text-muted">الصافي قبل الضريبة</span>
+              <span id="prev-net" class="fw-600">—</span>
+            </div>
+            <div class="d-flex justify-content-between mb-1">
+              <span class="text-muted">ضريبة القيمة المضافة</span>
+              <span id="prev-vat" class="fw-600 color-fees">—</span>
+            </div>
+            <div class="d-flex justify-content-between border-top pt-1 mt-1">
+              <span class="fw-700">الإجمالي</span>
+              <span id="prev-gross" class="fw-700 color-revenue">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- File upload -->
+      <div class="mb-4">
+        <label class="form-label small fw-600 mb-2">
+          <i class="bi bi-paperclip me-1"></i>ارفع الفاتورة (صور أو PDF)
+        </label>
+        <div id="upload-zone" class="drop-zone">
+          <i class="bi bi-cloud-upload dz-icon"></i>
+          <div class="fw-500">اسحب الملفات هنا أو اضغط للاختيار</div>
+          <div class="text-muted small mt-1">JPG · PNG · HEIC · PDF — الحد الأقصى 20MB لكل ملف</div>
+          <input type="file" id="unified-input" accept="image/*,.pdf" multiple class="d-none">
+        </div>
+        <div id="files-area" class="d-none">
+          <div id="file-list" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <span class="text-muted small fw-500" id="file-count"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="add-more-btn">
+              <i class="bi bi-plus me-1"></i>إضافة المزيد
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="clear-files-btn">
+              <i class="bi bi-trash me-1"></i>مسح الكل
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line Items -->
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <label class="form-label small fw-600 mb-0">بنود الفاتورة (اختيارية)</label>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="add-item-btn">
+            <i class="bi bi-plus me-1"></i>إضافة بند
+          </button>
+        </div>
+        <!-- Column headers — hidden on mobile -->
+        <div class="items-header d-none d-md-flex">
+          <div class="item-search-col"><i class="bi bi-search me-1"></i>الصنف / SKU / الباركود</div>
+          <div class="item-qty-col">الكمية</div>
+          <div class="item-uc-col">تكلفة الوحدة</div>
+          <div class="item-total-col">الإجمالي</div>
+          <div class="item-actions-col"></div>
+        </div>
+        <div id="items-body"></div>
+        <div class="text-end mt-2" id="running-total-row" style="display:none!important">
+          <strong class="text-muted small">إجمالي البنود: </strong>
+          <strong id="running-total" class="color-revenue">0.00 ر.س</strong>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary px-4">
+        <i class="bi bi-save me-2"></i>حفظ الفاتورة
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Invoices List -->
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="p-3 border-bottom">
+      <h6 class="fw-bold mb-0 text-muted">قائمة الفواتير ({{ invoices|length }})</h6>
+    </div>
+    {% if invoices %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 noon-table">
+        <colgroup>
+          <col style="width:12%"><col style="width:18%"><col style="width:10%">
+          <col style="width:12%"><col style="width:10%"><col style="width:12%">
+          <col style="width:8%"><col style="width:8%"><col style="width:10%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>رقم الفاتورة</th><th>المورد</th><th>التاريخ</th>
+            <th class="num">الإجمالي (شامل الضريبة)</th>
+            <th class="num">ضريبة القيمة المضافة</th>
+            <th class="num">الصافي (قبل الضريبة)</th>
+            <th class="ctr">البنود</th><th class="ctr">PDF</th><th class="ctr">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inv in invoices %}
+          <tr>
+            <td class="fw-500 cell-trunc" title="{{ inv.invoice_nr or '—' }}">{{ inv.invoice_nr or '—' }}</td>
+            <td><span class="cell-trunc" title="{{ inv.supplier_name }}">{{ inv.supplier_name }}</span></td>
+            <td class="small text-muted" style="white-space:nowrap">{{ inv.invoice_date }}</td>
+            <td class="num color-revenue">{{ '%.2f'|format(inv.total_amount or 0) }} ر.س</td>
+            <td class="num small text-muted">{{ '%.2f'|format(inv.vat_amount or 0) }} ر.س</td>
+            <td class="num small color-profit">{{ '%.2f'|format((inv.total_amount or 0) - (inv.vat_amount or 0)) }} ر.س</td>
+            <td class="ctr small text-muted">—</td>
+            <td class="ctr">
+              {% if inv.pdf_filename %}
+              <a href="{{ url_for('view_pdf', filename=inv.pdf_filename) }}" target="_blank"
+                 class="btn btn-sm btn-outline-danger py-0 px-1" title="عرض PDF">
+                <i class="bi bi-file-earmark-pdf-fill text-danger"></i>
+              </a>
+              {% else %}
+              <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
+            <td class="ctr">
+              <a href="{{ url_for('invoice_detail', invoice_id=inv.id) }}"
+                 class="btn btn-sm btn-outline-primary py-0 px-1 me-1" title="تفاصيل">
+                <i class="bi bi-eye"></i>
+              </a>
+              <button class="btn btn-sm btn-outline-danger py-0 px-1 delete-btn"
+                      data-id="{{ inv.id }}" data-nr="{{ inv.invoice_nr or inv.id }}" title="حذف">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-file-earmark-text" style="font-size:2.5rem"></i>
+      <p class="mt-2">لا توجد فواتير بعد.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Quick-Add Product Modal — large size, 2-col layout -->
+<div class="modal fade" id="quickAddModal" tabindex="-1" aria-labelledby="qaModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1a3a5c; color:#fff;">
+        <h5 class="modal-title" id="qaModalLabel"><i class="bi bi-plus-circle me-2"></i>إضافة صنف جديد</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label fw-bold">اسم المنتج بالعربي <span class="text-danger">*</span></label>
+            <input type="text" id="qa-name-ar" class="form-control" placeholder="اسم المنتج...">
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-bold">اسم المنتج بالإنجليزي <span class="text-muted fw-normal small">(اختياري)</span></label>
+            <input type="text" id="qa-name-en" class="form-control" placeholder="Product name in English...">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-bold">SKU <span class="text-danger">*</span></label>
+            <input type="text" id="qa-sku" class="form-control" placeholder="NOON-SKU-001">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-bold">الباركود <span class="text-muted fw-normal small">(اختياري)</span></label>
+            <input type="text" id="qa-barcode" class="form-control" placeholder="6281234567890">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-bold">تكلفة الشراء الافتراضية</label>
+            <div class="input-group">
+              <input type="number" id="qa-cost" class="form-control" value="0" min="0" step="0.01">
+              <span class="input-group-text">ر.س</span>
+            </div>
+          </div>
+          <div class="col-md-6 d-flex align-items-end pb-2">
+            <div class="form-check">
+              <input type="checkbox" id="qa-civ" class="form-check-input" checked>
+              <label class="form-check-label" for="qa-civ">التكلفة شاملة الضريبة (15%)</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div id="qa-error" class="alert alert-danger d-none py-2" style="font-size:.88rem;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+        <button type="button" class="btn btn-primary" id="qa-save-btn">
+          <i class="bi bi-check2-circle me-1"></i>إضافة الصنف
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ============================================================
+// Upload state machine
+// ============================================================
+const uploadZone    = document.getElementById('upload-zone');
+const unifiedInput  = document.getElementById('unified-input');
+const filesArea     = document.getElementById('files-area');
+const fileList      = document.getElementById('file-list');
+const fileCount     = document.getElementById('file-count');
+const addMoreBtn    = document.getElementById('add-more-btn');
+const clearFilesBtn = document.getElementById('clear-files-btn');
+let selectedFiles   = [];
+
+function showState(state) {
+  uploadZone.classList.toggle('d-none', state !== 'empty');
+  filesArea.classList.toggle('d-none',  state !== 'files');
+}
+showState('empty');
+
+function isAllowed(f) {
+  return /\.(pdf|jpg|jpeg|png|heic|heif)$/i.test(f.name) ||
+         f.type === 'application/pdf' || f.type.startsWith('image/');
+}
+
+function addFiles(fileArray) {
+  const MAX = 20 * 1024 * 1024;
+  fileArray.forEach(f => {
+    if (!isAllowed(f)) { showToast(`نوع الملف غير صالح: ${f.name}`, 'error'); return; }
+    if (f.size > MAX)  { showToast(`${f.name}: يتجاوز 20MB`, 'error'); return; }
+    selectedFiles.push(f);
+  });
+  renderFileList();
+  if (selectedFiles.length) showState('files');
+}
+
+function renderFileList() {
+  fileList.querySelectorAll('img').forEach(img => { if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src); });
+  fileList.innerHTML = '';
+  selectedFiles.forEach((file, i) => {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const chip  = document.createElement('div');
+    chip.className = 'file-chip';
+    if (isPdf) {
+      chip.innerHTML = `<i class="bi bi-file-earmark-pdf-fill text-danger chip-icon"></i>
+        <span class="chip-name" title="${file.name}">${file.name}</span>
+        <button type="button" class="chip-del"><i class="bi bi-x-lg"></i></button>`;
+    } else {
+      const url = URL.createObjectURL(file);
+      chip.innerHTML = `<img src="${url}" class="chip-thumb" alt="">
+        <span class="chip-name" title="${file.name}">${file.name}</span>
+        <button type="button" class="chip-del"><i class="bi bi-x-lg"></i></button>`;
+    }
+    chip.querySelector('.chip-del').addEventListener('click', () => {
+      const img = chip.querySelector('img');
+      if (img) URL.revokeObjectURL(img.src);
+      selectedFiles.splice(i, 1);
+      renderFileList();
+      if (!selectedFiles.length) showState('empty');
+    });
+    fileList.appendChild(chip);
+  });
+  const n = selectedFiles.length;
+  fileCount.textContent = n === 1 ? 'ملف واحد محدد' : `${n} ملفات محددة`;
+}
+
+uploadZone.addEventListener('click',    () => unifiedInput.click());
+uploadZone.addEventListener('dragover', e  => { e.preventDefault(); uploadZone.classList.add('dz-over'); });
+uploadZone.addEventListener('dragleave',() => uploadZone.classList.remove('dz-over'));
+uploadZone.addEventListener('drop',     e  => { e.preventDefault(); uploadZone.classList.remove('dz-over'); addFiles(Array.from(e.dataTransfer.files)); });
+unifiedInput.addEventListener('change', e  => { addFiles(Array.from(e.target.files)); unifiedInput.value = ''; });
+filesArea.addEventListener('dragover',  e  => e.preventDefault());
+filesArea.addEventListener('drop',      e  => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files)); });
+addMoreBtn.addEventListener('click',    () => unifiedInput.click());
+clearFilesBtn.addEventListener('click', () => {
+  fileList.querySelectorAll('img').forEach(img => { if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src); });
+  selectedFiles = []; fileList.innerHTML = ''; showState('empty');
+});
+
+// ============================================================
+// Invoice line items — smart search
+// ============================================================
+let activeRow = null;
+const quickAddModal = new bootstrap.Modal(document.getElementById('quickAddModal'));
+
+function debounce(fn, ms) {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+async function searchProducts(q) {
+  try {
+    const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}`);
+    return res.ok ? await res.json() : [];
+  } catch { return []; }
+}
+
+function showDropdown(tr, results, query) {
+  const dd = tr.querySelector('.item-dd');
+  const nf = tr.querySelector('.item-notfound');
+
+  if (!results.length) {
+    dd.style.display = 'none';
+    nf.innerHTML = `الصنف غير موجود، هل ترغب في إضافته؟
+      <div class="mt-2">
+        <button type="button" class="btn btn-primary btn-sm open-qa-btn">
+          <i class="bi bi-plus-circle me-1"></i>إضافة صنف جديد
+        </button>
+      </div>`;
+    nf.querySelector('.open-qa-btn').addEventListener('mousedown', e => {
+      e.preventDefault();
+      nf.style.display = 'none';
+      openQuickAdd(tr, query);
+    });
+    nf.style.display = 'block';
+  } else {
+    nf.style.display = 'none';
+    dd.innerHTML = '';
+    results.forEach((p, i) => {
+      const item = document.createElement('div');
+      item.className = 'dd-item';
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'dd-name';
+      nameDiv.textContent = p.name_ar || p.name_en || p.sku || '';
+      item.appendChild(nameDiv);
+
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'dd-meta';
+
+      const addSpan = (text, cls) => {
+        const s = document.createElement('span');
+        if (cls) s.className = cls;
+        s.textContent = text;
+        metaDiv.appendChild(s);
+      };
+
+      addSpan('SKU noon: ' + (p.sku || ''));
+      if (p.partner_sku) addSpan('كود الشريك: ' + p.partner_sku);
+      if (p.barcode)     addSpan('الباركود: ' + p.barcode);
+      const brand = p.brand_ar || p.brand_en;
+      if (brand)         addSpan(brand);
+      if (p.avg_cost !== null && p.avg_cost > 0)
+        addSpan('متوسط التكلفة: ' + p.avg_cost.toFixed(2) + ' ر.س', 'dd-cost');
+      else if (p.unit_cost > 0)
+        addSpan('تكلفة: ' + p.unit_cost.toFixed(2) + ' ر.س', 'dd-cost');
+
+      item.appendChild(metaDiv);
+      item.addEventListener('mousedown', e => { e.preventDefault(); selectProduct(tr, results[i]); });
+      dd.appendChild(item);
+    });
+    dd.style.display = 'block';
+  }
+}
+
+function hideDropdown(tr) {
+  const dd = tr.querySelector('.item-dd');
+  if (dd) dd.style.display = 'none';
+}
+
+function selectProduct(tr, product) {
+  console.log('[select] sku="' + product.sku + '" input="' + tr.querySelector('.item-search').value + '"');
+  tr.querySelector('.item-sku-val').value  = product.sku;
+  tr.querySelector('.item-name-val').value = product.name_ar || product.name_en || product.sku;
+  tr.querySelector('.item-search').value   = product.name_ar || product.name_en || product.sku;
+  tr.dataset.selected  = '1';
+  tr.dataset.searching = '';
+
+  const chip  = tr.querySelector('.item-selected-chip');
+  const parts = [`SKU: ${product.sku}`];
+  if (product.barcode) parts.push(`باركود: ${product.barcode}`);
+  chip.textContent   = parts.join(' · ');
+  chip.style.display = 'inline-block';
+
+  const nf = tr.querySelector('.item-notfound');
+  if (nf) nf.style.display = 'none';
+
+  const cost = (product.avg_cost !== null && product.avg_cost > 0) ? product.avg_cost : product.unit_cost;
+  if (cost > 0) tr.querySelector('.item-uc').value = cost.toFixed(2);
+
+  hideDropdown(tr);
+  recalcRow(tr);
+
+  const tbody = document.getElementById('items-body');
+  if (tr === tbody.lastElementChild) addItemRow(false);
+
+  tr.querySelector('.item-qty').focus();
+  tr.querySelector('.item-qty').select();
+}
+
+function openQuickAdd(tr, prefill) {
+  activeRow = tr;
+  const q = prefill || tr.querySelector('.item-search').value.trim();
+  document.getElementById('qa-name-ar').value  = '';
+  document.getElementById('qa-name-en').value  = '';
+  document.getElementById('qa-sku').value      = '';
+  document.getElementById('qa-barcode').value  = '';
+  document.getElementById('qa-cost').value     = '0';
+  document.getElementById('qa-civ').checked    = true;
+  document.getElementById('qa-error').classList.add('d-none');
+
+  if (/^\d{8,13}$/.test(q))          document.getElementById('qa-barcode').value = q;
+  else if (/^[\w\-]{1,30}$/.test(q)) document.getElementById('qa-sku').value     = q;
+  else                                document.getElementById('qa-name-ar').value = q;
+
+  quickAddModal.show();
+  setTimeout(() => {
+    const first = document.getElementById('qa-name-ar').value ? 'qa-sku' : 'qa-name-ar';
+    document.getElementById(first).focus();
+  }, 300);
+}
+
+document.getElementById('qa-save-btn').addEventListener('click', async () => {
+  const nameAr  = document.getElementById('qa-name-ar').value.trim();
+  const nameEn  = document.getElementById('qa-name-en').value.trim();
+  const sku     = document.getElementById('qa-sku').value.trim();
+  const barcode = document.getElementById('qa-barcode').value.trim();
+  const cost    = parseFloat(document.getElementById('qa-cost').value) || 0;
+  const civ     = document.getElementById('qa-civ').checked ? 1 : 0;
+  const errEl   = document.getElementById('qa-error');
+  const btn     = document.getElementById('qa-save-btn');
+
+  if (!nameAr) { errEl.textContent = 'اسم المنتج بالعربي مطلوب'; errEl.classList.remove('d-none'); return; }
+  if (!sku)    { errEl.textContent = 'SKU مطلوب'; errEl.classList.remove('d-none'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>جاري الحفظ...';
+
+  try {
+    const res  = await fetch('/api/products/quick-create', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name_ar: nameAr, name_en: nameEn, sku,
+                            barcode: barcode || null, unit_cost: cost, cost_includes_vat: civ}),
+    });
+    const data = await res.json();
+    if (data.success) {
+      quickAddModal.hide();
+      showToast(data.existed ? 'هذا SKU موجود مسبقاً — تم تحديد المنتج' : 'تم إضافة الصنف بنجاح',
+                data.existed ? 'info' : 'success');
+      if (activeRow) { selectProduct(activeRow, data.product); activeRow = null; }
+    } else {
+      errEl.textContent = data.error || 'حدث خطأ';
+      errEl.classList.remove('d-none');
+    }
+  } catch {
+    errEl.textContent = 'خطأ في الاتصال بالخادم';
+    errEl.classList.remove('d-none');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>إضافة الصنف';
+  }
+});
+
+function updateRunningTotal() {
+  let total = 0;
+  document.querySelectorAll('.item-total-input').forEach(el => { total += parseFloat(el.value) || 0; });
+  document.getElementById('running-total').textContent = total.toFixed(2) + ' ر.س';
+  document.getElementById('running-total-row').style.removeProperty('display');
+}
+
+function recalcRow(tr) {
+  const qty = parseFloat(tr.querySelector('.item-qty').value) || 0;
+  const uc  = parseFloat(tr.querySelector('.item-uc').value)  || 0;
+  tr.querySelector('.item-total-input').value = (qty * uc).toFixed(2);
+  updateRunningTotal();
+}
+
+function addItemRow(focus = true) {
+  const row = document.createElement('div');
+  row.className = 'item-row';
+  row.innerHTML = `
+    <div class="item-search-col">
+      <div class="search-wrap">
+        <input type="text" class="form-control item-search"
+               placeholder="ابحث باسم الصنف أو SKU أو الباركود" autocomplete="off" dir="auto">
+        <input type="hidden" name="item_sku[]"  class="item-sku-val">
+        <input type="hidden" name="item_name[]" class="item-name-val">
+        <div class="item-dd"></div>
+      </div>
+      <div class="item-notfound"></div>
+      <div class="item-selected-chip"></div>
+    </div>
+    <div class="item-qty-col">
+      <label class="d-md-none form-label small mb-1">الكمية</label>
+      <input type="number" name="item_qty[]" class="form-control item-qty" value="1" min="1" step="1">
+    </div>
+    <div class="item-uc-col">
+      <label class="d-md-none form-label small mb-1">تكلفة الوحدة</label>
+      <input type="number" name="item_unit_cost[]" class="form-control item-uc" value="0" min="0" step="0.01">
+    </div>
+    <div class="item-total-col">
+      <label class="d-md-none form-label small mb-1">الإجمالي</label>
+      <input type="number" name="item_total[]" class="form-control item-total-input"
+             value="0" readonly style="background:#f8f9fa">
+    </div>
+    <div class="item-actions-col">
+      <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 open-qa-row"
+              title="إضافة صنف جديد"><i class="bi bi-plus-circle"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 remove-row"
+              title="حذف"><i class="bi bi-x-lg"></i></button>
+    </div>`;
+
+  const searchInput = row.querySelector('.item-search');
+  const nfDiv       = row.querySelector('.item-notfound');
+  let rowSearchToken = 0;
+
+  // Initialise dataset state on the row element
+  row.dataset.selected  = '';  // '1' once a product is confirmed selected
+  row.dataset.searching = '';  // '1' while API is in flight — blocks Enter
+
+  function clearRowSelection() {
+    row.querySelector('.item-sku-val').value  = '';
+    row.querySelector('.item-name-val').value = '';
+    row.querySelector('.item-selected-chip').style.display = 'none';
+    row.dataset.selected  = '';
+    row.dataset.searching = '';
+    console.log('[search] selection cleared, input="' + searchInput.value + '"');
+  }
+
+  const debouncedSearch = debounce(async q => {
+    const token = ++rowSearchToken;
+    console.log('[search] q="' + q + '" token=' + token);
+    if (q.length < 2) {
+      row.dataset.searching = '';
+      nfDiv.style.display   = 'none';
+      hideDropdown(row);
+      return;
+    }
+    const results = await searchProducts(q);
+    if (token !== rowSearchToken) {
+      console.log('[search] stale discarded token=' + token + ' current=' + rowSearchToken);
+      return;
+    }
+    row.dataset.searching = '';
+    console.log('[search] results=' + results.length + ' for q="' + q + '"');
+    showDropdown(row, results, q);
+  }, 200);
+
+  searchInput.addEventListener('input', e => {
+    const q = e.target.value.trim();
+    // 1. Immediately wipe dropdown DOM and selection — no stale state survives
+    hideDropdown(row);
+    clearRowSelection();
+    nfDiv.style.display = 'none';
+    if (q.length >= 2) {
+      // 2. Gate Enter immediately — before debounce fires or API returns
+      row.dataset.searching = '1';
+      nfDiv.innerHTML = '<small class="text-muted"><i class="bi bi-hourglass-split me-1"></i>جاري البحث...</small>';
+      nfDiv.style.display = 'block';
+    }
+    debouncedSearch(q);
+  });
+
+  searchInput.addEventListener('blur', () => setTimeout(() => hideDropdown(row), 160));
+
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { hideDropdown(row); return; }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const first = row.querySelector('.dd-item');
+      if (first) first.focus();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const isSearching = row.dataset.searching === '1';
+      const dd          = row.querySelector('.item-dd');
+      const ddVisible   = dd.style.display === 'block';
+      const first       = ddVisible ? dd.querySelector('.dd-item') : null;
+      console.log('[enter] searching=' + isSearching + ' dd-visible=' + ddVisible +
+                  ' sku-val="' + row.querySelector('.item-sku-val').value + '"');
+      if (isSearching) {
+        // API still in flight — do nothing, wait
+        console.log('[enter] blocked: search in progress');
+        return;
+      }
+      if (first) first.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+    }
+  });
+
+  row.querySelector('.item-qty').addEventListener('input', () => recalcRow(row));
+  row.querySelector('.item-qty').addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const sku   = row.querySelector('.item-sku-val').value;
+    if (!sku) return;
+    const tbody = document.getElementById('items-body');
+    const rows  = Array.from(tbody.querySelectorAll('.item-row'));
+    const idx   = rows.indexOf(row);
+    if (idx < rows.length - 1) rows[idx + 1].querySelector('.item-search').focus();
+    else addItemRow(true);
+  });
+
+  row.querySelector('.item-uc').addEventListener('input', () => recalcRow(row));
+  row.querySelector('.remove-row').addEventListener('click',  () => { row.remove(); updateRunningTotal(); });
+  row.querySelector('.open-qa-row').addEventListener('click', () => openQuickAdd(row, ''));
+
+  document.getElementById('items-body').appendChild(row);
+  if (focus) searchInput.focus();
+  return row;
+}
+
+// Start with one empty row
+addItemRow(false);
+document.getElementById('add-item-btn').addEventListener('click', () => addItemRow(true));
+
+// ============================================================
+// VAT Calculator
+// ============================================================
+function r2(v) { return Math.round(v * 100) / 100; }
+
+function calcVat() {
+  const mode    = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
+  const entered = parseFloat(document.getElementById('entered-amount').value) || 0;
+  const manualV = parseFloat(document.getElementById('vat-amount-manual').value) || 0;
+  let net = 0, vat = 0, gross = 0;
+  const vatWarning = document.getElementById('vat-warning');
+
+  if (mode === 'includes_vat') {
+    gross = entered; vat = r2(gross * 15 / 115); net = r2(gross - vat);
+    vatWarning.classList.add('d-none');
+  } else if (mode === 'excludes_vat') {
+    net = entered; vat = r2(net * 0.15); gross = r2(net + vat);
+    vatWarning.classList.add('d-none');
+  } else {
+    gross = entered; vat = manualV; net = r2(gross - vat);
+    vatWarning.classList.toggle('d-none', !(gross > 0 && vat > gross * 0.15));
+  }
+
+  const fmt = v => v > 0 ? v.toFixed(2) + ' ر.س' : '—';
+  document.getElementById('prev-net').textContent   = fmt(net);
+  document.getElementById('prev-vat').textContent   = fmt(vat);
+  document.getElementById('prev-gross').textContent = fmt(gross);
+}
+
+function onModeChange() {
+  const mode      = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
+  const amtLabel  = document.getElementById('amount-label');
+  const modeHint  = document.getElementById('mode-hint');
+  const manualRow = document.getElementById('manual-vat-row');
+  if (mode === 'includes_vat') {
+    amtLabel.textContent = 'المبلغ الإجمالي (شامل الضريبة)';
+    modeHint.textContent = 'إذا كان السعر شامل الضريبة سيتم احتساب الضريبة تلقائياً';
+    modeHint.style.display = ''; manualRow.classList.add('d-none');
+  } else if (mode === 'excludes_vat') {
+    amtLabel.textContent = 'الصافي قبل الضريبة';
+    modeHint.textContent = 'سيتم إضافة 15% تلقائياً — المبلغ المحفوظ هو الإجمالي شامل الضريبة';
+    modeHint.style.display = ''; manualRow.classList.add('d-none');
+  } else {
+    amtLabel.textContent = 'المبلغ الإجمالي (شامل الضريبة)';
+    modeHint.style.display = 'none'; manualRow.classList.remove('d-none');
+  }
+  calcVat();
+}
+
+document.querySelectorAll('input[name="vat_mode"]').forEach(r => r.addEventListener('change', onModeChange));
+document.getElementById('entered-amount').addEventListener('input', calcVat);
+document.getElementById('vat-amount-manual').addEventListener('input', calcVat);
+onModeChange();
+
+// ============================================================
+// Form submission
+// ============================================================
+document.getElementById('invoice-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = e.target.querySelector('[type=submit]');
+
+  const mode    = document.querySelector('input[name="vat_mode"]:checked')?.value || 'includes_vat';
+  const entered = parseFloat(document.getElementById('entered-amount').value) || 0;
+  if (mode === 'manual') {
+    const manualVat = parseFloat(document.getElementById('vat-amount-manual').value) || 0;
+    if (entered > 0 && manualVat > entered * 0.20) {
+      showToast('ضريبة القيمة المضافة غير منطقية، تحقق من المبلغ', 'error'); return;
+    }
+  }
+
+  for (const row of document.querySelectorAll('.item-row')) {
+    const searchText = row.querySelector('.item-search').value.trim();
+    const sku        = row.querySelector('.item-sku-val').value.trim();
+    if (row.dataset.searching === '1') {
+      showToast('انتظر اكتمال البحث قبل حفظ الفاتورة', 'error');
+      row.querySelector('.item-search').focus(); return;
+    }
+    if (searchText && !sku) {
+      showToast('اختر الصنف من القائمة قبل حفظ الفاتورة', 'error');
+      row.querySelector('.item-search').focus(); return;
+    }
+    if (searchText && sku && row.dataset.selected !== '1') {
+      showToast('اختر الصنف من القائمة قبل حفظ الفاتورة', 'error');
+      row.querySelector('.item-search').focus(); return;
+    }
+    if (sku) {
+      const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
+      if (qty <= 0) {
+        showToast('الكمية يجب أن تكون أكبر من صفر', 'error');
+        row.querySelector('.item-qty').focus(); return;
+      }
+    }
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>جاري الحفظ...';
+
+  const fd = new FormData(e.target);
+  selectedFiles.forEach(f => fd.append('pdf_file', f, f.name));
+
+  try {
+    const res  = await fetch('/invoices/add', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.success) {
+      showToast('تم حفظ الفاتورة بنجاح', 'success');
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast(data.error || 'حدث خطأ', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-save me-2"></i>حفظ الفاتورة';
+    }
+  } catch {
+    showToast('حدث خطأ غير متوقع', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-save me-2"></i>حفظ الفاتورة';
+  }
+});
+
+// ============================================================
+// Delete buttons
+// ============================================================
+document.querySelectorAll('.delete-btn').forEach(btn => {
+  btn.addEventListener('click', async function() {
+    const id = this.dataset.id, nr = this.dataset.nr;
+    if (!confirm(`هل تريد حذف الفاتورة "${nr}"؟ سيتم حذف الملف أيضاً.`)) return;
+    try {
+      const res  = await fetch(`/invoices/${id}/delete`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast('تم حذف الفاتورة', 'success');
+        setTimeout(() => location.reload(), 800);
+      } else {
+        showToast(data.error || 'فشل الحذف', 'error');
+      }
+    } catch { showToast('حدث خطأ', 'error'); }
+  });
+});
+</script>
+{% endblock %}

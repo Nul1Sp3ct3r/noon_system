@@ -1,0 +1,1069 @@
+{% extends 'base_partial.html' if (request.headers.get('HX-Request') and not request.headers.get('HX-History-Restore-Request')) else 'base.html' %}
+{% block title %}التقرير التحليلي — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ══════════════════════════════════════════
+   REPORT PAGE — scoped styles
+   ══════════════════════════════════════════ */
+
+/* ── Tab nav ─────────────────────────────── */
+.rpt-tabs-wrap {
+  display: flex; overflow-x: auto; gap: 4px;
+  background: var(--clr-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--clr-border-lt);
+  padding: 6px 8px;
+  margin-bottom: 20px;
+  scrollbar-width: none;
+}
+.rpt-tabs-wrap::-webkit-scrollbar { display: none; }
+.rpt-tab-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  white-space: nowrap; padding: 7px 16px;
+  border-radius: 8px; border: none; background: transparent;
+  font-size: .82rem; font-weight: 600; color: var(--clr-muted);
+  cursor: pointer; transition: background .15s, color .15s;
+  font-family: 'Tajawal', sans-serif;
+}
+.rpt-tab-btn:hover { background: var(--clr-primary-lt); color: var(--clr-primary); }
+.rpt-tab-btn.active {
+  background: var(--clr-primary); color: #fff;
+  box-shadow: 0 2px 8px rgba(20,184,166,.25);
+}
+.rpt-tab-btn i { font-size: .85rem; }
+
+/* ── Period quick buttons ────────────────── */
+.period-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 14px;
+}
+.period-btn {
+  padding: 4px 12px; border-radius: 20px;
+  border: 1px solid var(--clr-border); background: var(--clr-surface);
+  font-size: .77rem; font-weight: 600; color: var(--clr-muted);
+  cursor: pointer; transition: all .15s;
+  font-family: 'Tajawal', sans-serif;
+}
+.period-btn:hover, .period-btn.active-period {
+  border-color: var(--clr-primary);
+  background: var(--clr-primary-lt);
+  color: var(--clr-primary);
+}
+
+/* ── Filter card ─────────────────────────── */
+.filter-card {
+  background: var(--clr-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--clr-border-lt);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.filter-label {
+  font-size: .76rem; font-weight: 700; color: var(--clr-muted);
+  text-transform: uppercase; letter-spacing: .05em;
+  display: block; margin-bottom: 5px;
+}
+.filter-card .form-control,
+.filter-card .form-select {
+  border-radius: var(--r-input);
+  font-size: .83rem; border-color: var(--clr-border);
+}
+.filter-card .form-control:focus,
+.filter-card .form-select:focus {
+  border-color: var(--clr-primary);
+  box-shadow: 0 0 0 3px rgba(20,184,166,.12);
+}
+
+/* ── KPI cards (rendered by JS) ──────────── */
+.rpt-kpi-row { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
+.rpt-kpi-card {
+  flex: 1 1 180px; max-width: 260px;
+  background: var(--clr-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--clr-border-lt);
+  padding: 18px 20px;
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 10px;
+  transition: transform .18s, box-shadow .18s;
+}
+.rpt-kpi-card:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,.1); }
+.rpt-kpi-info { flex: 1; min-width: 0; }
+.rpt-kpi-label {
+  font-size: .69rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--clr-muted); margin-bottom: 7px;
+}
+.rpt-kpi-value { font-size: 1.3rem; font-weight: 800; color: var(--clr-text); line-height: 1.1; }
+.rpt-kpi-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.05rem; flex-shrink: 0;
+}
+
+/* ── Chart card ──────────────────────────── */
+.rpt-chart-card {
+  background: var(--clr-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--clr-border-lt);
+  padding: 20px 22px;
+  margin-bottom: 20px;
+}
+.rpt-chart-title {
+  font-size: .83rem; font-weight: 700; color: var(--clr-text);
+  margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+}
+.rpt-chart-title i { color: var(--clr-primary); }
+
+/* ── Data table card ─────────────────────── */
+.rpt-table-card {
+  background: var(--clr-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--clr-border-lt);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.rpt-table-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--clr-border-lt);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.rpt-table-header-title {
+  font-size: .85rem; font-weight: 700; color: var(--clr-text);
+  display: flex; align-items: center; gap: 8px; margin: 0;
+}
+.rpt-table-header-title i { color: var(--clr-primary); }
+.rpt-row-count {
+  font-size: .72rem; font-weight: 700; padding: 3px 10px;
+  border-radius: 12px; background: var(--clr-primary-lt);
+  color: var(--clr-primary);
+}
+
+/* ── Sortable columns ────────────────────── */
+.sort-th {
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: color .15s;
+}
+.sort-th:hover { color: var(--clr-primary) !important; }
+.sort-th .sort-icon { opacity: .25; font-size: .7rem; }
+.sort-th.sort-asc .sort-icon,
+.sort-th.sort-desc .sort-icon { opacity: 1; color: var(--clr-primary); }
+
+/* ── Totals row ──────────────────────────── */
+.totals-row td {
+  background: #F0FDF9 !important;
+  color: var(--clr-text) !important;
+  font-weight: 700 !important;
+  border-top: 2px solid var(--clr-primary) !important;
+}
+
+/* ── Empty state ─────────────────────────── */
+.rpt-empty {
+  padding: 48px 20px; text-align: center; color: var(--clr-muted);
+}
+.rpt-empty-icon {
+  width: 64px; height: 64px; border-radius: 18px;
+  background: var(--clr-primary-lt);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem; color: var(--clr-primary);
+  margin: 0 auto 16px;
+}
+.rpt-empty-title { font-size: .92rem; font-weight: 700; color: var(--clr-text); margin-bottom: 6px; }
+.rpt-empty-sub   { font-size: .8rem; }
+
+/* ── Loading state ───────────────────────── */
+.rpt-loading {
+  padding: 32px; text-align: center; color: var(--clr-muted); font-size: .85rem;
+}
+.rpt-loading .spinner-border { color: var(--clr-primary); }
+
+/* ── Info alert ──────────────────────────── */
+.rpt-info-alert {
+  background: #EFF6FF; border: 1px solid #BFDBFE;
+  border-radius: 10px; padding: 10px 14px;
+  font-size: .8rem; color: #1D4ED8; margin-bottom: 16px;
+  display: flex; align-items: flex-start; gap: 8px;
+}
+.rpt-info-alert i { margin-top: 2px; flex-shrink: 0; }
+
+/* ── Action buttons ──────────────────────── */
+.btn-rpt-refresh {
+  padding: 6px 16px; border-radius: var(--r-btn);
+  background: var(--clr-primary); color: #fff; border: none;
+  font-size: .82rem; font-weight: 600;
+  font-family: 'Tajawal', sans-serif;
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; transition: background .15s;
+}
+.btn-rpt-refresh:hover { background: var(--clr-primary-dk); }
+.btn-rpt-excel {
+  padding: 6px 14px; border-radius: var(--r-btn);
+  background: #DCFCE7; color: #166534; border: none;
+  font-size: .82rem; font-weight: 600;
+  font-family: 'Tajawal', sans-serif;
+  display: inline-flex; align-items: center; gap: 5px;
+  text-decoration: none; transition: background .15s;
+}
+.btn-rpt-excel:hover { background: #BBF7D0; color: #14532D; }
+.btn-rpt-pdf {
+  padding: 6px 14px; border-radius: var(--r-btn);
+  background: #FEE2E2; color: #991B1B; border: none;
+  font-size: .82rem; font-weight: 600;
+  font-family: 'Tajawal', sans-serif;
+  display: inline-flex; align-items: center; gap: 5px;
+  text-decoration: none; transition: background .15s;
+}
+.btn-rpt-pdf:hover { background: #FECACA; color: #7F1D1D; }
+
+/* ── Badge tweaks ────────────────────────── */
+.badge-profitable      { background:#DCFCE7; color:#166534; border-radius:8px; padding:2px 8px; font-size:.73rem; }
+.badge-low_margin      { background:#FEF3C7; color:#92400E; border-radius:8px; padding:2px 8px; font-size:.73rem; }
+.badge-loss            { background:#FEE2E2; color:#991B1B; border-radius:8px; padding:2px 8px; font-size:.73rem; }
+.badge-missing_cost    { background:#F1F5F9; color:#475569; border-radius:8px; padding:2px 8px; font-size:.73rem; }
+.badge-unknown         { background:#F3E8FF; color:#6B21A8; border-radius:8px; padding:2px 8px; font-size:.73rem; }
+.badge-no_fees_allocated { background:#E0E7FF; color:#3730A3; border-radius:8px; padding:2px 8px; font-size:.73rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ══════════════════════════════════════════
+     PAGE HEADER
+     ══════════════════════════════════════════ -->
+<div class="erp-page-header">
+  <div>
+    <h1 class="erp-page-title">
+      <span class="erp-title-icon"><i class="bi bi-graph-up-arrow"></i></span>
+      التقرير التحليلي
+    </h1>
+    <p class="text-muted mb-0 mt-1" style="font-size:.8rem; padding-right:44px;">
+      نظرة شاملة على أداء أعمالك مع تحليل كامل للمبيعات والأرباح والمصروفات والمخزون خلال الفترة المحددة.
+    </p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB NAVIGATION
+     ══════════════════════════════════════════ -->
+<div class="rpt-tabs-wrap" id="reportTabs" role="tablist">
+  <button class="rpt-tab-btn active" id="tab-pl"
+          data-bs-toggle="tab" data-bs-target="#pl_tab"
+          type="button" role="tab" data-report="pl">
+    <i class="bi bi-graph-up"></i>الأرباح والخسائر
+  </button>
+  <button class="rpt-tab-btn" id="tab-sales"
+          data-bs-toggle="tab" data-bs-target="#sales_tab"
+          type="button" role="tab" data-report="sales">
+    <i class="bi bi-cart3"></i>المبيعات
+  </button>
+  <button class="rpt-tab-btn" id="tab-fees"
+          data-bs-toggle="tab" data-bs-target="#fees_tab"
+          type="button" role="tab" data-report="fees">
+    <i class="bi bi-percent"></i>رسوم noon
+  </button>
+  <button class="rpt-tab-btn" id="tab-inventory"
+          data-bs-toggle="tab" data-bs-target="#inventory_tab"
+          type="button" role="tab" data-report="inventory">
+    <i class="bi bi-boxes"></i>المخزون
+  </button>
+  <button class="rpt-tab-btn" id="tab-invoices-report"
+          data-bs-toggle="tab" data-bs-target="#invoices_report_tab"
+          type="button" role="tab" data-report="invoices-report">
+    <i class="bi bi-file-earmark-text"></i>الفواتير
+  </button>
+  <button class="rpt-tab-btn" id="tab-vat"
+          data-bs-toggle="tab" data-bs-target="#vat_tab"
+          type="button" role="tab" data-report="vat">
+    <i class="bi bi-receipt-cutoff"></i>ضريبة القيمة المضافة
+  </button>
+</div>
+
+<div class="tab-content" id="reportTabContent">
+
+  <!-- ══════════════════════════════════════
+       P&L TAB
+       ══════════════════════════════════════ -->
+  <div class="tab-pane fade show active" id="pl_tab" role="tabpanel">
+    <div class="filter-card">
+      <div class="period-bar" id="pl_period_bar">
+        <span style="font-size:.76rem;font-weight:700;color:var(--clr-muted);margin-left:4px;">الفترة:</span>
+        <button class="period-btn" onclick="setPeriod('pl',7)">آخر 7 أيام</button>
+        <button class="period-btn" onclick="setPeriod('pl',30)">آخر 30 يوم</button>
+        <button class="period-btn" onclick="setPeriodMonth('pl','this')">هذا الشهر</button>
+        <button class="period-btn" onclick="setPeriod('pl',90)">آخر 3 أشهر</button>
+        <button class="period-btn" onclick="setPeriod('pl',180)">آخر 6 أشهر</button>
+        <button class="period-btn" onclick="setPeriodYear('pl')">هذه السنة</button>
+      </div>
+      <form class="row g-3 align-items-end" id="pl_filter">
+        <div class="col-auto">
+          <label class="filter-label">من شهر</label>
+          <input type="month" name="from_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">إلى شهر</label>
+          <input type="month" name="to_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto d-flex gap-2 flex-wrap">
+          <button type="button" class="btn-rpt-refresh" onclick="loadReport('pl')">
+            <i class="bi bi-arrow-clockwise"></i>تحديث
+          </button>
+          <a id="pl_excel_btn" href="/reports/pl/excel" class="btn-rpt-excel">
+            <i class="bi bi-file-earmark-excel"></i>Excel
+          </a>
+          <a id="pl_pdf_btn" href="/reports/pl/pdf" class="btn-rpt-pdf">
+            <i class="bi bi-file-earmark-pdf"></i>PDF
+          </a>
+        </div>
+      </form>
+    </div>
+    <div class="rpt-kpi-row" id="pl_summary"></div>
+    <div class="rpt-chart-card d-none" id="pl_chart_container">
+      <div class="rpt-chart-title"><i class="bi bi-bar-chart-fill"></i>الأرباح والخسائر الشهرية</div>
+      <canvas id="pl_chart" height="110"></canvas>
+    </div>
+    <div class="rpt-table-card">
+      <div class="rpt-table-header">
+        <h6 class="rpt-table-header-title"><i class="bi bi-table"></i>تفاصيل الأرباح والخسائر</h6>
+        <span class="rpt-row-count" id="pl_row_count" style="display:none;"></span>
+      </div>
+      <div id="pl_table">
+        <div class="rpt-empty">
+          <div class="rpt-empty-icon"><i class="bi bi-bar-chart-line"></i></div>
+          <div class="rpt-empty-title">لا توجد بيانات بعد</div>
+          <div class="rpt-empty-sub">اختر الفترة الزمنية وانقر "تحديث"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       SALES TAB
+       ══════════════════════════════════════ -->
+  <div class="tab-pane fade" id="sales_tab" role="tabpanel">
+    <div class="filter-card">
+      <div class="period-bar">
+        <span style="font-size:.76rem;font-weight:700;color:var(--clr-muted);margin-left:4px;">الفترة:</span>
+        <button class="period-btn" onclick="setPeriod('sales',7)">آخر 7 أيام</button>
+        <button class="period-btn" onclick="setPeriod('sales',30)">آخر 30 يوم</button>
+        <button class="period-btn" onclick="setPeriodMonth('sales','this')">هذا الشهر</button>
+        <button class="period-btn" onclick="setPeriod('sales',90)">آخر 3 أشهر</button>
+        <button class="period-btn" onclick="setPeriod('sales',180)">آخر 6 أشهر</button>
+        <button class="period-btn" onclick="setPeriodYear('sales')">هذه السنة</button>
+      </div>
+      <form class="row g-3 align-items-end" id="sales_filter">
+        <div class="col-auto">
+          <label class="filter-label">من تاريخ</label>
+          <input type="date" name="from_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">إلى تاريخ</label>
+          <input type="date" name="to_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">العلامة التجارية</label>
+          <select name="brand" class="form-select form-select-sm" style="min-width:130px;">
+            <option value="">الكل</option>
+            {% for b in brands %}
+            <option value="{{ b }}">{{ b }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">ترتيب حسب</label>
+          <select name="sort_by" class="form-select form-select-sm" style="min-width:110px;">
+            <option value="profit">الربح</option>
+            <option value="revenue">الإيرادات</option>
+            <option value="units">الوحدات</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">الحالة</label>
+          <select name="status" class="form-select form-select-sm" style="min-width:110px;">
+            <option value="">الكل</option>
+            <option value="profitable">رابح</option>
+            <option value="loss">خاسر</option>
+            <option value="unknown">غير محدد</option>
+          </select>
+        </div>
+        <div class="col-auto d-flex gap-2 flex-wrap">
+          <button type="button" class="btn-rpt-refresh" onclick="loadReport('sales')">
+            <i class="bi bi-arrow-clockwise"></i>تحديث
+          </button>
+          <a id="sales_excel_btn" href="/reports/sales/excel" class="btn-rpt-excel">
+            <i class="bi bi-file-earmark-excel"></i>Excel
+          </a>
+          <a id="sales_pdf_btn" href="/reports/sales/pdf" class="btn-rpt-pdf">
+            <i class="bi bi-file-earmark-pdf"></i>PDF
+          </a>
+        </div>
+      </form>
+    </div>
+    <div class="rpt-kpi-row" id="sales_summary"></div>
+    <div class="rpt-chart-card d-none" id="sales_chart_container">
+      <div class="rpt-chart-title"><i class="bi bi-bar-chart-fill"></i>أفضل المنتجات حسب الربح</div>
+      <canvas id="sales_chart" height="130"></canvas>
+    </div>
+    <div class="rpt-table-card">
+      <div class="rpt-table-header">
+        <h6 class="rpt-table-header-title"><i class="bi bi-table"></i>تفاصيل المبيعات حسب المنتج</h6>
+        <span class="rpt-row-count" id="sales_row_count" style="display:none;"></span>
+      </div>
+      <div id="sales_table">
+        <div class="rpt-empty">
+          <div class="rpt-empty-icon"><i class="bi bi-cart3"></i></div>
+          <div class="rpt-empty-title">لا توجد بيانات بعد</div>
+          <div class="rpt-empty-sub">اختر الفترة الزمنية وانقر "تحديث"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       FEES TAB
+       ══════════════════════════════════════ -->
+  <div class="tab-pane fade" id="fees_tab" role="tabpanel">
+    <div class="filter-card">
+      <div class="period-bar">
+        <span style="font-size:.76rem;font-weight:700;color:var(--clr-muted);margin-left:4px;">الفترة:</span>
+        <button class="period-btn" onclick="setPeriod('fees',7)">آخر 7 أيام</button>
+        <button class="period-btn" onclick="setPeriod('fees',30)">آخر 30 يوم</button>
+        <button class="period-btn" onclick="setPeriodMonth('fees','this')">هذا الشهر</button>
+        <button class="period-btn" onclick="setPeriod('fees',90)">آخر 3 أشهر</button>
+        <button class="period-btn" onclick="setPeriod('fees',180)">آخر 6 أشهر</button>
+        <button class="period-btn" onclick="setPeriodYear('fees')">هذه السنة</button>
+      </div>
+      <form class="row g-3 align-items-end" id="fees_filter">
+        <div class="col-auto">
+          <label class="filter-label">من تاريخ</label>
+          <input type="date" name="from_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">إلى تاريخ</label>
+          <input type="date" name="to_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">العلامة التجارية</label>
+          <select name="brand" class="form-select form-select-sm" style="min-width:130px;">
+            <option value="">الكل</option>
+            {% for b in brands %}
+            <option value="{{ b }}">{{ b }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto d-flex gap-2 flex-wrap">
+          <button type="button" class="btn-rpt-refresh" onclick="loadReport('fees')">
+            <i class="bi bi-arrow-clockwise"></i>تحديث
+          </button>
+          <a id="fees_excel_btn" href="/reports/fees/excel" class="btn-rpt-excel">
+            <i class="bi bi-file-earmark-excel"></i>Excel
+          </a>
+          <a id="fees_pdf_btn" href="/reports/fees/pdf" class="btn-rpt-pdf">
+            <i class="bi bi-file-earmark-pdf"></i>PDF
+          </a>
+        </div>
+      </form>
+    </div>
+    <div class="rpt-kpi-row" id="fees_summary"></div>
+    <div class="rpt-chart-card d-none" id="fees_chart_container">
+      <div class="rpt-chart-title"><i class="bi bi-donut"></i>توزيع الرسوم</div>
+      <div style="max-width:320px; margin:auto;">
+        <canvas id="fees_chart" height="200"></canvas>
+      </div>
+    </div>
+    <div class="rpt-table-card">
+      <div class="rpt-table-header">
+        <h6 class="rpt-table-header-title"><i class="bi bi-table"></i>تفاصيل الرسوم حسب المنتج</h6>
+        <span class="rpt-row-count" id="fees_row_count" style="display:none;"></span>
+      </div>
+      <div id="fees_table">
+        <div class="rpt-empty">
+          <div class="rpt-empty-icon"><i class="bi bi-percent"></i></div>
+          <div class="rpt-empty-title">لا توجد بيانات بعد</div>
+          <div class="rpt-empty-sub">اختر الفترة الزمنية وانقر "تحديث"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       INVENTORY TAB
+       ══════════════════════════════════════ -->
+  <div class="tab-pane fade" id="inventory_tab" role="tabpanel">
+    <div class="filter-card">
+      <form class="row g-3 align-items-end" id="inventory_filter">
+        <div class="col-auto">
+          <label class="filter-label">العلامة التجارية</label>
+          <select name="brand" class="form-select form-select-sm" style="min-width:130px;">
+            <option value="">الكل</option>
+            {% for b in brands %}
+            <option value="{{ b }}">{{ b }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">تكلفة من</label>
+          <input type="number" name="cost_min" min="0" step="0.01"
+                 class="form-control form-control-sm" style="width:110px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">تكلفة إلى</label>
+          <input type="number" name="cost_max" min="0" step="0.01"
+                 class="form-control form-control-sm" style="width:110px;">
+        </div>
+        <div class="col-auto d-flex gap-2 flex-wrap">
+          <button type="button" class="btn-rpt-refresh" onclick="loadReport('inventory')">
+            <i class="bi bi-arrow-clockwise"></i>تحديث
+          </button>
+          <a id="inventory_excel_btn" href="/reports/inventory/excel" class="btn-rpt-excel">
+            <i class="bi bi-file-earmark-excel"></i>Excel
+          </a>
+          <a id="inventory_pdf_btn" href="/reports/inventory/pdf" class="btn-rpt-pdf">
+            <i class="bi bi-file-earmark-pdf"></i>PDF
+          </a>
+        </div>
+      </form>
+    </div>
+    <div class="rpt-kpi-row" id="inventory_summary"></div>
+    <div class="rpt-chart-card d-none" id="inventory_chart_container">
+      <div class="rpt-chart-title"><i class="bi bi-bar-chart-fill"></i>أعلى المنتجات حسب الاستثمار</div>
+      <canvas id="inventory_chart" height="130"></canvas>
+    </div>
+    <div class="rpt-table-card">
+      <div class="rpt-table-header">
+        <h6 class="rpt-table-header-title"><i class="bi bi-table"></i>تفاصيل المخزون وتكاليفه</h6>
+        <span class="rpt-row-count" id="inventory_row_count" style="display:none;"></span>
+      </div>
+      <div id="inventory_table">
+        <div class="rpt-empty">
+          <div class="rpt-empty-icon"><i class="bi bi-boxes"></i></div>
+          <div class="rpt-empty-title">لا توجد بيانات بعد</div>
+          <div class="rpt-empty-sub">اختر الفلاتر وانقر "تحديث"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       INVOICES REPORT TAB
+       ══════════════════════════════════════ -->
+  <div class="tab-pane fade" id="invoices_report_tab" role="tabpanel">
+    <div class="filter-card">
+      <div class="period-bar">
+        <span style="font-size:.76rem;font-weight:700;color:var(--clr-muted);margin-left:4px;">الفترة:</span>
+        <button class="period-btn" onclick="setPeriod('invoices-report',7)">آخر 7 أيام</button>
+        <button class="period-btn" onclick="setPeriod('invoices-report',30)">آخر 30 يوم</button>
+        <button class="period-btn" onclick="setPeriodMonth('invoices-report','this')">هذا الشهر</button>
+        <button class="period-btn" onclick="setPeriod('invoices-report',90)">آخر 3 أشهر</button>
+        <button class="period-btn" onclick="setPeriod('invoices-report',180)">آخر 6 أشهر</button>
+        <button class="period-btn" onclick="setPeriodYear('invoices-report')">هذه السنة</button>
+      </div>
+      <form class="row g-3 align-items-end" id="invoices_report_filter">
+        <div class="col-auto">
+          <label class="filter-label">المورد</label>
+          <select name="supplier" class="form-select form-select-sm" style="min-width:150px;">
+            <option value="">الكل</option>
+            {% for s in suppliers %}
+            <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">من تاريخ</label>
+          <input type="date" name="from_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">إلى تاريخ</label>
+          <input type="date" name="to_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto d-flex gap-2 flex-wrap">
+          <button type="button" class="btn-rpt-refresh" onclick="loadReport('invoices-report')">
+            <i class="bi bi-arrow-clockwise"></i>تحديث
+          </button>
+          <a id="invoices_report_excel_btn" href="/reports/invoices-report/excel" class="btn-rpt-excel">
+            <i class="bi bi-file-earmark-excel"></i>Excel
+          </a>
+          <a id="invoices_report_pdf_btn" href="/reports/invoices-report/pdf" class="btn-rpt-pdf">
+            <i class="bi bi-file-earmark-pdf"></i>PDF
+          </a>
+        </div>
+      </form>
+    </div>
+    <div class="rpt-kpi-row" id="invoices_report_summary"></div>
+    <div class="rpt-chart-card d-none" id="invoices_report_chart_container">
+      <div class="rpt-chart-title"><i class="bi bi-bar-chart-fill"></i>الفواتير حسب المورد</div>
+      <canvas id="invoices_report_chart" height="110"></canvas>
+    </div>
+    <div class="rpt-table-card">
+      <div class="rpt-table-header">
+        <h6 class="rpt-table-header-title"><i class="bi bi-table"></i>تفاصيل فواتير الموردين</h6>
+        <span class="rpt-row-count" id="invoices_report_row_count" style="display:none;"></span>
+      </div>
+      <div id="invoices_report_table">
+        <div class="rpt-empty">
+          <div class="rpt-empty-icon"><i class="bi bi-file-earmark-text"></i></div>
+          <div class="rpt-empty-title">لا توجد بيانات بعد</div>
+          <div class="rpt-empty-sub">اختر الفلاتر وانقر "تحديث"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       VAT TAB
+       ══════════════════════════════════════ -->
+  <div class="tab-pane fade" id="vat_tab" role="tabpanel">
+    <div class="rpt-info-alert">
+      <i class="bi bi-info-circle-fill"></i>
+      <span>
+        ضريبة المخرجات محسوبة من صافي العائد (شامل الضريبة) × 15/115.
+        ضريبة المدخلات — نون محسوبة من الرسوم (قبل الضريبة) × 15%.
+        ضريبة المدخلات — الموردين مأخوذة من حقل الضريبة في الفواتير المُدخَلة.
+      </span>
+    </div>
+    <div class="filter-card">
+      <div class="period-bar">
+        <span style="font-size:.76rem;font-weight:700;color:var(--clr-muted);margin-left:4px;">الفترة:</span>
+        <button class="period-btn" onclick="setPeriod('vat',7)">آخر 7 أيام</button>
+        <button class="period-btn" onclick="setPeriod('vat',30)">آخر 30 يوم</button>
+        <button class="period-btn" onclick="setPeriodMonth('vat','this')">هذا الشهر</button>
+        <button class="period-btn" onclick="setPeriod('vat',90)">آخر 3 أشهر</button>
+        <button class="period-btn" onclick="setPeriod('vat',180)">آخر 6 أشهر</button>
+        <button class="period-btn" onclick="setPeriodYear('vat')">هذه السنة</button>
+      </div>
+      <form class="row g-3 align-items-end" id="vat_filter">
+        <div class="col-auto">
+          <label class="filter-label">من شهر</label>
+          <input type="month" name="from_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto">
+          <label class="filter-label">إلى شهر</label>
+          <input type="month" name="to_date" class="form-control form-control-sm" style="min-width:140px;">
+        </div>
+        <div class="col-auto d-flex gap-2 flex-wrap">
+          <button type="button" class="btn-rpt-refresh" onclick="loadReport('vat')">
+            <i class="bi bi-arrow-clockwise"></i>تحديث
+          </button>
+          <a id="vat_excel_btn" href="/reports/vat/excel" class="btn-rpt-excel">
+            <i class="bi bi-file-earmark-excel"></i>Excel
+          </a>
+        </div>
+      </form>
+    </div>
+    <div class="rpt-kpi-row" id="vat_summary"></div>
+    <div class="rpt-chart-card d-none" id="vat_chart_container">
+      <div class="rpt-chart-title"><i class="bi bi-bar-chart-fill"></i>ضريبة القيمة المضافة الشهرية</div>
+      <canvas id="vat_chart" height="110"></canvas>
+    </div>
+    <div class="rpt-table-card">
+      <div class="rpt-table-header">
+        <h6 class="rpt-table-header-title"><i class="bi bi-table"></i>تفاصيل ضريبة القيمة المضافة</h6>
+        <span class="rpt-row-count" id="vat_row_count" style="display:none;"></span>
+      </div>
+      <div id="vat_table">
+        <div class="rpt-empty">
+          <div class="rpt-empty-icon"><i class="bi bi-receipt-cutoff"></i></div>
+          <div class="rpt-empty-title">لا توجد بيانات بعد</div>
+          <div class="rpt-empty-sub">اختر الفترة الزمنية وانقر "تحديث"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.tab-content -->
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+/* ══════════════════════════════════════════
+   CHART.JS defaults
+   ══════════════════════════════════════════ */
+Chart.defaults.font.family = "'Tajawal', sans-serif";
+Chart.defaults.color = '#6B7280';
+
+/* ══════════════════════════════════════════
+   COLOR PALETTE
+   ══════════════════════════════════════════ */
+const CLR = {
+  teal:        '#14B8A6',
+  tealLt:      'rgba(20,184,166,.15)',
+  tealMd:      'rgba(20,184,166,.4)',
+  indigo:      '#4F46E5',
+  indigoLt:    'rgba(79,70,229,.15)',
+  green:       '#22C55E',
+  greenLt:     'rgba(34,197,94,.15)',
+  red:         '#EF4444',
+  redLt:       'rgba(239,68,68,.15)',
+  amber:       '#F59E0B',
+  amberLt:     'rgba(245,158,11,.15)',
+  grid:        'rgba(0,0,0,.05)',
+};
+
+/* ══════════════════════════════════════════
+   ICON MAP — for KPI cards
+   ══════════════════════════════════════════ */
+function kpiIconCfg(label, colorClass) {
+  const l = label || '';
+  if (colorClass === 'color-revenue')
+    return { icon: 'bi-cash-stack',     bg: '#CCFBF1', fg: '#0D9488' };
+  if (colorClass === 'color-profit')
+    return { icon: 'bi-graph-up-arrow', bg: '#DCFCE7', fg: '#15803D' };
+  if (colorClass === 'color-loss')
+    return { icon: 'bi-graph-down-arrow', bg: '#FEE2E2', fg: '#B91C1C' };
+  if (colorClass === 'color-fees')
+    return { icon: 'bi-percent',        bg: '#FEF3C7', fg: '#B45309' };
+  if (l.includes('هامش') || l.includes('نسبة'))
+    return { icon: 'bi-pie-chart-fill', bg: '#F3E8FF', fg: '#7C3AED' };
+  if (l.includes('وحدات') || l.includes('عدد') || l.includes('منتجات'))
+    return { icon: 'bi-box-seam',       bg: '#E0E7FF', fg: '#4338CA' };
+  if (l.includes('استثمار') || l.includes('تكلفة') || l.includes('COGS'))
+    return { icon: 'bi-coin',           bg: '#FEF3C7', fg: '#B45309' };
+  if (l.includes('ضريبة'))
+    return { icon: 'bi-receipt',        bg: '#E0E7FF', fg: '#4338CA' };
+  return { icon: 'bi-bar-chart-fill',   bg: '#F1F5F9', fg: '#475569' };
+}
+
+/* value color → CSS var color for kpi-value */
+function kpiValueColor(colorClass) {
+  switch (colorClass) {
+    case 'color-revenue': return 'var(--clr-primary)';
+    case 'color-profit':  return 'var(--clr-success)';
+    case 'color-loss':    return 'var(--clr-danger)';
+    case 'color-fees':    return 'var(--clr-warning)';
+    default: return 'var(--clr-text)';
+  }
+}
+
+/* ══════════════════════════════════════════
+   PERIOD HELPERS
+   ══════════════════════════════════════════ */
+function rid(report) { return report.replace(/-/g, '_'); }
+
+function getFormDateType(report) {
+  const form = document.getElementById(rid(report) + '_filter');
+  if (!form) return 'date';
+  const inp = form.querySelector('input[name="from_date"]');
+  return inp ? inp.type : 'date';
+}
+
+function fmtDate(d, type) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return type === 'month' ? `${y}-${m}` : `${y}-${m}-${dd}`;
+}
+
+function setPeriod(report, days) {
+  const type = getFormDateType(report);
+  const form = document.getElementById(rid(report) + '_filter');
+  if (!form) return;
+  const today = new Date();
+  const from  = new Date(today); from.setDate(from.getDate() - days);
+  form.querySelector('[name="from_date"]').value = fmtDate(from, type);
+  form.querySelector('[name="to_date"]').value   = fmtDate(today, type);
+  loadReport(report);
+}
+
+function setPeriodMonth(report, which) {
+  const type = getFormDateType(report);
+  const form = document.getElementById(rid(report) + '_filter');
+  if (!form) return;
+  const today = new Date();
+  let from, to;
+  if (which === 'this') {
+    from = new Date(today.getFullYear(), today.getMonth(), 1);
+    to   = today;
+  }
+  form.querySelector('[name="from_date"]').value = fmtDate(from, type);
+  form.querySelector('[name="to_date"]').value   = fmtDate(to, type);
+  loadReport(report);
+}
+
+function setPeriodYear(report) {
+  const type = getFormDateType(report);
+  const form = document.getElementById(rid(report) + '_filter');
+  if (!form) return;
+  const today = new Date();
+  const from  = new Date(today.getFullYear(), 0, 1);
+  form.querySelector('[name="from_date"]').value = fmtDate(from, type);
+  form.querySelector('[name="to_date"]').value   = fmtDate(today, type);
+  loadReport(report);
+}
+
+/* ══════════════════════════════════════════
+   CHART REGISTRY
+   ══════════════════════════════════════════ */
+const chartRegistry = {};
+
+/* Remap backend colors to new palette */
+function recolorChart(cfg) {
+  if (!cfg || !cfg.data || !cfg.data.datasets) return cfg;
+  cfg.data.datasets.forEach(ds => {
+    /* bar charts: remap old green/red to new palette */
+    if (Array.isArray(ds.backgroundColor)) {
+      ds.backgroundColor = ds.backgroundColor.map(c => {
+        if (!c) return CLR.tealLt;
+        const cu = c.toUpperCase();
+        if (cu === '#3B6D11' || cu === '#3B6D11CC') return 'rgba(34,197,94,.2)';
+        if (cu === '#A32D2D' || cu === '#A32D2DCC') return CLR.redLt;
+        if (cu === '#185FA5' || cu === '#185FA5CC') return CLR.indigoLt;
+        if (cu === '#854F0B')                       return CLR.amberLt;
+        return c;
+      });
+      ds.borderColor = ds.backgroundColor.map(c => {
+        if (!c) return CLR.teal;
+        const cu = c.toUpperCase();
+        if (cu.includes('34,197,94') || cu === '#3B6D11') return CLR.green;
+        if (cu.includes('239,68,68') || cu === '#A32D2D')  return CLR.red;
+        if (cu.includes('79,70,229') || cu === '#185FA5')  return CLR.indigo;
+        if (cu.includes('245,158,11')|| cu === '#854F0B')  return CLR.amber;
+        return CLR.teal;
+      });
+      ds.borderWidth = 1.5;
+    } else if (typeof ds.backgroundColor === 'string') {
+      const cu = ds.backgroundColor.toUpperCase();
+      if (cu === '#185FA5' || cu === '#185FA5CC') ds.backgroundColor = CLR.teal;
+    }
+    /* doughnut: two-slice fees chart */
+    if (cfg.type === 'doughnut') {
+      ds.backgroundColor = [CLR.amber, CLR.indigo];
+      ds.borderWidth = 0;
+      ds.hoverOffset = 6;
+    }
+    ds.borderRadius = ds.borderRadius ?? 5;
+  });
+  /* grid styling */
+  if (!cfg.options) cfg.options = {};
+  if (!cfg.options.scales) cfg.options.scales = {};
+  ['x', 'y'].forEach(ax => {
+    if (!cfg.options.scales[ax]) cfg.options.scales[ax] = {};
+    cfg.options.scales[ax].grid = cfg.options.scales[ax].grid || {};
+    cfg.options.scales[ax].grid.color = CLR.grid;
+  });
+  if (!cfg.options.plugins) cfg.options.plugins = {};
+  cfg.options.plugins.legend = cfg.options.plugins.legend || {};
+  if (cfg.type !== 'doughnut') {
+    cfg.options.plugins.legend.display = false;
+  } else {
+    cfg.options.cutout = cfg.options.cutout || '62%';
+    cfg.options.plugins.legend.position = 'bottom';
+    cfg.options.plugins.legend.labels = { padding: 16, usePointStyle: true, pointStyleWidth: 8 };
+  }
+  return cfg;
+}
+
+/* ══════════════════════════════════════════
+   CORE LOAD FUNCTION
+   ══════════════════════════════════════════ */
+async function loadReport(report) {
+  const form = document.getElementById(rid(report) + '_filter');
+  const params = new URLSearchParams();
+  if (form) {
+    new FormData(form).forEach((v, k) => { if (v) params.set(k, v); });
+  }
+  const qs = params.toString();
+
+  /* update export button hrefs */
+  const excelBtn = document.getElementById(rid(report) + '_excel_btn');
+  const pdfBtn   = document.getElementById(rid(report) + '_pdf_btn');
+  if (excelBtn) excelBtn.href = `/reports/${report}/excel${qs ? '?' + qs : ''}`;
+  if (pdfBtn)   pdfBtn.href   = `/reports/${report}/pdf${qs ? '?' + qs : ''}`;
+
+  /* loading state */
+  const tableDiv = document.getElementById(rid(report) + '_table');
+  if (tableDiv) tableDiv.innerHTML = `
+    <div class="rpt-loading">
+      <div class="spinner-border spinner-border-sm me-2"></div>جاري التحميل...
+    </div>`;
+
+  /* hide previous KPIs + chart */
+  const summaryEl = document.getElementById(rid(report) + '_summary');
+  if (summaryEl) summaryEl.innerHTML = '';
+  const chartCont = document.getElementById(rid(report) + '_chart_container');
+  if (chartCont) chartCont.classList.add('d-none');
+
+  try {
+    const res  = await fetch(`/reports/${report}${qs ? '?' + qs : ''}`);
+    const data = await res.json();
+    if (!data.success) {
+      showToast(data.error || 'خطأ في تحميل البيانات', 'error');
+      if (tableDiv) tableDiv.innerHTML = `<div class="rpt-empty">
+        <div class="rpt-empty-icon"><i class="bi bi-exclamation-triangle"></i></div>
+        <div class="rpt-empty-title">حدث خطأ</div>
+        <div class="rpt-empty-sub">${data.error || 'تعذر تحميل البيانات'}</div>
+      </div>`;
+      return;
+    }
+    renderKPICards(report, data.summary_cards);
+    renderChart(report, data.chart);
+    renderTable(report, data.headers, data.rows, data.row_classes, data.totals);
+  } catch(e) {
+    if (tableDiv) tableDiv.innerHTML = `<div class="rpt-empty">
+      <div class="rpt-empty-icon"><i class="bi bi-wifi-off"></i></div>
+      <div class="rpt-empty-title">تعذر الاتصال</div>
+      <div class="rpt-empty-sub">تحقق من الاتصال وأعد المحاولة</div>
+    </div>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   KPI CARDS
+   ══════════════════════════════════════════ */
+function renderKPICards(report, cards) {
+  const el = document.getElementById(rid(report) + '_summary');
+  if (!el || !cards || !cards.length) return;
+  el.innerHTML = cards.map(c => {
+    const ic  = kpiIconCfg(c.label, c.color || '');
+    const clr = kpiValueColor(c.color || '');
+    return `
+    <div class="rpt-kpi-card">
+      <div class="rpt-kpi-info">
+        <div class="rpt-kpi-label">${c.label}</div>
+        <div class="rpt-kpi-value" style="color:${clr};">${c.value}</div>
+      </div>
+      <div class="rpt-kpi-icon" style="background:${ic.bg};color:${ic.fg};">
+        <i class="bi ${ic.icon}"></i>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════
+   CHART
+   ══════════════════════════════════════════ */
+function renderChart(report, cfg) {
+  const canvas    = document.getElementById(rid(report) + '_chart');
+  const container = document.getElementById(rid(report) + '_chart_container');
+  if (!canvas || !cfg) return;
+  if (chartRegistry[report]) { chartRegistry[report].destroy(); }
+  const finalCfg = recolorChart(JSON.parse(JSON.stringify(cfg)));
+  chartRegistry[report] = new Chart(canvas, finalCfg);
+  if (container) container.classList.remove('d-none');
+}
+
+/* ══════════════════════════════════════════
+   TABLE
+   ══════════════════════════════════════════ */
+function renderTable(report, headers, rows, rowClasses, totals) {
+  const el        = document.getElementById(rid(report) + '_table');
+  const countBadge= document.getElementById(rid(report) + '_row_count');
+  if (!el) return;
+
+  if (!rows || rows.length === 0) {
+    el.innerHTML = `<div class="rpt-empty">
+      <div class="rpt-empty-icon"><i class="bi bi-inbox"></i></div>
+      <div class="rpt-empty-title">لا توجد بيانات للفترة المحددة</div>
+      <div class="rpt-empty-sub">جرّب تغيير نطاق التاريخ أو الفلاتر</div>
+    </div>`;
+    if (countBadge) countBadge.style.display = 'none';
+    return;
+  }
+
+  if (countBadge) {
+    countBadge.textContent = rows.length + ' صف';
+    countBadge.style.display = '';
+  }
+
+  let html = '<div class="table-responsive"><table class="noon-table" id="tbl_' + rid(report) + '">';
+
+  /* colgroup — equal width fallback */
+  html += '<colgroup>' + headers.map(() => '<col>').join('') + '</colgroup>';
+
+  /* thead */
+  html += '<thead><tr>';
+  headers.forEach((h, i) => {
+    html += `<th class="sort-th" data-col="${i}" onclick="sortTbl('${report}',${i})">${h} <i class="bi bi-arrow-down-up sort-icon"></i></th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  /* tbody */
+  rows.forEach((row, ri) => {
+    const cls = rowClasses ? (rowClasses[ri] || '') : '';
+    html += `<tr class="${cls}">`;
+    row.forEach(cell => {
+      const v = (cell === null || cell === undefined) ? '—' : cell;
+      const isNum = typeof v === 'number';
+      html += `<td class="${isNum ? 'text-end' : ''}">${isNum
+        ? v.toLocaleString('ar-SA', {minimumFractionDigits:2, maximumFractionDigits:2})
+        : v}</td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody>';
+
+  /* totals row */
+  if (totals) {
+    html += '<tfoot><tr class="totals-row">';
+    totals.forEach(c => {
+      const isNum = typeof c === 'number';
+      html += `<td class="${isNum ? 'text-end' : ''}">${isNum
+        ? c.toLocaleString('ar-SA', {minimumFractionDigits:2, maximumFractionDigits:2})
+        : (c || '')}</td>`;
+    });
+    html += '</tr></tfoot>';
+  }
+
+  html += '</table></div>';
+  el.innerHTML = html;
+}
+
+/* ══════════════════════════════════════════
+   SORT
+   ══════════════════════════════════════════ */
+const sortState = {};
+function sortTbl(report, colIdx) {
+  const tbody = document.querySelector('#tbl_' + rid(report) + ' tbody');
+  if (!tbody) return;
+  const asc  = sortState[report] !== colIdx;
+  sortState[report] = asc ? colIdx : null;
+
+  /* update header icons */
+  document.querySelectorAll('#tbl_' + rid(report) + ' thead .sort-th').forEach((th, i) => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (i === colIdx) th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+  });
+
+  const rows = Array.from(tbody.rows);
+  rows.sort((a, b) => {
+    const av = a.cells[colIdx]?.textContent.trim() || '';
+    const bv = b.cells[colIdx]?.textContent.trim() || '';
+    const an = parseFloat(av.replace(/[^-\d.]/g, ''));
+    const bn = parseFloat(bv.replace(/[^-\d.]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return asc ? an - bn : bn - an;
+    return asc ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+
+/* ══════════════════════════════════════════
+   TAB INIT — keep Bootstrap tabs + custom active class
+   ══════════════════════════════════════════ */
+(function initReports() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    run();
+  }
+  function run() {
+    /* sync Bootstrap tab active class with custom .active */
+    const tabBtns = document.querySelectorAll('#reportTabs .rpt-tab-btn');
+    tabBtns.forEach(btn => {
+      btn.addEventListener('shown.bs.tab', e => {
+        tabBtns.forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        const report = e.target.dataset.report;
+        if (report) loadReport(report);
+      });
+    });
+
+    /* auto-load default tab (P&L) */
+    loadReport('pl');
+  }
+})();
+</script>
+{% endblock %}

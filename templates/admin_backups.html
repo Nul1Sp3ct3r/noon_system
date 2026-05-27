@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+{% block title %}النسخ الاحتياطية — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+.section-card { border:none; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.07); margin-bottom:24px; }
+.section-header { background:#1a3a5c; color:#fff; border-radius:12px 12px 0 0; padding:12px 20px; font-weight:700; font-size:.95rem; }
+.table-item { font-size:.88rem; padding:4px 0; }
+.excl-item { font-size:.88rem; padding:4px 0; color:#A32D2D; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <h4><i class="bi bi-cloud-download me-2 color-revenue"></i>النسخ الاحتياطية</h4>
+  <a href="{{ url_for('admin_audit_logs') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-shield-check me-1"></i>سجل التدقيق
+  </a>
+</div>
+
+<div class="row g-4">
+  <!-- Download backup -->
+  <div class="col-lg-6">
+    <div class="section-card">
+      <div class="section-header"><i class="bi bi-download me-2"></i>تنزيل نسخة احتياطية</div>
+      <div class="p-4">
+        <div class="alert alert-info py-2 px-3 mb-3" style="font-size:.88rem;">
+          <i class="bi bi-info-circle me-1"></i>
+          يتم تصدير جميع بيانات المنظمة إلى ملف JSON. يُستثنى منه كلمات المرور والبيانات الحساسة.
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-bold">المنظمة</label>
+          <select id="backup-org" class="form-select">
+            {% for o in orgs %}
+            <option value="{{ o.id }}"
+              {% if o.id == session.get('org_id') %}selected{% endif %}>
+              {{ o.name }} (ID: {{ o.id }})
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button class="btn btn-primary w-100" onclick="startBackup()">
+          <i class="bi bi-cloud-download me-2"></i>تنزيل النسخة الاحتياطية
+        </button>
+        <div id="backup-status" class="mt-2 small text-muted"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- What is included / excluded -->
+  <div class="col-lg-6">
+    <div class="section-card">
+      <div class="section-header" style="background:#3B6D11;">
+        <i class="bi bi-card-checklist me-2"></i>محتوى النسخة الاحتياطية
+      </div>
+      <div class="p-4">
+        <p class="fw-bold mb-2" style="font-size:.88rem;">الجداول المُصدَّرة:</p>
+        <ul class="list-unstyled mb-3">
+          {% for t in ['products', 'orders', 'invoices', 'invoice_items',
+                       'imported_files', 'noon_statement_fees',
+                       'warehouses', 'inventory_movements', 'audit_logs'] %}
+          <li class="table-item"><i class="bi bi-check-circle-fill text-success me-2"></i>{{ t }}</li>
+          {% endfor %}
+        </ul>
+        <p class="fw-bold mb-2" style="font-size:.88rem; color:#A32D2D;">مُستثنى من النسخة الاحتياطية:</p>
+        <ul class="list-unstyled">
+          <li class="excl-item"><i class="bi bi-x-circle-fill me-2"></i>password_hash</li>
+          <li class="excl-item"><i class="bi bi-x-circle-fill me-2"></i>رموز CSRF والجلسات</li>
+          <li class="excl-item"><i class="bi bi-x-circle-fill me-2"></i>متغيرات البيئة والمفاتيح السرية</li>
+          <li class="excl-item"><i class="bi bi-x-circle-fill me-2"></i>بيانات المنظمات الأخرى</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Restore instructions -->
+<div class="section-card">
+  <div class="section-header" style="background:#854F0B;">
+    <i class="bi bi-info-circle me-2"></i>إجراءات الاسترداد
+  </div>
+  <div class="p-4">
+    <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.88rem;">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      الاسترداد التلقائي غير مدعوم حالياً. يُنصح بإجراء الاسترداد يدوياً عبر مشرف النظام.
+      راجع ملف <code>docs/BACKUP_RESTORE.md</code> للتفاصيل الكاملة.
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <strong style="font-size:.88rem;">خطوات الاسترداد المختصرة:</strong>
+        <ol style="font-size:.85rem; margin-top:8px; padding-right:20px;">
+          <li>تنزيل النسخة الاحتياطية بصيغة JSON</li>
+          <li>التواصل مع مشرف النظام</li>
+          <li>استيراد البيانات يدوياً عبر أدوات قاعدة البيانات</li>
+          <li>التحقق من سلامة البيانات بعد الاسترداد</li>
+        </ol>
+      </div>
+      <div class="col-md-6">
+        <strong style="font-size:.88rem;">السياسة الموصى بها:</strong>
+        <ul style="font-size:.85rem; margin-top:8px; padding-right:20px;">
+          <li>نسخة احتياطية يومية على الأقل</li>
+          <li>الاحتفاظ بنسخ آخر 30 يوم</li>
+          <li>تخزين النسخ في مكان منفصل عن الخادم</li>
+          <li>اختبار الاسترداد دورياً</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function startBackup() {
+  const orgId = document.getElementById('backup-org').value;
+  const status = document.getElementById('backup-status');
+  status.textContent = 'جاري إعداد النسخة الاحتياطية...';
+
+  const a = document.createElement('a');
+  a.href = '/admin/backups/download?org_id=' + encodeURIComponent(orgId);
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  setTimeout(() => { status.textContent = 'تم بدء التنزيل.'; }, 500);
+  setTimeout(() => { status.textContent = ''; }, 4000);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+*.spec
+
+# PyInstaller output
+dist/
+build/
+
+# App data (user data - not committed)
+data/
+static/invoices/
+static/uploads/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Logs
+*.log
+.vercel
+
+# Test/sample data files
+*.csv

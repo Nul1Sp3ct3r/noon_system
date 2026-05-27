@@ -1,0 +1,190 @@
+{% extends 'base.html' %}
+{% block title %}التكاليف والأرباح — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-calculator me-2 color-revenue"></i>التكاليف وتحليل الربحية</h4>
+  <button id="save-btn" class="btn btn-primary px-4">
+    <i class="bi bi-floppy me-2"></i>حفظ التكاليف
+  </button>
+</div>
+
+{% if products %}
+<!-- Section 1: Cost Entry -->
+<div class="card stat-card mb-4">
+  <div class="card-body p-0">
+    <div class="p-3 border-bottom">
+      <h6 class="fw-bold mb-0 text-muted">تحديث تكاليف المنتجات</h6>
+    </div>
+    <form id="costs-form">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 noon-table">
+          <colgroup>
+            <col style="width:25%"><!-- Product Name -->
+            <col style="width:12%"><!-- noon SKU -->
+            <col style="width:10%"><!-- Partner SKU -->
+            <col style="width:8%"> <!-- Units Sold -->
+            <col style="width:15%"><!-- Unit Cost -->
+            <col style="width:15%"><!-- Extra Costs -->
+            <col style="width:15%"><!-- Notes -->
+          </colgroup>
+          <thead>
+            <tr>
+              <th>المنتج</th>
+              <th>SKU noon</th>
+              <th>كود الشريك</th>
+              <th class="ctr">مباع</th>
+              <th>تكلفة الوحدة (ر.س)</th>
+              <th>تكاليف إضافية (ر.س)</th>
+              <th>ملاحظات</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in products %}
+            <tr>
+              <td>
+                <span class="fw-500 small cell-trunc" title="{{ p.name_en or p.sku }}">{{ p.name_en or p.sku }}</span>
+                <span class="text-muted small cell-trunc" title="{{ p.name_ar }}">{{ p.name_ar }}</span>
+              </td>
+              <td>
+                <input type="hidden" name="sku[]" value="{{ p.sku }}">
+                <code class="small cell-trunc" title="{{ p.sku }}">{{ p.sku }}</code>
+              </td>
+              <td>
+                <input type="text" name="partner_sku[]" value="{{ p.partner_sku }}"
+                       class="form-control form-control-sm" placeholder="كود الشريك..."
+                       title="كود الشريك الخاص بك">
+              </td>
+              <td class="ctr small">{{ p.units_sold }}</td>
+              <td>
+                <input type="number" name="unit_cost[]" value="{{ '%.2f'|format(p.unit_cost) }}"
+                       step="0.01" min="0" class="form-control form-control-sm">
+              </td>
+              <td>
+                <input type="number" name="extra_costs[]" value="{{ '%.2f'|format(p.extra_costs) }}"
+                       step="0.01" min="0" class="form-control form-control-sm">
+              </td>
+              <td>
+                <input type="text" name="notes[]" value="{{ p.notes }}"
+                       class="form-control form-control-sm" placeholder="ملاحظة...">
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Section 2: P&L Summary -->
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="p-3 border-bottom">
+      <h6 class="fw-bold mb-0 text-muted">ملخص الأرباح والخسائر (P&L)</h6>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 noon-table">
+        <colgroup>
+          <col style="width:22%"><!-- Product Name -->
+          <col style="width:11%"><!-- noon SKU -->
+          <col style="width:9%"> <!-- Partner SKU -->
+          <col style="width:7%"> <!-- Sold -->
+          <col style="width:10%"><!-- Revenue -->
+          <col style="width:10%"><!-- Fees -->
+          <col style="width:9%"> <!-- COGS -->
+          <col style="width:10%"><!-- Extra -->
+          <col style="width:12%"><!-- Net Profit -->
+          <col style="width:10%"><!-- Margin -->
+        </colgroup>
+        <thead>
+          <tr>
+            <th>المنتج</th>
+            <th>SKU noon</th>
+            <th>كود الشريك</th>
+            <th class="num">مباع</th>
+            <th class="num">الإيرادات</th>
+            <th class="num">رسوم noon</th>
+            <th class="num">COGS</th>
+            <th class="num">تكاليف إضافية</th>
+            <th class="num">صافي الربح</th>
+            <th class="num">الهامش %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            <td>
+              <span class="fw-500 small cell-trunc" title="{{ p.name_en or p.sku }}">{{ p.name_en or p.sku }}</span>
+            </td>
+            <td><code class="small cell-trunc" title="{{ p.sku }}">{{ p.sku }}</code></td>
+            <td><span class="small text-muted cell-trunc" title="{{ p.partner_sku }}">{{ p.partner_sku or '—' }}</span></td>
+            <td class="num small">{{ p.units_sold }}</td>
+            <td class="num small color-revenue">{{ p.revenue | sar }}</td>
+            <td class="num small color-fees">{{ p.noon_fees | sar }}</td>
+            <td class="num small text-muted">{{ p.cogs | sar }}</td>
+            <td class="num small text-muted">{{ p.extra_costs | sar }}</td>
+            <td class="num small fw-600 {% if p.net_profit >= 0 %}color-profit{% else %}color-loss{% endif %}">
+              {{ p.net_profit | sar }}
+            </td>
+            <td class="num small {% if p.margin_pct and p.margin_pct >= 0 %}color-profit{% else %}color-loss{% endif %}">
+              {{ p.margin_pct | pct }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>الإجمالي</td>
+            <td></td>
+            <td></td>
+            <td class="num">{{ totals.units_sold }}</td>
+            <td class="num color-revenue">{{ totals.revenue | sar }}</td>
+            <td class="num color-fees">{{ totals.fees | sar }}</td>
+            <td class="num text-muted">{{ totals.cogs | sar }}</td>
+            <td class="num text-muted">{{ totals.extra_costs | sar }}</td>
+            <td class="num {% if totals.net_profit >= 0 %}color-profit{% else %}color-loss{% endif %}">
+              {{ totals.net_profit | sar }}
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-inbox" style="font-size:3rem"></i>
+  <p class="mt-3">لا توجد منتجات. قم باستيراد ملف CSV أولاً.</p>
+  <a href="{{ url_for('import_page') }}" class="btn btn-primary">استيراد CSV</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('save-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>جاري الحفظ...';
+
+  const fd = new FormData(document.getElementById('costs-form'));
+  try {
+    const res = await fetch('/costs/save', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`تم حفظ ${data.updated} منتج بنجاح`, 'success');
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast(data.error || 'حدث خطأ', 'error');
+    }
+  } catch {
+    showToast('حدث خطأ غير متوقع', 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-floppy me-2"></i>حفظ التكاليف';
+});
+</script>
+{% endblock %}

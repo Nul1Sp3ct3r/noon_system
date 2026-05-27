@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+{% block title %}تحليل الربحية — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+.badge-profitable      { background:#d4edda; color:#3B6D11; border:1px solid #c3e6cb; font-size:.78rem; }
+.badge-low_margin      { background:#fff3cd; color:#856404; border:1px solid #ffeeba; font-size:.78rem; }
+.badge-loss            { background:#f8d7da; color:#A32D2D; border:1px solid #f5c6cb; font-size:.78rem; }
+.badge-missing_cost    { background:#e9ecef; color:#6c757d; border:1px solid #dee2e6; font-size:.78rem; }
+.badge-no_fees_allocated { background:#e0d7f5; color:#5a3ea1; border:1px solid #c9b8ee; font-size:.78rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-graph-up-arrow me-2 color-revenue"></i>تحليل الربحية</h4>
+</div>
+
+<!-- Filters -->
+<div class="card stat-card mb-4">
+  <div class="card-body py-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-1">من شهر</label>
+        <input type="month" name="from_date" class="form-control form-control-sm"
+               value="{{ from_date }}">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">إلى شهر</label>
+        <input type="month" name="to_date" class="form-control form-control-sm"
+               value="{{ to_date }}">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">بحث SKU / اسم</label>
+        <input type="text" name="sku_search" class="form-control form-control-sm"
+               placeholder="ابحث..." value="{{ sku_search }}" style="width:160px">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1">التصنيف</label>
+        <select name="badge_filter" class="form-select form-select-sm" style="width:160px">
+          <option value="">— الكل —</option>
+          <option value="profitable"   {% if badge_filter=='profitable'   %}selected{% endif %}>مربح</option>
+          <option value="low_margin"   {% if badge_filter=='low_margin'   %}selected{% endif %}>هامش منخفض</option>
+          <option value="loss"         {% if badge_filter=='loss'         %}selected{% endif %}>خسارة</option>
+          <option value="missing_cost"       {% if badge_filter=='missing_cost'       %}selected{% endif %}>تكلفة مفقودة</option>
+          <option value="no_fees_allocated" {% if badge_filter=='no_fees_allocated' %}selected{% endif %}>رسوم غير مخصصة</option>
+        </select>
+      </div>
+      <div class="col-auto d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-funnel me-1"></i>تطبيق
+        </button>
+        <a href="/profitability/excel?from_date={{ from_date }}&to_date={{ to_date }}&sku_search={{ sku_search }}&badge_filter={{ badge_filter }}"
+           class="btn btn-success btn-sm">
+          <i class="bi bi-file-earmark-excel me-1"></i>Excel
+        </a>
+        {% if from_date or to_date or sku_search or badge_filter %}
+        <a href="{{ url_for('profitability_page') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-circle me-1"></i>مسح
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if products %}
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">إجمالي الإيرادات (شامل الضريبة)</div>
+          <div class="stat-value color-revenue">{{ totals.revenue | sar }}</div>
+        </div>
+        <i class="bi bi-currency-dollar stat-icon color-revenue"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">صافي الربح الإجمالي</div>
+          <div class="stat-value {% if totals.net_profit >= 0 %}color-profit{% else %}color-loss{% endif %}">
+            {{ totals.net_profit | sar }}
+          </div>
+        </div>
+        <i class="bi bi-graph-up-arrow stat-icon {% if totals.net_profit >= 0 %}color-profit{% else %}color-loss{% endif %}"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label mb-2">توزيع المنتجات</div>
+        <div class="d-flex flex-wrap gap-1">
+          <span class="badge badge-profitable px-2 py-1">مربح {{ counts.profitable }}</span>
+          <span class="badge badge-low_margin px-2 py-1">هامش منخفض {{ counts.low_margin }}</span>
+          <span class="badge badge-loss px-2 py-1">خسارة {{ counts.loss }}</span>
+          <span class="badge badge-missing_cost px-2 py-1">مفقود {{ counts.missing_cost }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <div class="stat-label">رسوم نون الإجمالية</div>
+          <div class="stat-value color-fees">{{ totals.noon_fees | sar }}</div>
+          <div class="small text-muted mt-1">ضريبة الرسوم: {{ totals.input_vat_noon | sar }}</div>
+        </div>
+        <i class="bi bi-percent stat-icon color-fees"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Products Table -->
+<div class="card stat-card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="noon-table">
+        <colgroup>
+          <col style="width:100px">
+          <col style="width:180px">
+          <col style="width:65px">
+          <col style="width:130px">
+          <col style="width:120px">
+          <col style="width:115px">
+          <col style="width:100px">
+          <col style="width:115px">
+          <col style="width:120px">
+          <col style="width:80px">
+          <col style="width:105px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>المنتج</th>
+            <th class="ctr">الوحدات</th>
+            <th class="num">الإيرادات (شامل الضريبة)</th>
+            <th class="num">الإيرادات (بدون الضريبة)</th>
+            <th class="num">رسوم نون</th>
+            <th class="num">ضريبة الرسوم</th>
+            <th class="num">تكلفة البضاعة</th>
+            <th class="num">صافي الربح</th>
+            <th class="num">هامش %</th>
+            <th class="ctr">التصنيف</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          {% set row_style = '' %}
+          {% if p.badge == 'loss' %}{% set row_style = 'background:#fff5f5!important' %}
+          {% elif p.badge == 'low_margin' %}{% set row_style = 'background:#fffdf0!important' %}
+          {% endif %}
+          <tr {% if row_style %}style="{{ row_style }}"{% endif %}>
+            <td><span class="cell-trunc" title="{{ p.sku }}">{{ p.sku }}</span></td>
+            <td>
+              <span class="cell-trunc" title="{{ p.name_en or p.name_ar or p.sku }}">
+                {{ p.name_en or p.name_ar or p.sku }}
+              </span>
+              {% if p.brand_en %}
+              <small class="d-block text-muted" style="font-size:.75rem">{{ p.brand_en }}</small>
+              {% endif %}
+            </td>
+            <td class="ctr">{{ p.units_sold }}</td>
+            <td class="num">{{ p.revenue | sar }}</td>
+            <td class="num">{{ p.revenue_excl_vat | sar }}</td>
+            <td class="num color-fees">{{ p.noon_fees_excl_vat | sar }}</td>
+            <td class="num color-fees">{{ p.input_vat_noon | sar }}</td>
+            <td class="num {% if not p.has_cost %}text-muted{% endif %}">
+              {% if p.has_cost %}{{ p.cogs | sar }}{% else %}—{% endif %}
+            </td>
+            <td class="num {% if p.net_profit >= 0 %}color-profit{% else %}color-loss{% endif %}">
+              {{ p.net_profit | sar }}
+            </td>
+            <td class="num">
+              {% if p.margin_pct is not none %}{{ p.margin_pct | pct }}{% else %}—{% endif %}
+            </td>
+            <td class="ctr">
+              {% if p.badge == 'profitable' %}
+              <span class="badge badge-profitable">مربح</span>
+              {% elif p.badge == 'low_margin' %}
+              <span class="badge badge-low_margin">هامش منخفض</span>
+              {% elif p.badge == 'loss' %}
+              <span class="badge badge-loss">خسارة</span>
+              {% else %}
+              <span class="badge badge-missing_cost">تكلفة مفقودة</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2"><strong>الإجمالي ({{ products | length }} منتج)</strong></td>
+            <td class="ctr">{{ totals.units_sold }}</td>
+            <td class="num">{{ totals.revenue | sar }}</td>
+            <td class="num">{{ (totals.revenue - totals.input_vat_noon) | sar }}</td>
+            <td class="num">{{ totals.noon_fees | sar }}</td>
+            <td class="num">{{ totals.input_vat_noon | sar }}</td>
+            <td class="num">{{ totals.cogs | sar }}</td>
+            <td class="num {% if totals.net_profit >= 0 %}color-profit{% else %}color-loss{% endif %}">
+              {{ totals.net_profit | sar }}
+            </td>
+            <td></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="card stat-card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-graph-up-arrow" style="font-size:3rem"></i>
+    <p class="mt-3">لا توجد منتجات مطابقة.<br>
+    أضف منتجات أولاً أو غيّر معايير البحث.</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% block title %}تفاصيل الفاتورة {{ invoice.invoice_nr }} — Noon Financial{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h4><i class="bi bi-file-earmark-text me-2 color-revenue"></i>
+    تفاصيل الفاتورة: {{ invoice.invoice_nr or invoice.id }}
+  </h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('invoices_page') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-right me-1"></i>العودة
+    </a>
+    <button id="delete-btn" class="btn btn-outline-danger btn-sm"
+            data-id="{{ invoice.id }}" data-nr="{{ invoice.invoice_nr or invoice.id }}">
+      <i class="bi bi-trash me-1"></i>حذف الفاتورة
+    </button>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Invoice Details -->
+  <div class="col-lg-5">
+    <div class="card stat-card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3 text-muted">بيانات الفاتورة</h6>
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><td class="text-muted small fw-600">رقم الفاتورة</td><td class="fw-600">{{ invoice.invoice_nr or '—' }}</td></tr>
+            <tr><td class="text-muted small fw-600">المورد</td><td>{{ invoice.supplier_name }}</td></tr>
+            <tr><td class="text-muted small fw-600">التاريخ</td><td>{{ invoice.invoice_date }}</td></tr>
+            <tr>
+              <td class="text-muted small fw-600">الصافي (قبل الضريبة)</td>
+              <td class="fw-600">{{ '%.2f'|format((invoice.total_amount or 0) - (invoice.vat_amount or 0)) }} ر.س</td>
+            </tr>
+            <tr>
+              <td class="text-muted small fw-600">ضريبة القيمة المضافة (15%)</td>
+              <td class="color-fees">{{ '%.2f'|format(invoice.vat_amount or 0) }} ر.س</td>
+            </tr>
+            <tr>
+              <td class="text-muted small fw-600">الإجمالي (شامل الضريبة)</td>
+              <td class="color-revenue fw-700">{{ '%.2f'|format(invoice.total_amount or 0) }} ر.س</td>
+            </tr>
+            <tr><td class="text-muted small fw-600">العملة</td><td>{{ invoice.currency }}</td></tr>
+            <tr><td class="text-muted small fw-600">ملاحظات</td><td class="small">{{ invoice.notes or '—' }}</td></tr>
+            <tr><td class="text-muted small fw-600">تاريخ الإدخال</td><td class="small text-muted">{{ invoice.created_at }}</td></tr>
+            {% if invoice.pdf_original_name %}
+            <tr>
+              <td class="text-muted small fw-600">ملف PDF</td>
+              <td>
+                <i class="bi bi-file-earmark-pdf-fill text-danger me-1"></i>
+                {{ invoice.pdf_original_name }}
+              </td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if items %}
+    <div class="card stat-card mt-3">
+      <div class="card-body p-0">
+        <div class="p-3 border-bottom">
+          <h6 class="fw-bold mb-0 text-muted">بنود الفاتورة</h6>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>SKU</th>
+                <th>المنتج</th>
+                <th class="text-end">الكمية</th>
+                <th class="text-end">تكلفة الوحدة</th>
+                <th class="text-end">الإجمالي</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in items %}
+              <tr>
+                <td><code class="small">{{ item.sku }}</code></td>
+                <td class="small">{{ item.product_name }}</td>
+                <td class="text-end">{{ item.quantity }}</td>
+                <td class="text-end small">{{ '%.2f'|format(item.unit_cost or 0) }} ر.س</td>
+                <td class="text-end small color-revenue fw-600">{{ '%.2f'|format(item.total_cost or 0) }} ر.س</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot class="table-light">
+              <tr>
+                <td colspan="4" class="text-end fw-bold small">الإجمالي</td>
+                <td class="text-end fw-bold color-revenue">
+                  {{ '%.2f'|format(items|sum(attribute='total_cost')) }} ر.س
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- PDF Viewer -->
+  <div class="col-lg-7">
+    {% if invoice.pdf_filename %}
+    <div class="card stat-card h-100">
+      <div class="card-body p-0" style="min-height:600px">
+        <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+          <h6 class="fw-bold mb-0 text-muted">
+            <i class="bi bi-file-earmark-pdf-fill text-danger me-2"></i>ملف الفاتورة
+          </h6>
+          <a href="{{ url_for('view_pdf', filename=invoice.pdf_filename) }}" target="_blank"
+             class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-box-arrow-up-left me-1"></i>فتح في تبويب جديد
+          </a>
+        </div>
+        <iframe src="{{ url_for('view_pdf', filename=invoice.pdf_filename) }}"
+                width="100%" height="600px" style="border:none;"></iframe>
+      </div>
+    </div>
+    {% else %}
+    <div class="card stat-card">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-file-earmark-pdf" style="font-size:3rem; opacity:.3"></i>
+        <p class="mt-3">لا يوجد ملف PDF مرفق بهذه الفاتورة.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('delete-btn').addEventListener('click', async function() {
+  const id = this.dataset.id;
+  const nr = this.dataset.nr;
+  if (!confirm(`هل تريد حذف الفاتورة "${nr}"؟ سيتم حذف الملف أيضاً.`)) return;
+  try {
+    const res = await fetch(`/invoices/${id}/delete`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('تم الحذف', 'success');
+      setTimeout(() => window.location.href = '/invoices', 800);
+    } else {
+      showToast(data.error || 'فشل الحذف', 'error');
+    }
+  } catch {
+    showToast('حدث خطأ', 'error');
+  }
+});
+</script>
+{% endblock %}

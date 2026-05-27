@@ -1,0 +1,271 @@
+{% extends 'base.html' %}
+{% block title %}التحويلات والتسويات — Noon Financial{% endblock %}
+
+{% block extra_head %}
+<style>
+.section-card { border:none; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.07); margin-bottom:24px; }
+.section-card .section-header {
+  background:#1a3a5c; color:#fff; border-radius:12px 12px 0 0;
+  padding:12px 20px; font-weight:700; font-size:.95rem;
+}
+.mov-transfer_in  { background:#e2d9f3; color:#5a2d82; }
+.mov-transfer_out { background:#f3e2d9; color:#82360a; }
+.mov-badge { padding:2px 8px; border-radius:12px; font-size:.78rem; font-weight:600; }
+.num { text-align:right; white-space:nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <h4><i class="bi bi-arrow-left-right me-2 color-revenue"></i>التحويلات والتسويات</h4>
+  <a href="{{ url_for('inventory_page') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-boxes me-1"></i>إدارة المخزون
+  </a>
+</div>
+
+<div class="row g-4">
+  <!-- Transfer Form -->
+  <div class="col-lg-6">
+    <div class="section-card">
+      <div class="section-header">
+        <i class="bi bi-arrow-left-right me-2"></i>تحويل مخزون بين المستودعات
+      </div>
+      <div class="p-3">
+        <div class="mb-3">
+          <label class="form-label fw-bold">SKU المنتج</label>
+          <select id="trf-sku" class="form-select">
+            <option value="">اختر SKU...</option>
+            {% for s in sku_list %}
+            <option value="{{ s.sku }}">{{ s.sku }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-bold">من مستودع</label>
+            <select id="trf-from" class="form-select">
+              <option value="">اختر...</option>
+              {% for w in warehouses %}
+              <option value="{{ w.id }}">{{ w.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-bold">إلى مستودع</label>
+            <select id="trf-to" class="form-select">
+              <option value="">اختر...</option>
+              {% for w in warehouses %}
+              <option value="{{ w.id }}">{{ w.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="mb-2">
+          <small class="text-muted" id="trf-balance-info"></small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">الكمية</label>
+          <input type="number" id="trf-qty" class="form-control" min="1" step="1" placeholder="0">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">ملاحظات (اختياري)</label>
+          <input type="text" id="trf-notes" class="form-control" placeholder="ملاحظات...">
+        </div>
+        <button class="btn btn-primary w-100" onclick="saveTransfer()">
+          <i class="bi bi-check2-circle me-1"></i>تنفيذ التحويل
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Adjustment Form -->
+  <div class="col-lg-6" id="adjustments">
+    <div class="section-card">
+      <div class="section-header" style="background:#854F0B;">
+        <i class="bi bi-clipboard-check me-2"></i>إضافة تسوية مخزون
+      </div>
+      <div class="p-3">
+        <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.88rem;">
+          <i class="bi bi-info-circle me-1"></i>
+          لا يمكن تعديل المخزون مباشرة. يجب إضافة تسوية مع سبب واضح.
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">SKU المنتج</label>
+          <select id="adj-sku" class="form-select">
+            <option value="">اختر SKU...</option>
+            {% for s in sku_list %}
+            <option value="{{ s.sku }}">{{ s.sku }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">المستودع</label>
+          <select id="adj-wh" class="form-select">
+            <option value="">اختر...</option>
+            {% for w in warehouses %}
+            <option value="{{ w.id }}">{{ w.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">نوع التسوية</label>
+          <select id="adj-type" class="form-select">
+            <option value="">اختر...</option>
+            <option value="inventory_count">جرد مخزون</option>
+            <option value="lost">مفقود</option>
+            <option value="damaged">تالف</option>
+            <option value="found">تم إيجاده</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">الكمية (موجبة = إضافة، سالبة = خصم)</label>
+          <input type="number" id="adj-qty" class="form-control" step="1" placeholder="مثال: +5 أو -2">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">السبب <span class="text-danger">*</span></label>
+          <input type="text" id="adj-reason" class="form-control" placeholder="وصف سبب التسوية..." required>
+        </div>
+        <button class="btn w-100" style="background:#854F0B;color:#fff;" onclick="saveAdjustment()">
+          <i class="bi bi-check2-circle me-1"></i>حفظ التسوية
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Transfers -->
+{% if transfer_rows %}
+<div class="section-card">
+  <div class="section-header">
+    <i class="bi bi-clock-history me-2"></i>آخر التحويلات
+  </div>
+  <div class="table-responsive">
+    <table class="noon-table">
+      <colgroup>
+        <col style="width:150px">
+        <col style="width:130px">
+        <col style="width:180px">
+        <col style="width:120px">
+        <col style="width:90px">
+        <col style="width:180px">
+        <col style="width:200px">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>التاريخ</th>
+          <th>SKU</th>
+          <th>المستودع</th>
+          <th>النوع</th>
+          <th class="num">الكمية</th>
+          <th>رقم التحويل</th>
+          <th>ملاحظات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in transfer_rows %}
+        <tr>
+          <td style="font-size:.82rem;">{{ r.created_at[:16] }}</td>
+          <td><span class="cell-trunc" title="{{ r.sku }}">{{ r.sku }}</span></td>
+          <td><span class="cell-trunc" title="{{ r.warehouse_name }}">{{ r.warehouse_name }}</span></td>
+          <td>
+            <span class="mov-badge mov-{{ r.movement_type }}">{{ r.movement_type_ar }}</span>
+          </td>
+          <td class="num">
+            {% if r.quantity > 0 %}
+              <span class="color-profit fw-bold">+{{ r.quantity | round(0) | int }}</span>
+            {% else %}
+              <span class="color-loss fw-bold">{{ r.quantity | round(0) | int }}</span>
+            {% endif %}
+          </td>
+          <td><span class="cell-trunc" style="font-size:.8rem;" title="{{ r.reference_id }}">{{ r.reference_id }}</span></td>
+          <td><span class="cell-trunc" style="font-size:.82rem;" title="{{ r.notes }}">{{ r.notes }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load stock balance when SKU + warehouse changes for transfer form
+function loadBalance() {
+  const sku = document.getElementById('trf-sku').value;
+  const wh  = document.getElementById('trf-from').value;
+  const el  = document.getElementById('trf-balance-info');
+  if (!sku || !wh) { el.textContent = ''; return; }
+  fetch(`/inventory/stock-balance?sku=${encodeURIComponent(sku)}&warehouse_id=${wh}`)
+    .then(r => r.json())
+    .then(d => {
+      const bal = Math.round(d.balance);
+      el.textContent = `الرصيد المتاح في المستودع المحدد: ${bal} وحدة`;
+      el.style.color = bal <= 0 ? '#A32D2D' : '#3B6D11';
+    })
+    .catch(() => { el.textContent = ''; });
+}
+document.getElementById('trf-sku').addEventListener('change', loadBalance);
+document.getElementById('trf-from').addEventListener('change', loadBalance);
+
+function saveTransfer() {
+  const sku  = document.getElementById('trf-sku').value;
+  const from = document.getElementById('trf-from').value;
+  const to   = document.getElementById('trf-to').value;
+  const qty  = parseFloat(document.getElementById('trf-qty').value);
+  const notes = document.getElementById('trf-notes').value;
+
+  if (!sku || !from || !to || !qty || qty <= 0) {
+    showToast('يرجى ملء جميع الحقول المطلوبة', 'error'); return;
+  }
+  if (from === to) {
+    showToast('لا يمكن التحويل إلى نفس المستودع', 'error'); return;
+  }
+
+  fetch('/inventory/transfers/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from_warehouse_id: from, to_warehouse_id: to, sku, quantity: qty, notes})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.success) {
+      showToast(`تم التحويل بنجاح — المرجع: ${d.reference}`, 'success');
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      showToast(d.error || 'حدث خطأ', 'error');
+    }
+  })
+  .catch(() => showToast('خطأ في الاتصال', 'error'));
+}
+
+function saveAdjustment() {
+  const sku    = document.getElementById('adj-sku').value;
+  const wh     = document.getElementById('adj-wh').value;
+  const type   = document.getElementById('adj-type').value;
+  const qty    = parseFloat(document.getElementById('adj-qty').value);
+  const reason = document.getElementById('adj-reason').value.trim();
+
+  if (!sku || !wh || !type || !reason || isNaN(qty) || qty === 0) {
+    showToast('يرجى ملء جميع الحقول المطلوبة', 'error'); return;
+  }
+
+  fetch('/inventory/adjustments/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sku, warehouse_id: wh, quantity: qty, adjustment_type: type, reason})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.success) {
+      showToast('تم حفظ التسوية بنجاح', 'success');
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      showToast(d.error || 'حدث خطأ', 'error');
+    }
+  })
+  .catch(() => showToast('خطأ في الاتصال', 'error'));
+}
+</script>
+{% endblock %}
