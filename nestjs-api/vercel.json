@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build && npx prisma generate",
+  "installCommand": "npm ci",
+  "functions": {
+    "api/index.ts": {
+      "memory": 512,
+      "maxDuration": 30,
+      "includeFiles": "dist/**,prisma/**"
+    }
+  },
+  "routes": [
+    { "src": "/(.*)", "dest": "/api/index.ts" }
+  ]
+}
