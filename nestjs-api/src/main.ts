@@ -33,8 +33,7 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Global prefix — health endpoint is excluded so it stays at /health
-  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+  app.setGlobalPrefix('api/v1');
 
   // Validation
   app.useGlobalPipes(
@@ -62,7 +61,7 @@ async function bootstrap() {
 
   const base = `http://localhost:${port}`;
   console.log(`API     → ${base}/api/v1`);
-  console.log(`Health  → ${base}/health`);
+  console.log(`Health  → ${base}/api/v1/health`);
   if (!isProd) console.log(`Swagger → ${base}/api/docs`);
 }
 

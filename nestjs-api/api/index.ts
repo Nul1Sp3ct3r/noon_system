@@ -27,7 +27,7 @@ async function bootstrap(): Promise<express.Express> {
     credentials: true,
   });
 
-  nestApp.setGlobalPrefix('api/v1', { exclude: ['health'] });
+  nestApp.setGlobalPrefix('api/v1');
 
   nestApp.useGlobalPipes(
     new ValidationPipe({
