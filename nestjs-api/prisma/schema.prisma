@@ -140,26 +140,36 @@ model Invoice {
   vatAmount      Decimal?  @map("vat_amount") @db.Decimal(12, 2)
   totalAmount    Decimal?  @map("total_amount") @db.Decimal(14, 2)
   notes          String?
+  status         String    @default("active")
+  voidReason     String?   @map("void_reason")
+  voidedAt       DateTime? @map("voided_at")
+  warehouseId    Int?      @map("warehouse_id")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  organization Organization  @relation(fields: [organizationId], references: [id])
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  warehouse    Warehouse?          @relation(fields: [warehouseId], references: [id])
   items        InvoiceItem[]
+  movements    InventoryMovement[]
 
   @@index([organizationId])
   @@index([invoiceDate])
   @@index([createdAt])
+  @@index([status])
   @@map("invoices")
 }
 
 model InvoiceItem {
-  id        Int     @id @default(autoincrement())
-  invoiceId Int     @map("invoice_id")
-  productId Int?    @map("product_id")
-  sku       String?
-  quantity  Int
-  unitPrice Decimal @map("unit_price") @db.Decimal(12, 4)
-  vatRate   Decimal @default(0.15) @map("vat_rate") @db.Decimal(6, 4)
+  id           Int     @id @default(autoincrement())
+  invoiceId    Int     @map("invoice_id")
+  productId    Int?    @map("product_id")
+  sku          String
+  quantity     Int
+  unitPrice    Decimal @map("unit_price") @db.Decimal(12, 4)
+  vatRate      Decimal @default(0.15) @map("vat_rate") @db.Decimal(6, 4)
+  lineSubtotal Decimal @map("line_subtotal") @db.Decimal(14, 2)
+  lineVat      Decimal @map("line_vat") @db.Decimal(12, 2)
+  lineTotal    Decimal @map("line_total") @db.Decimal(14, 2)
 
   invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id])
@@ -181,6 +191,7 @@ model Warehouse {
 
   organization Organization        @relation(fields: [organizationId], references: [id])
   movements    InventoryMovement[]
+  invoices     Invoice[]
 
   @@index([organizationId])
   @@map("warehouses")
@@ -192,6 +203,7 @@ model InventoryMovement {
   productId      Int?         @map("product_id")
   sku            String
   warehouseId    Int?         @map("warehouse_id")
+  invoiceId      Int?         @map("invoice_id")
   movementType   MovementType @map("movement_type")
   quantity       Int
   isVoid         Boolean      @default(false) @map("is_void")
@@ -203,10 +215,12 @@ model InventoryMovement {
   organization Organization @relation(fields: [organizationId], references: [id])
   product      Product?     @relation(fields: [productId], references: [id])
   warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id])
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id])
 
   @@index([organizationId])
   @@index([sku])
   @@index([batchId])
+  @@index([invoiceId])
   @@index([createdAt])
   @@map("inventory_movements")
 }
