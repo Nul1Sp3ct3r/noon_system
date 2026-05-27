@@ -1,0 +1,48 @@
+import { NestFactory } from '@nestjs/core';
+import { ExpressAdapter } from '@nestjs/platform-express';
+import { ValidationPipe } from '@nestjs/common';
+import * as compression from 'compression';
+import * as express from 'express';
+import helmet from 'helmet';
+import { AppModule } from '../src/app.module';
+
+// Cached across warm invocations
+let cachedApp: express.Express | null = null;
+
+async function bootstrap(): Promise<express.Express> {
+  const server = express();
+
+  const nestApp = await NestFactory.create(AppModule, new ExpressAdapter(server), {
+    logger: ['error', 'warn', 'log'],
+  });
+
+  nestApp.use(helmet());
+  nestApp.use(compression());
+
+  nestApp.enableCors({
+    origin:      process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+      : false,
+    methods:     ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+    credentials: true,
+  });
+
+  nestApp.setGlobalPrefix('api/v1', { exclude: ['health'] });
+
+  nestApp.useGlobalPipes(
+    new ValidationPipe({
+      whitelist:            true,
+      forbidNonWhitelisted: true,
+      transform:            true,
+      transformOptions:     { enableImplicitConversion: false },
+    }),
+  );
+
+  await nestApp.init();
+  return server;
+}
+
+export default async (req: express.Request, res: express.Response) => {
+  if (!cachedApp) cachedApp = await bootstrap();
+  cachedApp(req, res);
+};

@@ -6,3 +6,4 @@ coverage
 .git
 README.md
 docker-compose.yml
+api
