@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { admin as api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 
@@ -10,6 +11,7 @@ export default function AdminPage() {
   const [users, setUsers]     = useState<UserRow[]>([]);
   const [counts, setCounts]   = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -17,7 +19,7 @@ export default function AdminPage() {
       api.performance(),
     ])
       .then(([u, p]) => { setUsers(u); setCounts(p.counts); })
-      .catch(() => null)
+      .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل بيانات الإدارة'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -31,7 +33,13 @@ export default function AdminPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-900">الإدارة</h1>
 
-      {/* Performance counts */}
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
+
       {counts && (
         <div className="card p-5">
           <h2 className="font-semibold text-slate-800 mb-4">إحصائيات النظام</h2>
@@ -46,7 +54,6 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Users */}
       <div className="card">
         <div className="px-5 py-4 border-b border-slate-100">
           <h2 className="font-semibold text-slate-800">المستخدمون</h2>
@@ -63,6 +70,8 @@ export default function AdminPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={5} className="table-td text-center py-8 text-slate-400">جارٍ التحميل…</td></tr>
+              ) : users.length === 0 ? (
+                <tr><td colSpan={5} className="table-td text-center py-8 text-slate-400">لا توجد مستخدمون</td></tr>
               ) : users.map(u => (
                 <tr key={u.id} className="hover:bg-slate-50">
                   <td className="table-td font-mono text-xs">{u.username}</td>

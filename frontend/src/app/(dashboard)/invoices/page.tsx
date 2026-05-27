@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { invoices as api } from '@/lib/api';
 import type { Invoice } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
@@ -10,18 +11,25 @@ export default function InvoicesPage() {
   const [total, setTotal]     = useState(0);
   const [page, setPage]       = useState(1);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await api.list({ page, limit: 50 });
       setItems(res.items);
       setTotal(res.total);
-    } catch { /* handled */ }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'فشل تحميل الفواتير');
+    } finally {
+      setLoading(false);
+    }
   }, [page]);
 
   useEffect(() => { load(); }, [load]);
+
+  const totalPages = Math.ceil(total / 50);
 
   return (
     <div>
@@ -29,6 +37,13 @@ export default function InvoicesPage() {
         <h1 className="text-2xl font-bold text-slate-900">الفواتير</h1>
         <p className="text-slate-500 text-sm mt-1">{total.toLocaleString('ar-SA')} فاتورة</p>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
 
       <div className="card overflow-x-auto">
         <table className="w-full">
@@ -63,8 +78,8 @@ export default function InvoicesPage() {
         {total > 50 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
             <button className="btn-ghost" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>السابق</button>
-            <span>صفحة {page}</span>
-            <button className="btn-ghost" onClick={() => setPage(p => p + 1)} disabled={page * 50 >= total}>التالي</button>
+            <span>صفحة {page} من {totalPages}</span>
+            <button className="btn-ghost" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}>التالي</button>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { reports as api } from '@/lib/api';
 import type { PlRow } from '@/lib/types';
 
@@ -10,12 +11,14 @@ export default function ReportsPage() {
   const [rows, setRows]       = useState<PlRow[]>([]);
   const [year, setYear]       = useState(YEAR);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
   useEffect(() => {
     setLoading(true);
+    setError('');
     api.pl(year)
       .then(setRows)
-      .catch(() => null)
+      .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل التقرير'))
       .finally(() => setLoading(false));
   }, [year]);
 
@@ -35,7 +38,13 @@ export default function ReportsPage() {
         </select>
       </div>
 
-      {/* Summary cards */}
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
           { label: 'الإيرادات',    value: totals.revenue,    color: 'text-emerald-600' },

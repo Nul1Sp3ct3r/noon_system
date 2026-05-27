@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { vatCenter as api } from '@/lib/api';
 import type { VatRow } from '@/lib/types';
 
@@ -10,12 +11,14 @@ export default function VatCenterPage() {
   const [rows, setRows]       = useState<VatRow[]>([]);
   const [year, setYear]       = useState(YEAR);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
   useEffect(() => {
     setLoading(true);
+    setError('');
     api.breakdown(year)
       .then(d => setRows(d.months))
-      .catch(() => null)
+      .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل بيانات الضريبة'))
       .finally(() => setLoading(false));
   }, [year]);
 
@@ -37,6 +40,13 @@ export default function VatCenterPage() {
           {[YEAR, YEAR - 1, YEAR - 2].map(y => <option key={y} value={y}>{y}</option>)}
         </select>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[

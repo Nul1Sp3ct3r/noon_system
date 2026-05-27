@@ -1,17 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { inventory as api } from '@/lib/api';
 import type { InventoryStock } from '@/lib/types';
 
 export default function InventoryPage() {
   const [items, setItems]     = useState<InventoryStock[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
   useEffect(() => {
     api.stock()
       .then(setItems)
-      .catch(() => null)
+      .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل بيانات المخزون'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -28,6 +30,13 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
+
       <div className="card overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -42,8 +51,8 @@ export default function InventoryPage() {
               <tr><td colSpan={7} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
             ) : items.length === 0 ? (
               <tr><td colSpan={7} className="table-td text-center py-10 text-slate-400">لا توجد بيانات مخزون</td></tr>
-            ) : items.map((s, i) => (
-              <tr key={i} className="hover:bg-slate-50">
+            ) : items.map(s => (
+              <tr key={s.sku} className="hover:bg-slate-50">
                 <td className="table-td font-mono text-xs">{s.sku}</td>
                 <td className="table-td">{s.nameEn ?? '—'}</td>
                 <td className="table-td">{s.brand ?? '—'}</td>

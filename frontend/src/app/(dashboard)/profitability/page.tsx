@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { profitability as api } from '@/lib/api';
 import type { ProfitabilityRow } from '@/lib/types';
 import { Badge, profitBadge } from '@/components/ui/badge';
@@ -8,11 +9,12 @@ import { Badge, profitBadge } from '@/components/ui/badge';
 export default function ProfitabilityPage() {
   const [rows, setRows]       = useState<ProfitabilityRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
   useEffect(() => {
     api.list()
       .then(setRows)
-      .catch(() => null)
+      .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل بيانات الربحية'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -24,6 +26,13 @@ export default function ProfitabilityPage() {
         <h1 className="text-2xl font-bold text-slate-900">تحليل الربحية</h1>
         <p className="text-slate-500 text-sm mt-1">ربحية لكل SKU · مرتبة تنازلياً حسب الربح للوحدة</p>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
 
       <div className="card overflow-x-auto">
         <table className="w-full">

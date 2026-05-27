@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ShoppingCart, Package, FileText, Warehouse } from 'lucide-react';
+import { ShoppingCart, Package, FileText, Warehouse, AlertCircle } from 'lucide-react';
 import StatCard from '@/components/ui/stat-card';
 import { admin } from '@/lib/api';
 
@@ -10,11 +10,12 @@ interface Counts { orders: number; products: number; invoices: number; inventory
 export default function DashboardPage() {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     admin.performance()
       .then(d => setCounts(d.counts as unknown as Counts))
-      .catch(() => null)
+      .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل الإحصائيات'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -27,6 +28,13 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-slate-900">لوحة التحكم</h1>
         <p className="text-slate-500 text-sm mt-1">مرحباً بك في نظام نون المالي</p>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard label="إجمالي الطلبات"   value={v('orders')}            icon={ShoppingCart} color="blue" />

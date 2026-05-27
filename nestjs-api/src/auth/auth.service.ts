@@ -62,7 +62,7 @@ export class AuthService {
 
     const user = org.users[0];
     await this.audit.log({ action: 'register', userId: user.id, orgId: org.id });
-    return this.issueTokens(user.id, user.username, user.role, org.id);
+    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, org.id);
   }
 
   // ─── Login ──────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export class AuthService {
     });
 
     await this.audit.log({ action: 'login', userId: user.id, orgId: user.organizationId, ipAddress: ip });
-    return this.issueTokens(user.id, user.username, user.role, user.organizationId);
+    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, user.organizationId);
   }
 
   // ─── Refresh ────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export class AuthService {
     await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    return this.issueTokens(user.id, user.username, user.role, user.organizationId);
+    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, user.organizationId);
   }
 
   // ─── Logout ─────────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export class AuthService {
 
   // ─── Internal ───────────────────────────────────────────────────────────────
 
-  private async issueTokens(userId: number, username: string, role: Role, orgId: number) {
+  private async issueTokens(userId: number, username: string, fullName: string | null, role: Role, orgId: number) {
     const payload: JwtPayload = { sub: userId, username, role, orgId };
 
     const accessToken = this.jwt.sign(payload, {
@@ -141,7 +141,11 @@ export class AuthService {
       data: { userId, organizationId: orgId, tokenHash, expiresAt },
     });
 
-    return { accessToken, refreshToken: rawRefresh };
+    return {
+      accessToken,
+      refreshToken: rawRefresh,
+      user: { id: userId, username, fullName, role, organizationId: orgId },
+    };
   }
 
   private hashToken(raw: string): string {
