@@ -9,6 +9,8 @@ import { AuthModule } from './auth/auth.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
+import { InvoicesModule } from './invoices/invoices.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -38,6 +40,8 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     OrganizationsModule,
     UsersModule,
     ProductsModule,
+    InvoicesModule,
+    InventoryModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
