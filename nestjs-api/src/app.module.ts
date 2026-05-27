@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -18,9 +18,11 @@ import { VatCenterModule } from './vat-center/vat-center.module';
 import { ProfitabilityModule } from './profitability/profitability.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { AdminModule } from './admin/admin.module';
+import { HealthModule } from './health/health.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { LoggerMiddleware } from './common/middleware/logger.middleware';
 
 @Module({
   imports: [
@@ -56,6 +58,7 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     ProfitabilityModule,
     SettlementsModule,
     AdminModule,
+    HealthModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
@@ -64,4 +67,8 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     { provide: APP_GUARD,  useClass: ThrottlerGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggerMiddleware).forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}

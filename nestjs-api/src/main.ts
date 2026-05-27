@@ -2,42 +2,51 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import * as compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log'],
+  });
 
   const config = app.get(ConfigService);
-  const port = config.get<number>('PORT') ?? 3000;
+  const port   = config.get<number>('PORT') ?? 3000;
   const isProd = config.get('NODE_ENV') === 'production';
+
+  // Graceful shutdown on SIGTERM/SIGINT
+  app.enableShutdownHooks();
 
   // Security headers
   app.use(helmet());
 
+  // Response compression
+  app.use(compression());
+
   // CORS
   const originsRaw = config.get<string>('CORS_ORIGINS') ?? '';
-  const origins = originsRaw.split(',').map(o => o.trim()).filter(Boolean);
+  const origins    = originsRaw.split(',').map(o => o.trim()).filter(Boolean);
   app.enableCors({
-    origin: origins.length ? origins : false,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+    origin:      origins.length ? origins : false,
+    methods:     ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
     credentials: true,
   });
 
-  // Global prefix
-  app.setGlobalPrefix('api/v1');
+  // Global prefix — health endpoint is excluded so it stays at /health
+  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
 
   // Validation
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,
+      whitelist:            true,
       forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: false },
+      transform:            true,
+      transformOptions:     { enableImplicitConversion: false },
     }),
   );
 
-  // Swagger (disable in production if desired)
+  // Swagger (dev only)
   if (!isProd) {
     const doc = new DocumentBuilder()
       .setTitle('Noon Financial API')
@@ -49,9 +58,12 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  await app.listen(port);
-  console.log(`API running on http://localhost:${port}/api/v1`);
-  if (!isProd) console.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  await app.listen(port, '0.0.0.0');
+
+  const base = `http://localhost:${port}`;
+  console.log(`API     → ${base}/api/v1`);
+  console.log(`Health  → ${base}/health`);
+  if (!isProd) console.log(`Swagger → ${base}/api/docs`);
 }
 
 bootstrap();
