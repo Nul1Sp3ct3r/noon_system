@@ -43,6 +43,12 @@ async function bootstrap(): Promise<express.Express> {
 }
 
 export default async (req: express.Request, res: express.Response) => {
-  if (!cachedApp) cachedApp = await bootstrap();
-  cachedApp(req, res);
+  try {
+    if (!cachedApp) cachedApp = await bootstrap();
+    cachedApp(req, res);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[bootstrap] startup failed:', message);
+    res.status(500).json({ statusCode: 500, error: 'Service unavailable', message });
+  }
 };
