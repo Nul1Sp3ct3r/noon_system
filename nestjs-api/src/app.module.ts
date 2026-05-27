@@ -23,8 +23,10 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { AppController } from './app.controller';
 
 @Module({
+  controllers: [AppController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
