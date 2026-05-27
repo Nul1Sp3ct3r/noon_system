@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  super_admin
+  admin
+  user
+}
+
+enum VatMode {
+  inclusive
+  exclusive
+  exempt
+}
+
+enum MovementType {
+  purchase
+  sale
+  adjustment
+  transfer_in
+  transfer_out
+  noon_return
+  noon_sync
+}
+
+enum ImportType {
+  orders
+  monthly_statement
+  inventory_sync
+}
+
+// ─── Organizations ─────────────────────────────────────────────────────────────
+
+model Organization {
+  id        Int      @id @default(autoincrement())
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users         User[]
+  refreshTokens RefreshToken[]
+  products      Product[]
+  invoices      Invoice[]
+  warehouses    Warehouse[]
+  movements     InventoryMovement[]
+  orders        Order[]
+  importBatches ImportBatch[]
+  auditLogs     AuditLog[]
+
+  @@map("organizations")
+}
+
+// ─── Users & Auth ──────────────────────────────────────────────────────────────
+
+model User {
+  id             Int       @id @default(autoincrement())
+  organizationId Int       @map("organization_id")
+  username       String    @unique
+  passwordHash   String    @map("password_hash")
+  fullName       String?   @map("full_name")
+  role           Role      @default(user)
+  isActive       Boolean   @default(false) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  lastLogin      DateTime? @map("last_login")
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id             Int       @id @default(autoincrement())
+  userId         Int       @map("user_id")
+  organizationId Int       @map("organization_id")
+  tokenHash      String    @unique @map("token_hash")
+  expiresAt      DateTime  @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+// ─── Products ──────────────────────────────────────────────────────────────────
+
+model Product {
+  id              Int      @id @default(autoincrement())
+  organizationId  Int      @map("organization_id")
+  sku             String
+  partnerSku      String?  @map("partner_sku")
+  barcode         String?
+  nameAr          String?  @map("name_ar")
+  nameEn          String?  @map("name_en")
+  brand           String?
+  family          String?
+  unitCost        Decimal? @map("unit_cost") @db.Decimal(12, 4)
+  costIncludesVat Boolean  @default(false) @map("cost_includes_vat")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  invoiceItems InvoiceItem[]
+  movements    InventoryMovement[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@index([sku])
+  @@index([partnerSku])
+  @@index([barcode])
+  @@map("products")
+}
+
+// ─── Invoices ──────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id             Int       @id @default(autoincrement())
+  organizationId Int       @map("organization_id")
+  supplierName   String?   @map("supplier_name")
+  invoiceNumber  String?   @map("invoice_number")
+  invoiceDate    DateTime? @map("invoice_date")
+  vatMode        VatMode   @default(inclusive) @map("vat_mode")
+  subtotal       Decimal?  @db.Decimal(14, 2)
+  vatAmount      Decimal?  @map("vat_amount") @db.Decimal(12, 2)
+  totalAmount    Decimal?  @map("total_amount") @db.Decimal(14, 2)
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  items        InvoiceItem[]
+
+  @@index([organizationId])
+  @@index([invoiceDate])
+  @@index([createdAt])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id        Int     @id @default(autoincrement())
+  invoiceId Int     @map("invoice_id")
+  productId Int?    @map("product_id")
+  sku       String?
+  quantity  Int
+  unitPrice Decimal @map("unit_price") @db.Decimal(12, 4)
+  vatRate   Decimal @default(0.15) @map("vat_rate") @db.Decimal(6, 4)
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([invoiceId])
+  @@index([productId])
+  @@map("invoice_items")
+}
+
+// ─── Inventory ─────────────────────────────────────────────────────────────────
+
+model Warehouse {
+  id             Int      @id @default(autoincrement())
+  organizationId Int      @map("organization_id")
+  name           String
+  code           String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  movements    InventoryMovement[]
+
+  @@index([organizationId])
+  @@map("warehouses")
+}
+
+model InventoryMovement {
+  id             Int          @id @default(autoincrement())
+  organizationId Int          @map("organization_id")
+  productId      Int?         @map("product_id")
+  sku            String
+  warehouseId    Int?         @map("warehouse_id")
+  movementType   MovementType @map("movement_type")
+  quantity       Int
+  isVoid         Boolean      @default(false) @map("is_void")
+  reference      String?
+  batchId        String?      @map("batch_id")
+  notes          String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  product      Product?     @relation(fields: [productId], references: [id])
+  warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id])
+
+  @@index([organizationId])
+  @@index([sku])
+  @@index([batchId])
+  @@index([createdAt])
+  @@map("inventory_movements")
+}
+
+// ─── Orders ────────────────────────────────────────────────────────────────────
+
+model Order {
+  id             Int       @id @default(autoincrement())
+  organizationId Int       @map("organization_id")
+  orderNr        String    @map("order_nr")
+  sku            String?
+  partnerSku     String?   @map("partner_sku")
+  productTitleEn String?   @map("product_title_en")
+  brandEn        String?   @map("brand_en")
+  itemStatus     String?   @map("item_status")
+  netProceeds    Decimal?  @map("net_proceeds") @db.Decimal(12, 2)
+  referralFee    Decimal?  @map("referral_fee") @db.Decimal(12, 2)
+  fbnOutboundFee Decimal?  @map("fbn_outbound_fee") @db.Decimal(12, 2)
+  totalPayment   Decimal?  @map("total_payment") @db.Decimal(12, 2)
+  orderedDate    DateTime? @map("ordered_date")
+  importBatch    String?   @map("import_batch")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([orderNr])
+  @@index([sku])
+  @@index([partnerSku])
+  @@index([importBatch])
+  @@index([orderedDate])
+  @@map("orders")
+}
+
+// ─── Imports ───────────────────────────────────────────────────────────────────
+
+model ImportBatch {
+  id             Int        @id @default(autoincrement())
+  organizationId Int        @map("organization_id")
+  batchId        String     @unique @map("batch_id")
+  importType     ImportType @map("import_type")
+  fileName       String?    @map("file_name")
+  rowsImported   Int        @default(0) @map("rows_imported")
+  rowsSkipped    Int        @default(0) @map("rows_skipped")
+  status         String     @default("completed")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([batchId])
+  @@index([createdAt])
+  @@map("import_batches")
+}
+
+// ─── Audit Logs ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             Int      @id @default(autoincrement())
+  organizationId Int?     @map("organization_id")
+  userId         Int?     @map("user_id")
+  action         String
+  entityType     String?  @map("entity_type")
+  entityId       String?  @map("entity_id")
+  before         Json?
+  after          Json?
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
