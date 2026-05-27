@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_partial.html' if (request.headers.get('HX-Request') and not request.headers.get('HX-History-Restore-Request')) else 'base.html' %}
 {% block title %}التقرير التحليلي — Noon Financial{% endblock %}
 
 {% block extra_head %}
@@ -1043,20 +1043,27 @@ function sortTbl(report, colIdx) {
 /* ══════════════════════════════════════════
    TAB INIT — keep Bootstrap tabs + custom active class
    ══════════════════════════════════════════ */
-document.addEventListener('DOMContentLoaded', () => {
-  /* sync Bootstrap tab active class with custom .active */
-  const tabBtns = document.querySelectorAll('#reportTabs .rpt-tab-btn');
-  tabBtns.forEach(btn => {
-    btn.addEventListener('shown.bs.tab', e => {
-      tabBtns.forEach(b => b.classList.remove('active'));
-      e.target.classList.add('active');
-      const report = e.target.dataset.report;
-      if (report) loadReport(report);
+(function initReports() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    run();
+  }
+  function run() {
+    /* sync Bootstrap tab active class with custom .active */
+    const tabBtns = document.querySelectorAll('#reportTabs .rpt-tab-btn');
+    tabBtns.forEach(btn => {
+      btn.addEventListener('shown.bs.tab', e => {
+        tabBtns.forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        const report = e.target.dataset.report;
+        if (report) loadReport(report);
+      });
     });
-  });
 
-  /* auto-load default tab (P&L) */
-  loadReport('pl');
-});
+    /* auto-load default tab (P&L) */
+    loadReport('pl');
+  }
+})();
 </script>
 {% endblock %}

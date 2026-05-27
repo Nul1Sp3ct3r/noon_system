@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_partial.html' if (request.headers.get('HX-Request') and not request.headers.get('HX-History-Restore-Request')) else 'base.html' %}
 {% block title %}الطلبات — Noon Financial{% endblock %}
 
 {% block content %}

@@ -6,249 +6,905 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}Noon Financial{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
   <style>
-    body { font-family: 'Tajawal', sans-serif; background-color: #f4f6f9; }
+    /* HTMX progress bar */
+    #htmx-progress {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+      height: 3px; background: var(--clr-primary);
+      transform: scaleX(0); transform-origin: left;
+      transition: transform .2s ease, opacity .3s ease;
+      opacity: 0;
+    }
+    #htmx-progress.htmx-active {
+      opacity: 1;
+      animation: htmxProgress 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes htmxProgress {
+      from { transform: scaleX(0.05); }
+      to   { transform: scaleX(0.85); }
+    }
+    #htmx-progress.htmx-done {
+      transform: scaleX(1);
+      opacity: 0;
+      transition: transform .1s ease, opacity .4s ease .1s;
+    }
+  </style>
+  <style>
+    /* ===================================================
+       ERP Design System — Noon Financial v2
+       =================================================== */
+    :root {
+      --clr-bg:           #F4F6F8;
+      --clr-surface:      #FFFFFF;
+      --clr-primary:      #14B8A6;
+      --clr-primary-lt:   #F0FDFA;
+      --clr-primary-dk:   #0D9488;
+      --clr-secondary:    #4F46E5;
+      --clr-success:      #22C55E;
+      --clr-warning:      #F59E0B;
+      --clr-danger:       #EF4444;
+      --clr-text:         #1F2937;
+      --clr-muted:        #6B7280;
+      --clr-border:       #E5E7EB;
+      --clr-border-lt:    #F3F4F6;
+      --r-card:           16px;
+      --r-btn:            10px;
+      --r-input:          10px;
+      --shadow-sm:        0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --shadow-card:      0 1px 4px rgba(0,0,0,.05), 0 4px 20px rgba(0,0,0,.06);
+      --shadow-sidebar:   -2px 0 20px rgba(0,0,0,.08);
+      --sidebar-w:        260px;
+      --topbar-h:         60px;
+    }
 
-    .sidebar {
-      position: fixed; top: 0; right: 0;
-      width: 230px; height: 100vh;
-      background: #1a1f2e; overflow-y: auto;
-      z-index: 1000; display: flex;
+    /* --- Reset / Base --- */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: 'Tajawal', sans-serif;
+      background: var(--clr-bg);
+      color: var(--clr-text);
+      font-size: 14.5px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ===================================================
+       SIDEBAR
+       =================================================== */
+    .erp-sidebar {
+      position: fixed;
+      top: 0; right: 0;
+      width: var(--sidebar-w);
+      height: 100vh;
+      background: var(--clr-surface);
+      box-shadow: var(--shadow-sidebar);
+      z-index: 1040;
+      display: flex;
       flex-direction: column;
+      transition: transform .3s ease;
     }
-    .sidebar-brand {
-      padding: 20px 16px 12px;
-      color: #fff; font-size: 1.1rem;
-      font-weight: 700; border-bottom: 1px solid #2d3348;
-    }
-    .sidebar-brand small { display: block; color: #8892a4; font-size: .75rem; font-weight: 400; }
-    .nav-section { padding: 12px 0; }
-    .nav-section-title {
-      padding: 6px 16px; color: #8892a4;
-      font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
-    }
-    .sidebar .nav-link {
-      color: #c9d1de; padding: 9px 16px;
-      border-radius: 0; display: flex;
-      align-items: center; gap: 10px;
-      font-size: .92rem; transition: background .15s, color .15s;
-    }
-    .sidebar .nav-link:hover,
-    .sidebar .nav-link.active { background: #252c40; color: #fff; }
-    .sidebar .nav-link i { font-size: 1.05rem; opacity: .85; }
 
-    .main-content { margin-right: 230px; min-height: 100vh; padding: 24px; }
+    /* Brand */
+    .sb-brand {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--clr-border-lt);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .sb-brand-icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--clr-primary) 0%, var(--clr-secondary) 100%);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: .9rem;
+      flex-shrink: 0;
+    }
+    .sb-brand-name {
+      font-size: .95rem; font-weight: 700; color: var(--clr-text); line-height: 1.2;
+    }
+    .sb-brand-sub { font-size: .68rem; color: var(--clr-muted); font-weight: 400; }
 
+    /* Nav scroll area */
+    .sb-nav {
+      flex: 1; overflow-y: auto; overflow-x: hidden;
+      padding: 8px 0 12px;
+    }
+    .sb-nav::-webkit-scrollbar { width: 3px; }
+    .sb-nav::-webkit-scrollbar-thumb { background: var(--clr-border); border-radius: 4px; }
+
+    /* Section labels */
+    .sb-section-label {
+      font-size: .63rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: var(--clr-muted);
+      padding: 14px 20px 4px;
+    }
+
+    /* Base link styles */
+    .sb-link {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 20px;
+      color: #4B5563; text-decoration: none;
+      font-size: .855rem; font-weight: 500;
+      position: relative; transition: all .13s;
+    }
+    .sb-link:hover { background: #F9FAFB; color: var(--clr-text); }
+    .sb-link:hover .sb-icon { color: var(--clr-primary); }
+    .sb-link.active {
+      background: var(--clr-primary-lt);
+      color: var(--clr-primary);
+      font-weight: 600;
+    }
+    .sb-link.active .sb-icon { color: var(--clr-primary); }
+    .sb-link.active::after {
+      content: '';
+      position: absolute; right: 0; top: 6px; bottom: 6px;
+      width: 3px; background: var(--clr-primary);
+      border-radius: 4px 0 0 4px;
+    }
+    .sb-icon {
+      font-size: .95rem; width: 18px; text-align: center;
+      flex-shrink: 0; color: var(--clr-muted); transition: color .13s;
+    }
+
+    /* Group toggle */
+    .sb-group-btn {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 20px; width: 100%;
+      background: none; border: none; outline: none;
+      color: #4B5563; font-family: 'Tajawal', sans-serif;
+      font-size: .855rem; font-weight: 500; text-align: right;
+      cursor: pointer; transition: all .13s;
+    }
+    .sb-group-btn:hover { background: #F9FAFB; color: var(--clr-text); }
+    .sb-group-btn:hover .sb-icon { color: var(--clr-primary); }
+    .sb-group-btn.active-group {
+      color: var(--clr-text); font-weight: 600;
+    }
+    .sb-group-btn.active-group .sb-icon { color: var(--clr-primary); }
+    .sb-chevron {
+      margin-right: auto; margin-left: 0;
+      font-size: .65rem; color: var(--clr-muted);
+      transition: transform .2s;
+    }
+    .sb-group-btn[aria-expanded="true"] .sb-chevron { transform: rotate(-90deg); }
+
+    /* Sub-links */
+    .sb-sub { background: #FAFAFA; }
+    .sb-sublink {
+      display: flex; align-items: center; gap: 9px;
+      padding: 7px 20px 7px 20px;
+      padding-right: 48px;
+      color: #6B7280; text-decoration: none;
+      font-size: .83rem; font-weight: 400;
+      transition: all .13s; position: relative;
+    }
+    .sb-sublink::before {
+      content: '';
+      position: absolute; right: 30px; top: 50%;
+      transform: translateY(-50%);
+      width: 4px; height: 4px; border-radius: 50%;
+      background: #D1D5DB; transition: background .13s;
+    }
+    .sb-sublink:hover { background: #F3F4F6; color: var(--clr-text); }
+    .sb-sublink:hover::before { background: var(--clr-primary); }
+    .sb-sublink.active {
+      color: var(--clr-primary); font-weight: 600;
+      background: var(--clr-primary-lt);
+    }
+    .sb-sublink.active::before { background: var(--clr-primary); }
+
+    /* Sidebar footer */
+    .sb-footer {
+      border-top: 1px solid var(--clr-border-lt);
+      padding: 12px 14px;
+      flex-shrink: 0;
+    }
+    .sb-user-card {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: 10px;
+      background: #F9FAFB; margin-bottom: 6px;
+    }
+    .sb-avatar {
+      width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--clr-primary), var(--clr-secondary));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: .8rem; font-weight: 700;
+    }
+    .sb-user-name { font-size: .8rem; font-weight: 600; color: var(--clr-text); line-height: 1.2; }
+    .sb-user-role { font-size: .68rem; color: var(--clr-muted); }
+    .sb-logout {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 8px;
+      color: #EF4444; text-decoration: none;
+      font-size: .83rem; font-weight: 500;
+      transition: background .13s;
+    }
+    .sb-logout:hover { background: #FEF2F2; color: #DC2626; }
+
+    /* Overlay (mobile) */
+    .sb-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 1039;
+    }
+    .sb-overlay.show { display: block; }
+
+    /* ===================================================
+       TOP BAR
+       =================================================== */
+    .erp-topbar {
+      position: fixed;
+      top: 0; right: var(--sidebar-w); left: 0;
+      height: var(--topbar-h);
+      background: var(--clr-surface);
+      border-bottom: 1px solid var(--clr-border-lt);
+      z-index: 1030;
+      display: flex; align-items: center;
+      justify-content: space-between;
+      padding: 0 24px; gap: 12px;
+    }
+
+    .topbar-start { display: flex; align-items: center; gap: 10px; }
+    .topbar-end   { display: flex; align-items: center; gap: 8px; }
+
+    .topbar-hamburger {
+      display: none;
+      width: 34px; height: 34px; border-radius: 8px;
+      border: 1px solid var(--clr-border); background: none;
+      color: var(--clr-muted); cursor: pointer;
+      align-items: center; justify-content: center;
+      font-size: 1rem; transition: all .13s;
+    }
+    .topbar-hamburger:hover { background: var(--clr-bg); color: var(--clr-text); }
+
+    .topbar-search {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--clr-bg);
+      border: 1px solid var(--clr-border);
+      border-radius: 10px;
+      padding: 6px 12px;
+      width: 260px; max-width: 100%;
+    }
+    .topbar-search i { color: var(--clr-muted); font-size: .85rem; flex-shrink: 0; }
+    .topbar-search input {
+      border: none; background: transparent; outline: none;
+      font-family: 'Tajawal', sans-serif;
+      font-size: .85rem; color: var(--clr-text); width: 100%; direction: rtl;
+    }
+    .topbar-search input::placeholder { color: var(--clr-muted); }
+
+    .topbar-org {
+      font-size: .75rem; font-weight: 600; color: var(--clr-muted);
+      background: var(--clr-bg);
+      border: 1px solid var(--clr-border);
+      padding: 5px 12px; border-radius: 20px;
+      white-space: nowrap; max-width: 160px;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .topbar-icon-btn {
+      width: 34px; height: 34px; border-radius: 8px;
+      border: 1px solid var(--clr-border); background: none;
+      color: var(--clr-muted); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .95rem; transition: all .13s; text-decoration: none;
+    }
+    .topbar-icon-btn:hover { background: var(--clr-bg); color: var(--clr-text); }
+
+    .topbar-user-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px 5px 6px;
+      border-radius: 10px; border: 1px solid var(--clr-border);
+      background: none; cursor: pointer;
+      text-decoration: none; transition: background .13s;
+    }
+    .topbar-user-btn:hover { background: var(--clr-bg); }
+    .topbar-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--clr-primary), var(--clr-secondary));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: .72rem; font-weight: 700;
+    }
+    .topbar-username {
+      font-size: .82rem; font-weight: 600; color: var(--clr-text);
+      max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ===================================================
+       MAIN LAYOUT
+       =================================================== */
+    .erp-main {
+      margin-right: var(--sidebar-w);
+      padding-top: var(--topbar-h);
+      min-height: 100vh;
+    }
+    .erp-content { padding: 28px; }
+
+    /* ===================================================
+       PAGE HEADER
+       =================================================== */
+    /* Legacy compat */
     .page-header { margin-bottom: 24px; }
-    .page-header h4 { font-weight: 700; margin: 0; color: #1a1f2e; }
+    .page-header h4 { font-weight: 700; margin: 0; color: var(--clr-text); font-size: 1.1rem; }
 
-    /* Cards */
-    .stat-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
-    .stat-card .card-body { padding: 20px; }
-    .stat-card .stat-label { font-size: .8rem; color: #6c757d; margin-bottom: 4px; }
-    .stat-card .stat-value { font-size: 1.4rem; font-weight: 700; }
-    .stat-card .stat-icon { font-size: 2rem; opacity: .15; }
-
-    /* Colors */
-    .color-revenue { color: #185FA5; }
-    .color-profit  { color: #3B6D11; }
-    .color-loss    { color: #A32D2D; }
-    .color-fees    { color: #854F0B; }
-
-    .bg-revenue { background: #185FA5; }
-    .bg-profit  { background: #3B6D11; }
-    .bg-loss    { background: #A32D2D; }
-    .bg-fees    { background: #854F0B; }
-
-    /* Badges */
-    .badge-profitable { background: #d4edda; color: #3B6D11; border: 1px solid #c3e6cb; }
-    .badge-loss       { background: #f8d7da; color: #A32D2D; border: 1px solid #f5c6cb; }
-    .badge-unknown    { background: #e9ecef; color: #6c757d; border: 1px solid #dee2e6; }
-
-    /* Tables */
-    .table th { font-size: .82rem; color: #6c757d; font-weight: 600; border-top: none; }
-    .table td { font-size: .9rem; vertical-align: middle; }
-    .table-hover tbody tr:hover { background: #f0f4ff; }
-
-    /* Fixed-layout styled tables */
-    .noon-table {
-      table-layout: fixed;
-      width: 100%;
-      min-width: 900px;
-      border-collapse: collapse;
+    /* New */
+    .erp-page-header {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap; gap: 12px;
+      margin-bottom: 24px;
     }
-    .noon-table colgroup col { /* column widths set per-page via colgroup */ }
-    .noon-table thead th {
+    .erp-page-title {
+      font-size: 1.1rem; font-weight: 700; color: var(--clr-text);
+      margin: 0; display: flex; align-items: center; gap: 10px;
+    }
+    .erp-title-icon {
+      width: 34px; height: 34px; border-radius: 9px;
+      background: var(--clr-primary-lt);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--clr-primary); font-size: .95rem;
+    }
+
+    /* ===================================================
+       CARDS
+       =================================================== */
+    /* erp-card: new design */
+    .erp-card {
+      background: var(--clr-surface);
+      border-radius: var(--r-card);
+      box-shadow: var(--shadow-card);
+      border: 1px solid var(--clr-border-lt);
+      overflow: hidden;
+    }
+    .erp-card-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--clr-border-lt);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .erp-card-title {
+      font-size: .88rem; font-weight: 700; color: var(--clr-text);
+      margin: 0; display: flex; align-items: center; gap: 8px;
+    }
+    .erp-card-title i { color: var(--clr-primary); }
+    .erp-card-body { padding: 20px; }
+
+    /* stat-card: legacy + updated */
+    .stat-card, .card.stat-card {
+      background: var(--clr-surface) !important;
+      border-radius: var(--r-card) !important;
+      box-shadow: var(--shadow-card) !important;
+      border: 1px solid var(--clr-border-lt) !important;
+    }
+    .stat-card .card-body { padding: 20px; }
+    .stat-label {
+      font-size: .73rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--clr-muted); margin-bottom: 6px;
+    }
+    .stat-value { font-size: 1.35rem; font-weight: 800; color: var(--clr-text); }
+    .stat-icon  { font-size: 2rem; opacity: .1; }
+
+    /* KPI card */
+    .kpi-card {
+      background: var(--clr-surface);
+      border-radius: var(--r-card);
+      box-shadow: var(--shadow-card);
+      border: 1px solid var(--clr-border-lt);
+      padding: 20px 22px;
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 12px;
+      transition: box-shadow .2s, transform .18s;
+      cursor: default;
+    }
+    .kpi-card:hover {
+      box-shadow: 0 6px 24px rgba(0,0,0,.1);
+      transform: translateY(-2px);
+    }
+    .kpi-info { flex: 1; min-width: 0; }
+    .kpi-label {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--clr-muted); margin-bottom: 8px;
+    }
+    .kpi-value {
+      font-size: 1.5rem; font-weight: 800;
+      color: var(--clr-text); line-height: 1; margin-bottom: 8px;
+    }
+    .kpi-sub { font-size: .74rem; color: var(--clr-muted); }
+    .kpi-icon-wrap {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.15rem; flex-shrink: 0;
+    }
+    .kpi-badge-up   { background: #DCFCE7; color: #16A34A; }
+    .kpi-badge-down { background: #FEE2E2; color: #DC2626; }
+    .kpi-delta {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: .72rem; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+    }
+
+    /* section-card: used in many existing templates */
+    .section-card {
+      background: var(--clr-surface);
+      border-radius: var(--r-card);
+      box-shadow: var(--shadow-card);
+      border: 1px solid var(--clr-border-lt);
+      margin-bottom: 24px;
+    }
+    .section-card .section-header {
       background: #1a3a5c;
       color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      padding: 10px 10px;
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      white-space: nowrap;
-      border: none;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      border-radius: var(--r-card) var(--r-card) 0 0;
+      padding: 12px 20px;
+      font-weight: 700; font-size: .88rem;
+    }
+
+    /* ===================================================
+       TABLES
+       =================================================== */
+    .noon-table {
+      table-layout: fixed; width: 100%;
+      min-width: 900px; border-collapse: collapse;
+    }
+    .noon-table colgroup col {}
+    .noon-table thead th {
+      background: #F8FAFC; color: #374151;
+      font-size: 11.5px; font-weight: 700;
+      padding: 11px 12px;
+      position: sticky; top: 0; z-index: 2;
+      white-space: nowrap; border: none;
+      border-bottom: 2px solid var(--clr-border);
+      text-transform: uppercase; letter-spacing: .04em;
     }
     .noon-table tbody td {
-      font-size: 13px;
-      padding: 8px 10px;
-      border-color: #e9ecef;
-      vertical-align: middle;
+      font-size: 13px; padding: 10px 12px;
+      border-bottom: 1px solid var(--clr-border-lt);
+      vertical-align: middle; color: var(--clr-text);
     }
-    .noon-table tbody tr:nth-child(odd)  { background: #fff; }
-    .noon-table tbody tr:nth-child(even) { background: #f8f9fa; }
-    .noon-table tbody tr:hover           { background: #f0f4ff !important; }
+    .noon-table tbody tr:hover td { background: var(--clr-primary-lt); }
+    .noon-table tbody tr:last-child td { border-bottom: none; }
     .noon-table tfoot td {
-      background: #fff3cd;
-      font-weight: 700;
-      font-size: 13px;
-      padding: 8px 10px;
+      background: #FFFBEB; font-weight: 700;
+      font-size: 13px; padding: 10px 12px;
+      border-top: 2px solid #FEF3C7;
     }
-    .cell-trunc {
-      display: block;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .noon-table td.num, .noon-table th.num {
-      text-align: right;
-      white-space: nowrap;
-    }
+    .noon-table td.num, .noon-table th.num { text-align: right; white-space: nowrap; }
     .noon-table td.ctr, .noon-table th.ctr { text-align: center; }
+    .cell-trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    /* Toast */
-    #toast-container { position: fixed; bottom: 20px; left: 20px; z-index: 9999; }
+    /* ===================================================
+       COLOR SYSTEM
+       =================================================== */
+    .color-revenue { color: var(--clr-primary); }
+    .color-profit  { color: var(--clr-success); }
+    .color-loss    { color: var(--clr-danger); }
+    .color-fees    { color: var(--clr-warning); }
+
+    .bg-revenue { background: var(--clr-primary); }
+    .bg-profit  { background: var(--clr-success); }
+    .bg-loss    { background: var(--clr-danger); }
+    .bg-fees    { background: var(--clr-warning); }
+
+    /* ===================================================
+       BADGES
+       =================================================== */
+    .badge-profitable {
+      background: #DCFCE7; color: #16A34A;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: .73rem; font-weight: 700; border: none;
+    }
+    .badge-loss {
+      background: #FEE2E2; color: #DC2626;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: .73rem; font-weight: 700; border: none;
+    }
+    .badge-unknown {
+      background: #F3F4F6; color: var(--clr-muted);
+      padding: 3px 10px; border-radius: 20px;
+      font-size: .73rem; font-weight: 700; border: none;
+    }
+    .badge-low-stock {
+      background: #FEF3C7; color: #92400E;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: .73rem; font-weight: 700;
+    }
+    .badge-warning {
+      background: #FEF3C7; color: #92400E;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: .73rem; font-weight: 700;
+    }
+    .badge-info {
+      background: #E0F2FE; color: #0369A1;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: .73rem; font-weight: 700;
+    }
+
+    /* ===================================================
+       BUTTONS
+       =================================================== */
+    .btn {
+      font-family: 'Tajawal', sans-serif;
+      font-weight: 600;
+      border-radius: var(--r-btn) !important;
+    }
+    .btn-primary {
+      background: var(--clr-primary) !important;
+      border-color: var(--clr-primary) !important;
+      color: #fff !important;
+    }
+    .btn-primary:hover, .btn-primary:focus {
+      background: var(--clr-primary-dk) !important;
+      border-color: var(--clr-primary-dk) !important;
+    }
+    .btn-outline-primary {
+      color: var(--clr-primary) !important;
+      border-color: var(--clr-primary) !important;
+    }
+    .btn-outline-primary:hover {
+      background: var(--clr-primary) !important;
+      color: #fff !important;
+    }
+
+    /* ===================================================
+       FORM CONTROLS
+       =================================================== */
+    .form-control, .form-select {
+      font-family: 'Tajawal', sans-serif;
+      border-color: var(--clr-border);
+      border-radius: var(--r-input) !important;
+      color: var(--clr-text); font-size: .88rem;
+      padding: .48rem .8rem;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--clr-primary);
+      box-shadow: 0 0 0 3px rgba(20,184,166,.15);
+    }
+    .form-label { font-weight: 600; font-size: .82rem; color: var(--clr-text); margin-bottom: 5px; }
+
+    /* ===================================================
+       TOAST
+       =================================================== */
+    #toast-container {
+      position: fixed; bottom: 24px; left: 24px; z-index: 9999;
+    }
+
+    /* ===================================================
+       SCROLLBAR
+       =================================================== */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+
+    /* ===================================================
+       RESPONSIVE
+       =================================================== */
+    @media (max-width: 991px) {
+      .erp-sidebar  { transform: translateX(100%); }
+      .erp-sidebar.sb-open { transform: translateX(0); }
+      .erp-topbar   { right: 0; }
+      .erp-main     { margin-right: 0; }
+      .topbar-hamburger { display: flex; }
+    }
+    @media (max-width: 575px) {
+      .erp-content  { padding: 16px; }
+      .topbar-search { display: none; }
+      .topbar-org   { display: none; }
+    }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
 
-<!-- Sidebar -->
-<nav class="sidebar">
-  <div class="sidebar-brand">
-    <i class="bi bi-bar-chart-fill me-2" style="color:#3B8DE0"></i>نون المالية
-    <small>Noon Financial</small>
-  </div>
-  <div class="nav-section flex-grow-1">
-    <div class="nav-section-title">القائمة الرئيسية</div>
-    <a href="{{ url_for('import_page') }}" class="nav-link {% if request.endpoint == 'import_page' %}active{% endif %}">
-      <i class="bi bi-upload"></i> استيراد CSV
-    </a>
-    <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
-      <i class="bi bi-speedometer2"></i> لوحة التحكم
-    </a>
-    <a href="{{ url_for('products_page') }}" class="nav-link {% if request.endpoint == 'products_page' %}active{% endif %}">
-      <i class="bi bi-box-seam"></i> المنتجات
-    </a>
-    <a href="{{ url_for('orders_page') }}" class="nav-link {% if request.endpoint == 'orders_page' %}active{% endif %}">
-      <i class="bi bi-receipt"></i> الطلبات
-    </a>
-    <a href="{{ url_for('costs_page') }}" class="nav-link {% if request.endpoint == 'costs_page' %}active{% endif %}">
-      <i class="bi bi-calculator"></i> التكاليف والأرباح
-    </a>
-    <a href="{{ url_for('invoices_page') }}" class="nav-link {% if request.endpoint == 'invoices_page' %}active{% endif %}">
-      <i class="bi bi-file-earmark-text"></i> الفواتير
-    </a>
-    <a href="{{ url_for('reports_page') }}" class="nav-link {% if request.endpoint == 'reports_page' %}active{% endif %}">
-      <i class="bi bi-file-earmark-spreadsheet"></i> التقارير
-    </a>
-  </div>
-  <div class="nav-section">
-    <div class="nav-section-title">الإدارة</div>
-    {% if session.get('role') == 'admin' %}
-    <a href="{{ url_for('admin_users') }}" class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}">
-      <i class="bi bi-people-fill"></i> إدارة المستخدمين
-    </a>
-    <a href="{{ url_for('admin_audit_logs') }}" class="nav-link {% if request.endpoint == 'admin_audit_logs' %}active{% endif %}">
-      <i class="bi bi-shield-check"></i> سجل التدقيق
-    </a>
-    <a href="{{ url_for('admin_backups') }}" class="nav-link {% if request.endpoint == 'admin_backups' %}active{% endif %}">
-      <i class="bi bi-cloud-download"></i> النسخ الاحتياطية
-    </a>
-    {% endif %}
-  </div>
-  <div class="nav-section">
-    <div class="nav-section-title">المخزون</div>
-    <a href="{{ url_for('inventory_page') }}" class="nav-link {% if request.endpoint == 'inventory_page' %}active{% endif %}">
-      <i class="bi bi-boxes"></i> إدارة المخزون
-    </a>
-    <a href="{{ url_for('inventory_ledger_page') }}" class="nav-link {% if request.endpoint == 'inventory_ledger_page' %}active{% endif %}">
-      <i class="bi bi-journal-text"></i> حركة المخزون
-    </a>
-    <a href="{{ url_for('inventory_transfers_page') }}" class="nav-link {% if request.endpoint == 'inventory_transfers_page' %}active{% endif %}">
-      <i class="bi bi-arrow-left-right"></i> التحويلات
-    </a>
-    <a href="{{ url_for('inventory_transfers_page') }}#adjustments" class="nav-link {% if request.endpoint == 'inventory_transfers_page' %}active{% endif %}">
-      <i class="bi bi-clipboard-check"></i> التسويات
-    </a>
-  </div>
-  <div class="nav-section">
-    <div class="nav-section-title">محاسبة وضريبة</div>
-    <a href="{{ url_for('profitability_page') }}" class="nav-link {% if request.endpoint == 'profitability_page' %}active{% endif %}">
-      <i class="bi bi-graph-up-arrow"></i> تحليل الربحية
-    </a>
-    <a href="{{ url_for('vat_center_page') }}" class="nav-link {% if request.endpoint == 'vat_center_page' %}active{% endif %}">
-      <i class="bi bi-receipt-cutoff"></i> مركز الضريبة
-    </a>
-    <a href="{{ url_for('settlements_page') }}" class="nav-link {% if request.endpoint == 'settlements_page' %}active{% endif %}">
-      <i class="bi bi-bank"></i> التسويات
-    </a>
-    <a href="{{ url_for('calculator_page') }}" class="nav-link {% if request.endpoint == 'calculator_page' %}active{% endif %}">
-      <i class="bi bi-calculator-fill"></i> حاسبة التسعير
-    </a>
-  </div>
-  <div class="nav-section" style="border-top:1px solid #2d3348; padding-top:8px; padding-bottom:8px;">
-    <div class="px-3 py-1" style="color:#8892a4; font-size:.83rem; line-height:1.4;">
-      <i class="bi bi-person-circle me-1"></i>
-      {{ session.get('full_name') or session.get('username', '') }}
+{# ── sidebar group active helpers ── #}
+{%- set _ep = request.endpoint or '' -%}
+{%- set _inv_eps    = ['inventory_page','inventory_ledger_page','inventory_transfers_page'] -%}
+{%- set _acct_eps   = ['profitability_page','vat_center_page','settlements_page','calculator_page'] -%}
+{%- set _rep_eps    = ['reports_page','reports_pl','reports_vat','reports_sales','reports_fees','reports_inventory','reports_invoices_report'] -%}
+{%- set _admin_eps  = ['admin_users','admin_audit_logs','admin_backups'] -%}
+{%- set inv_open   = _ep in _inv_eps -%}
+{%- set acct_open  = _ep in _acct_eps -%}
+{%- set admin_open = _ep in _admin_eps -%}
+{%- set rep_open   = _ep in _rep_eps -%}
+
+{# ── Sidebar overlay (mobile) ── #}
+<div class="sb-overlay" id="sbOverlay"></div>
+
+{# ─────────────────────────────────────────
+   SIDEBAR
+───────────────────────────────────────── #}
+<aside class="erp-sidebar" id="erpSidebar">
+
+  <!-- Brand -->
+  <div class="sb-brand">
+    <div class="sb-brand-icon"><i class="bi bi-bar-chart-line-fill"></i></div>
+    <div>
+      <div class="sb-brand-name">نون المالية</div>
+      <div class="sb-brand-sub">Noon Financial</div>
     </div>
-    <a href="{{ url_for('logout') }}" class="nav-link" style="color:#e57373;">
-      <i class="bi bi-box-arrow-left"></i> تسجيل الخروج
+  </div>
+
+  <!-- Nav -->
+  <nav class="sb-nav">
+
+    <!-- لوحة التحكم -->
+    <a href="{{ url_for('dashboard') }}"
+       class="sb-link {% if _ep == 'dashboard' %}active{% endif %}"
+       hx-get="{{ url_for('dashboard') }}"
+       hx-target="#app-content"
+       hx-swap="innerHTML"
+       hx-push-url="true">
+      <i class="bi bi-grid-1x2 sb-icon"></i>لوحة التحكم
+    </a>
+
+    <!-- الطلبات -->
+    <a href="{{ url_for('orders_page') }}"
+       class="sb-link {% if _ep == 'orders_page' %}active{% endif %}"
+       hx-get="{{ url_for('orders_page') }}"
+       hx-target="#app-content"
+       hx-swap="innerHTML"
+       hx-push-url="true">
+      <i class="bi bi-receipt sb-icon"></i>الطلبات
+    </a>
+
+    <!-- المنتجات -->
+    <a href="{{ url_for('products_page') }}"
+       class="sb-link {% if _ep == 'products_page' %}active{% endif %}">
+      <i class="bi bi-box-seam sb-icon"></i>المنتجات
+    </a>
+
+    <!-- الفواتير -->
+    <a href="{{ url_for('invoices_page') }}"
+       class="sb-link {% if _ep == 'invoices_page' %}active{% endif %}">
+      <i class="bi bi-file-earmark-text sb-icon"></i>الفواتير
+    </a>
+
+    <!-- المخزون group -->
+    <div class="sb-section-label">المخزون</div>
+    <button class="sb-group-btn {% if inv_open %}active-group{% endif %}"
+            data-bs-toggle="collapse" data-bs-target="#grp-inv"
+            aria-expanded="{{ 'true' if inv_open else 'false' }}">
+      <i class="bi bi-boxes sb-icon"></i>
+      <span>المخزون</span>
+      <i class="bi bi-chevron-left sb-chevron"></i>
+    </button>
+    <div class="collapse sb-sub {% if inv_open %}show{% endif %}" id="grp-inv">
+      <a href="{{ url_for('inventory_page') }}"
+         class="sb-sublink {% if _ep == 'inventory_page' %}active{% endif %}">إدارة المخزون</a>
+      <a href="{{ url_for('inventory_ledger_page') }}"
+         class="sb-sublink {% if _ep == 'inventory_ledger_page' %}active{% endif %}">حركة المخزون</a>
+      <a href="{{ url_for('inventory_transfers_page') }}"
+         class="sb-sublink {% if _ep == 'inventory_transfers_page' %}active{% endif %}">التحويلات والتسويات</a>
+      <a href="{{ url_for('import_page') }}"
+         class="sb-sublink {% if _ep == 'import_page' %}active{% endif %}">استيراد / مزامنة نون</a>
+    </div>
+
+    <!-- المحاسبة group -->
+    <div class="sb-section-label">المحاسبة والضريبة</div>
+    <button class="sb-group-btn {% if acct_open %}active-group{% endif %}"
+            data-bs-toggle="collapse" data-bs-target="#grp-acct"
+            aria-expanded="{{ 'true' if acct_open else 'false' }}">
+      <i class="bi bi-calculator sb-icon"></i>
+      <span>المحاسبة</span>
+      <i class="bi bi-chevron-left sb-chevron"></i>
+    </button>
+    <div class="collapse sb-sub {% if acct_open %}show{% endif %}" id="grp-acct">
+      <a href="{{ url_for('profitability_page') }}"
+         class="sb-sublink {% if _ep == 'profitability_page' %}active{% endif %}">تحليل الربحية</a>
+      <a href="{{ url_for('vat_center_page') }}"
+         class="sb-sublink {% if _ep == 'vat_center_page' %}active{% endif %}">مركز الضريبة</a>
+      <a href="{{ url_for('settlements_page') }}"
+         class="sb-sublink {% if _ep == 'settlements_page' %}active{% endif %}">التسويات</a>
+      <a href="{{ url_for('calculator_page') }}"
+         class="sb-sublink {% if _ep == 'calculator_page' %}active{% endif %}">حاسبة التسعير</a>
+    </div>
+
+    <!-- التقارير -->
+    <div class="sb-section-label">التحليلات</div>
+    <a href="{{ url_for('reports_page') }}"
+       class="sb-link {% if rep_open %}active{% endif %}"
+       hx-get="{{ url_for('reports_page') }}"
+       hx-target="#app-content"
+       hx-swap="innerHTML"
+       hx-push-url="true">
+      <i class="bi bi-file-earmark-bar-graph sb-icon"></i>التقارير
+    </a>
+
+    <!-- الإدارة -->
+    {% if session.get('role') == 'admin' %}
+    <div class="sb-section-label">الإدارة</div>
+    <button class="sb-group-btn {% if admin_open %}active-group{% endif %}"
+            data-bs-toggle="collapse" data-bs-target="#grp-admin"
+            aria-expanded="{{ 'true' if admin_open else 'false' }}">
+      <i class="bi bi-shield-lock sb-icon"></i>
+      <span>الإدارة</span>
+      <i class="bi bi-chevron-left sb-chevron"></i>
+    </button>
+    <div class="collapse sb-sub {% if admin_open %}show{% endif %}" id="grp-admin">
+      <a href="{{ url_for('admin_users') }}"
+         class="sb-sublink {% if _ep == 'admin_users' %}active{% endif %}">إدارة المستخدمين</a>
+      <a href="{{ url_for('admin_audit_logs') }}"
+         class="sb-sublink {% if _ep == 'admin_audit_logs' %}active{% endif %}">سجل التدقيق</a>
+      <a href="{{ url_for('admin_backups') }}"
+         class="sb-sublink {% if _ep == 'admin_backups' %}active{% endif %}">النسخ الاحتياطية</a>
+    </div>
+    {% endif %}
+
+  </nav><!-- /sb-nav -->
+
+  <!-- Footer -->
+  <div class="sb-footer">
+    <div class="sb-user-card">
+      <div class="sb-avatar">
+        {{ (session.get('full_name') or session.get('username','?'))[0] | upper }}
+      </div>
+      <div>
+        <div class="sb-user-name">{{ session.get('full_name') or session.get('username','') }}</div>
+        <div class="sb-user-role">
+          {% if session.get('role') == 'admin' %}مدير{% else %}مستخدم{% endif %}
+        </div>
+      </div>
+    </div>
+    <a href="{{ url_for('logout') }}" class="sb-logout">
+      <i class="bi bi-box-arrow-left"></i>تسجيل الخروج
     </a>
   </div>
-</nav>
 
-<!-- Main Content -->
-<div class="main-content">
-  {% block content %}{% endblock %}
-</div>
+</aside><!-- /erp-sidebar -->
 
-<!-- Toast notifications -->
+{# ─────────────────────────────────────────
+   TOP NAVBAR
+───────────────────────────────────────── #}
+<header class="erp-topbar">
+  <div class="topbar-start">
+    <button class="topbar-hamburger" id="sbToggle" aria-label="القائمة">
+      <i class="bi bi-list"></i>
+    </button>
+    <div class="topbar-search">
+      <i class="bi bi-search"></i>
+      <input type="text" placeholder="بحث سريع..." id="topbarSearch" autocomplete="off">
+    </div>
+  </div>
+  <div class="topbar-end">
+    <div class="topbar-org" title="{{ session.get('org_name','') }}">
+      <i class="bi bi-building me-1"></i>
+      {{ session.get('org_name','') or ('منظمة ' ~ session.get('org_id','')) }}
+    </div>
+    <a href="{{ url_for('import_page') }}" class="topbar-icon-btn" title="استيراد CSV">
+      <i class="bi bi-cloud-upload"></i>
+    </a>
+    <a href="{{ url_for('admin_audit_logs') if session.get('role') == 'admin' else '#' }}"
+       class="topbar-icon-btn" title="سجل التدقيق">
+      <i class="bi bi-shield-check"></i>
+    </a>
+    <a href="{{ url_for('logout') }}" class="topbar-icon-btn" title="تسجيل الخروج">
+      <i class="bi bi-box-arrow-left"></i>
+    </a>
+    <a href="{{ url_for('admin_users') if session.get('role') == 'admin' else '#' }}"
+       class="topbar-user-btn" style="text-decoration:none;">
+      <div class="topbar-avatar">
+        {{ (session.get('full_name') or session.get('username','?'))[0] | upper }}
+      </div>
+      <span class="topbar-username">{{ session.get('full_name') or session.get('username','') }}</span>
+      <i class="bi bi-chevron-left" style="font-size:.6rem;color:var(--clr-muted);"></i>
+    </a>
+  </div>
+</header>
+
+{# ─────────────────────────────────────────
+   MAIN CONTENT
+───────────────────────────────────────── #}
+<div id="htmx-progress"></div>
+<main class="erp-main">
+  <div class="erp-content" id="app-content">
+    {% block content %}{% endblock %}
+  </div>
+</main>
+
+<!-- Toast -->
 <div id="toast-container"></div>
 
+<!-- Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script>
-// Attach CSRF token to every non-GET fetch automatically
+// CSRF auto-inject
 (function() {
-  const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-  const _origFetch = window.fetch;
+  const _tok = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  const _orig = window.fetch;
   window.fetch = function(input, init) {
     init = init || {};
-    const method = (init.method || 'GET').toUpperCase();
-    if (method !== 'GET' && method !== 'HEAD') {
-      init.headers = Object.assign({ 'X-CSRF-Token': _csrfToken }, init.headers || {});
+    const m = (init.method || 'GET').toUpperCase();
+    if (m !== 'GET' && m !== 'HEAD') {
+      init.headers = Object.assign({ 'X-CSRF-Token': _tok }, init.headers || {});
     }
-    return _origFetch.call(this, input, init);
+    return _orig.call(this, input, init);
   };
 })();
 
+// Toast
 function showToast(message, type = 'success') {
-  const colors = { success: '#3B6D11', error: '#A32D2D', info: '#185FA5' };
+  const map = { success: ['#DCFCE7','#16A34A'], error: ['#FEE2E2','#DC2626'], info: ['#E0F2FE','#0369A1'] };
+  const [bg, clr] = map[type] || map.info;
   const el = document.createElement('div');
-  el.style.cssText = `background:${colors[type]||colors.info};color:#fff;padding:12px 20px;border-radius:8px;
-    margin-top:8px;font-family:Tajawal,sans-serif;font-size:.9rem;
-    box-shadow:0 4px 12px rgba(0,0,0,.2);direction:rtl;`;
-  el.textContent = message;
+  el.style.cssText = `background:${bg};color:${clr};padding:12px 18px;border-radius:12px;
+    margin-top:8px;font-family:Tajawal,sans-serif;font-size:.88rem;font-weight:600;
+    box-shadow:0 4px 16px rgba(0,0,0,.12);direction:rtl;display:flex;align-items:center;gap:8px;
+    border:1px solid ${clr}30;min-width:240px;`;
+  const icon = type === 'success' ? 'bi-check-circle-fill' : type === 'error' ? 'bi-exclamation-circle-fill' : 'bi-info-circle-fill';
+  el.innerHTML = `<i class="bi ${icon}"></i><span></span>`;
+  el.querySelector('span').textContent = message;
   document.getElementById('toast-container').appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
+
+// Mobile sidebar toggle
+const erpSidebar = document.getElementById('erpSidebar');
+const sbOverlay  = document.getElementById('sbOverlay');
+const sbToggle   = document.getElementById('sbToggle');
+if (sbToggle) {
+  sbToggle.addEventListener('click', () => {
+    erpSidebar.classList.toggle('sb-open');
+    sbOverlay.classList.toggle('show');
+  });
+}
+if (sbOverlay) {
+  sbOverlay.addEventListener('click', () => {
+    erpSidebar.classList.remove('sb-open');
+    sbOverlay.classList.remove('show');
+  });
+}
+
+// HTMX — progress bar + sidebar active state + CSRF header
+(function() {
+  const bar = document.getElementById('htmx-progress');
+  let doneTimer;
+
+  document.body.addEventListener('htmx:beforeRequest', function() {
+    clearTimeout(doneTimer);
+    bar.classList.remove('htmx-done');
+    bar.classList.add('htmx-active');
+  });
+
+  document.body.addEventListener('htmx:afterSwap', function(e) {
+    bar.classList.remove('htmx-active');
+    bar.classList.add('htmx-done');
+    doneTimer = setTimeout(() => bar.classList.remove('htmx-done'), 500);
+
+    // update sidebar active link to match current URL
+    const path = window.location.pathname;
+    document.querySelectorAll('.sb-link, .sb-sublink').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      a.classList.toggle('active', href === path);
+    });
+
+    // re-run any inline scripts injected by the swap
+    e.target.querySelectorAll('script').forEach(old => {
+      const s = document.createElement('script');
+      [...old.attributes].forEach(at => s.setAttribute(at.name, at.value));
+      s.textContent = old.textContent;
+      old.parentNode.replaceChild(s, old);
+    });
+  });
+
+  document.body.addEventListener('htmx:historyRestore', function() {
+    // full page — no partial re-init needed
+  });
+
+  // inject CSRF token into HTMX requests
+  document.body.addEventListener('htmx:configRequest', function(e) {
+    const tok = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const m = (e.detail.verb || 'get').toUpperCase();
+    if (m !== 'GET' && m !== 'HEAD') {
+      e.detail.headers['X-CSRF-Token'] = tok;
+    }
+  });
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>
