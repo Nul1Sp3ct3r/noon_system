@@ -6,10 +6,10 @@
     "api/index.ts": {
       "memory": 512,
       "maxDuration": 30,
-      "includeFiles": "dist/**,prisma/**"
+      "includeFiles": "dist/**,prisma/**,node_modules/.prisma/**,node_modules/@prisma/client/**"
     }
   },
-  "routes": [
-    { "src": "/(.*)", "dest": "/api/index.ts" }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
