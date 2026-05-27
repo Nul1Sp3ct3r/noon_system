@@ -19,10 +19,17 @@ async function bootstrap(): Promise<express.Express> {
   nestApp.use(helmet());
   nestApp.use(compression());
 
+  const envOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',').map(o => o.trim()).filter(Boolean);
+  const allowedOrigins = [
+    'https://noon-system-frontend.vercel.app',
+    ...envOrigins,
+  ];
   nestApp.enableCors({
-    origin:      process.env.CORS_ORIGINS
-      ? process.env.CORS_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
-      : false,
+    origin:      (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error(`CORS: ${origin} not allowed`));
+    },
     methods:     ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
     credentials: true,
   });
