@@ -13,6 +13,11 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { OrdersModule } from './orders/orders.module';
 import { ImportsModule } from './imports/imports.module';
+import { ReportsModule } from './reports/reports.module';
+import { VatCenterModule } from './vat-center/vat-center.module';
+import { ProfitabilityModule } from './profitability/profitability.module';
+import { SettlementsModule } from './settlements/settlements.module';
+import { AdminModule } from './admin/admin.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -46,6 +51,11 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     InventoryModule,
     OrdersModule,
     ImportsModule,
+    ReportsModule,
+    VatCenterModule,
+    ProfitabilityModule,
+    SettlementsModule,
+    AdminModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
