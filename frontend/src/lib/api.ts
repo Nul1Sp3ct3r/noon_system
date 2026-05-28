@@ -128,6 +128,40 @@ export const invoices = {
 
   removeItem: (id: number, itemId: number) =>
     http<InvoiceDetail>(`/api/v1/invoices/${id}/items/${itemId}`, { method: 'DELETE' }),
+
+  uploadPdf: (id: number, file: File): Promise<{ uploaded: boolean; filename: string }> => {
+    const token = Cookies.get('token');
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch(`${BASE}/api/v1/invoices/${id}/upload-pdf`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    }).then(async r => {
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(extractMsg(b, `HTTP ${r.status}`)); }
+      return r.json();
+    });
+  },
+
+  downloadPdf: async (id: number, filename: string): Promise<void> => {
+    const token = Cookies.get('token');
+    const res = await fetch(`${BASE}/api/v1/invoices/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  deletePdf: (id: number) =>
+    http<{ deleted: boolean }>(`/api/v1/invoices/${id}/pdf`, { method: 'DELETE' }),
 };
 
 // ── Inventory ──────────────────────────────────────────────────────────────────

@@ -10,7 +10,12 @@ import {
   Patch,
   Post,
   Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -99,5 +104,41 @@ export class InvoicesController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.invoices.removeItem(id, itemId, user.orgId, user.sub);
+  }
+
+  @Post(':id/upload-pdf')
+  @Roles(Role.admin, Role.super_admin)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiOperation({ summary: 'Upload a PDF attachment to an invoice' })
+  uploadPdf(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.invoices.uploadPdf(id, user.orgId, file);
+  }
+
+  @Get(':id/pdf')
+  @ApiOperation({ summary: 'Download the PDF attachment for an invoice' })
+  async getPdf(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtPayload,
+    @Res() res: Response,
+  ) {
+    const inv = await this.invoices.getPdf(id, user.orgId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${inv.pdfFilename ?? 'invoice.pdf'}"`);
+    res.send(inv.pdfData);
+  }
+
+  @Delete(':id/pdf')
+  @Roles(Role.admin, Role.super_admin)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove the PDF attachment from an invoice' })
+  deletePdf(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.invoices.deletePdf(id, user.orgId);
   }
 }

@@ -100,7 +100,9 @@ export class InvoicesService {
       },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    return invoice;
+    // Strip binary blob from response — only served via dedicated GET /:id/pdf endpoint
+    const { pdfData: _, ...rest } = invoice as any;
+    return rest;
   }
 
   async create(dto: CreateInvoiceDto, orgId: number, actorId: number) {
@@ -310,5 +312,39 @@ export class InvoicesService {
       before: item,
     });
     return this.findOne(invoiceId, orgId);
+  }
+
+  async uploadPdf(id: number, orgId: number, file: Express.Multer.File) {
+    const invoice = await this.findOne(id, orgId);
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._\-]/g, '_');
+    await this.prisma.invoice.update({
+      where: { id },
+      data: {
+        pdfData:         file.buffer,
+        pdfFilename:     safeName,
+        pdfOriginalName: file.originalname,
+      },
+    });
+    return { uploaded: true, filename: safeName };
+  }
+
+  async getPdf(id: number, orgId: number) {
+    const inv = await this.prisma.invoice.findFirst({
+      where: { id, organizationId: orgId },
+      select: { pdfData: true, pdfFilename: true, pdfOriginalName: true },
+    });
+    if (!inv || !inv.pdfData) throw new NotFoundException('No PDF attached to this invoice');
+    return inv;
+  }
+
+  async deletePdf(id: number, orgId: number) {
+    const inv = await this.findOne(id, orgId);
+    if (!inv) throw new NotFoundException('Invoice not found');
+    await this.prisma.invoice.update({
+      where: { id },
+      data: { pdfData: null, pdfFilename: null, pdfOriginalName: null },
+    });
+    return { deleted: true };
   }
 }

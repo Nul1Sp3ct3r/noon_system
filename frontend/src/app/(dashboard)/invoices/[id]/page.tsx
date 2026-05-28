@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import React from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowRight, AlertCircle, XCircle, Plus, Trash2 } from 'lucide-react';
+import { ArrowRight, AlertCircle, XCircle, Plus, Trash2, Upload, FileDown, Trash } from 'lucide-react';
 import Link from 'next/link';
 import { invoices as api, inventory } from '@/lib/api';
 import type { InvoiceDetail, Warehouse } from '@/lib/types';
@@ -31,6 +32,9 @@ export default function InvoiceDetailPage() {
   const [addItemError, setAddItemError] = useState('');
   const [removingItem, setRemovingItem] = useState<number | null>(null);
   const [warehouses, setWarehouses]   = useState<Warehouse[]>([]);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [pdfError, setPdfError]         = useState('');
+  const pdfInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     load();
@@ -86,6 +90,34 @@ export default function InvoiceDetailPage() {
       setAddItemError(err instanceof Error ? err.message : 'فشل إضافة البند');
     } finally {
       setAddingItem(false);
+    }
+  }
+
+  async function handlePdfUpload(file: File) {
+    if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+      setPdfError('يُقبل فقط ملفات PDF');
+      return;
+    }
+    setUploadingPdf(true);
+    setPdfError('');
+    try {
+      await api.uploadPdf(invoiceId, file);
+      await load();
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'فشل رفع الملف');
+    } finally {
+      setUploadingPdf(false);
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
+    }
+  }
+
+  async function handleDeletePdf() {
+    if (!confirm('هل تريد حذف ملف PDF المرفق؟')) return;
+    try {
+      await api.deletePdf(invoiceId);
+      await load();
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'فشل الحذف');
     }
   }
 
@@ -213,6 +245,53 @@ export default function InvoiceDetailPage() {
           <p className="text-sm text-slate-700">{invoice.notes}</p>
         </div>
       )}
+
+      {/* PDF Attachment */}
+      <div className="card p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-700">مرفق PDF</p>
+          <div className="flex items-center gap-2">
+            {invoice.pdfFilename ? (
+              <>
+                <button
+                  onClick={() => api.downloadPdf(invoiceId, invoice.pdfOriginalName ?? invoice.pdfFilename ?? 'invoice.pdf')}
+                  className="flex items-center gap-1.5 text-xs btn-ghost text-blue-600 border border-blue-200"
+                >
+                  <FileDown size={13} />
+                  {invoice.pdfOriginalName ?? invoice.pdfFilename}
+                </button>
+                {isActive && (
+                  <button onClick={handleDeletePdf} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="حذف PDF">
+                    <Trash size={13} />
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="text-xs text-slate-400">لا يوجد مرفق</span>
+            )}
+            {isActive && (
+              <>
+                <button
+                  onClick={() => pdfInputRef.current?.click()}
+                  disabled={uploadingPdf}
+                  className="flex items-center gap-1.5 text-xs btn-ghost border border-slate-200"
+                >
+                  <Upload size={13} />
+                  {uploadingPdf ? 'جارٍ الرفع…' : invoice.pdfFilename ? 'استبدال' : 'رفع PDF'}
+                </button>
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handlePdfUpload(f); }}
+                />
+              </>
+            )}
+          </div>
+        </div>
+        {pdfError && <p className="text-xs text-red-600 mt-2">{pdfError}</p>}
+      </div>
 
       {/* Items table */}
       <div className="card mb-4">

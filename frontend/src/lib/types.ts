@@ -65,6 +65,8 @@ export interface Invoice {
   totalAmount: string | null;
   status: string;
   notes: string | null;
+  pdfFilename: string | null;
+  pdfOriginalName: string | null;
 }
 
 export interface InventoryStock {
