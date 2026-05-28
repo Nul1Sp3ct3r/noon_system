@@ -73,6 +73,8 @@ export default function NewInvoicePage() {
   const [allAccounts, setAllAccounts]                 = useState<Account[]>([]); // #9
   const [formStatus, setFormStatus]                   = useState<'draft' | 'review' | 'approved'>('draft'); // #11
   const [savingMode, setSavingMode]                   = useState<'draft' | 'review' | null>(null); // #10
+  // [ADD #5] مركز التكلفة
+  const [costCenter, setCostCenter]                   = useState('');
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
@@ -179,6 +181,12 @@ export default function NewInvoicePage() {
       setSavingMode(null);
       return;
     }
+    // [ADD #2] منع الحفظ إذا لم يكن هناك بند واحد صالح
+    if (validItems.length === 0) {
+      setError('يجب إضافة بند واحد على الأقل بـ SKU وكمية وسعر');
+      setSavingMode(null);
+      return;
+    }
     setSaving(true);
     try {
       // Enrich notes with extra metadata
@@ -192,6 +200,7 @@ export default function NewInvoicePage() {
         accountingAccountId
           ? `حساب: ${allAccounts.find(a => String(a.id) === accountingAccountId)?.nameAr ?? accountingAccountId}`
           : '',
+        costCenter        ? `مركز التكلفة: ${costCenter}`                                  : '',
         mode === 'review' ? 'الحالة: مرسل للاعتماد' : 'الحالة: مسودة',
       ].filter(Boolean).join(' | ');
 
@@ -459,27 +468,53 @@ export default function NewInvoicePage() {
             </div>
           </div>
 
-          {/* [ADD #9] الحساب المحاسبي — linked to Chart of Accounts */}
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-slate-600 mb-1">الحساب المحاسبي</label>
-            <select
-              className="input"
-              value={accountingAccountId}
-              onChange={e => setAccountingAccountId(e.target.value)}
-            >
-              <option value="">— اختر من دليل الحسابات —</option>
-              {allAccounts.map(a => (
-                <option key={a.id} value={a.id}>
-                  {a.code} — {a.nameAr}{a.nameEn ? ` (${a.nameEn})` : ''}
-                </option>
-              ))}
-            </select>
-            {allAccounts.length === 0 && (
-              <p className="text-xs text-slate-400 mt-1">
-                لا توجد حسابات — أنشئ دليل الحسابات أولاً من{' '}
-                <Link href="/accounts" className="text-brand-600 hover:underline">صفحة الحسابات</Link>
-              </p>
-            )}
+          {/* [ADD #5] القيد المحاسبي — الحساب المدين + مركز التكلفة */}
+          <div className="sm:col-span-2 border border-slate-100 rounded-xl p-4 bg-slate-50/50">
+            <p className="text-xs font-semibold text-slate-600 mb-3">القيد المحاسبي</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+              {/* الحساب المدين */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">الحساب المدين</label>
+                <select
+                  className="input"
+                  value={accountingAccountId}
+                  onChange={e => setAccountingAccountId(e.target.value)}
+                >
+                  <option value="">— اختر من دليل الحسابات —</option>
+                  {allAccounts.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} — {a.nameAr}{a.nameEn ? ` (${a.nameEn})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {allAccounts.length === 0 && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    لا توجد حسابات —{' '}
+                    <Link href="/accounts" className="text-brand-600 hover:underline">أنشئ دليل الحسابات</Link>
+                  </p>
+                )}
+              </div>
+
+              {/* مركز التكلفة */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">مركز التكلفة</label>
+                <select
+                  className="input"
+                  value={costCenter}
+                  onChange={e => setCostCenter(e.target.value)}
+                >
+                  <option value="">— اختر مركز التكلفة —</option>
+                  <option value="إدارة">إدارة</option>
+                  <option value="مبيعات">مبيعات</option>
+                  <option value="تشغيل">تشغيل</option>
+                  <option value="مستودع">مستودع</option>
+                  <option value="تقنية">تقنية</option>
+                  <option value="تسويق">تسويق</option>
+                </select>
+              </div>
+
+            </div>
           </div>
 
         </div>
@@ -514,7 +549,9 @@ export default function NewInvoicePage() {
       {/* ── بنود الفاتورة ─────────────────────────────────────────────────────── */}
       <div className="card mb-4">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-800">بنود الفاتورة</h2>
+          <h2 className="font-semibold text-slate-800">
+            بنود الفاتورة <span className="text-red-500">*</span>
+          </h2>
           <button
             onClick={addItem}
             className="flex items-center gap-1.5 text-sm btn-ghost text-brand-600"

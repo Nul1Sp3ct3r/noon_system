@@ -7,6 +7,30 @@ import { invoices as api } from '@/lib/api';
 import type { Invoice } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 
+// [ADD #6] استخراج تاريخ الاستحقاق من حقل الملاحظات
+function parseDueDateFromNotes(notes: string | null): string | null {
+  if (!notes) return null;
+  const m = notes.match(/الاستحقاق:\s*(\d{4}-\d{2}-\d{2})/);
+  return m?.[1] ?? null;
+}
+
+// [ADD #7] تحديد الحالة الغنية للفاتورة بناءً على status + notes
+const INV_STATUS: Record<string, { label: string; bg: string; text: string }> = {
+  void:    { label: 'ملغى',              bg: 'bg-red-100',    text: 'text-red-700'    },
+  review:  { label: 'بانتظار الاعتماد', bg: 'bg-amber-100',  text: 'text-amber-700'  },
+  draft:   { label: 'مسودة',             bg: 'bg-slate-100',  text: 'text-slate-600'  },
+  active:  { label: 'نشط',              bg: 'bg-green-100',  text: 'text-green-700'  },
+  paid:    { label: 'مدفوعة',            bg: 'bg-teal-100',   text: 'text-teal-700'   },
+};
+
+function deriveInvoiceStatus(inv: Invoice) {
+  if (inv.status === 'void') return INV_STATUS.void;
+  const notes = inv.notes ?? '';
+  if (notes.includes('مرسل للاعتماد')) return INV_STATUS.review;
+  if (notes.includes('الحالة: مسودة'))  return INV_STATUS.draft;
+  return INV_STATUS.active;
+}
+
 export default function InvoicesPage() {
   const [items, setItems]     = useState<Invoice[]>([]);
   const [total, setTotal]     = useState(0);
@@ -75,33 +99,53 @@ export default function InvoicesPage() {
         <table className="w-full">
           <thead>
             <tr>
-              {['المورد', 'رقم الفاتورة', 'التاريخ', 'المجموع', 'ض.ق.م', 'الإجمالي', 'الحالة'].map(h => (
+              {['المورد', 'رقم الفاتورة', 'التاريخ', 'الاستحقاق', 'المجموع', 'ض.ق.م', 'الإجمالي', 'الحالة'].map(h => (
                 <th key={h} className="table-th">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
+              <tr><td colSpan={8} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={7} className="table-td text-center py-10 text-slate-400">
+              <tr><td colSpan={8} className="table-td text-center py-10 text-slate-400">
                 {q ? `لا توجد نتائج لـ "${q}"` : 'لا توجد فواتير'}
               </td></tr>
-            ) : items.map(inv => (
-              <tr key={inv.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => window.location.href = `/invoices/${inv.id}`}>
-                <td className="table-td font-medium">{inv.supplierName ?? '—'}</td>
-                <td className="table-td font-mono text-xs">{inv.invoiceNumber ?? '—'}</td>
-                <td className="table-td text-slate-400">
-                  {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString('ar-SA') : '—'}
-                </td>
-                <td className="table-td">{inv.subtotal ? `${inv.subtotal} ر.س` : '—'}</td>
-                <td className="table-td">{inv.vatAmount ? `${inv.vatAmount} ر.س` : '—'}</td>
-                <td className="table-td font-medium">{inv.totalAmount ? `${inv.totalAmount} ر.س` : '—'}</td>
-                <td className="table-td">
-                  <Badge label={inv.status === 'active' ? 'نشط' : 'ملغى'} variant={inv.status === 'active' ? 'green' : 'red'} />
-                </td>
-              </tr>
-            ))}
+            ) : items.map(inv => {
+              // [ADD #6] تاريخ الاستحقاق من الملاحظات
+              const dueDateRaw = parseDueDateFromNotes(inv.notes);
+              const dueDisplay = dueDateRaw
+                ? new Date(dueDateRaw).toLocaleDateString('ar-SA')
+                : '—';
+              const isOverdue = dueDateRaw && new Date(dueDateRaw) < new Date() && inv.status !== 'void';
+
+              // [ADD #7] حالة الفاتورة الغنية
+              const statusInfo = deriveInvoiceStatus(inv);
+
+              return (
+                <tr key={inv.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => window.location.href = `/invoices/${inv.id}`}>
+                  <td className="table-td font-medium">{inv.supplierName ?? '—'}</td>
+                  <td className="table-td font-mono text-xs">{inv.invoiceNumber ?? '—'}</td>
+                  <td className="table-td text-slate-400">
+                    {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString('ar-SA') : '—'}
+                  </td>
+                  {/* [ADD #6] عمود تاريخ الاستحقاق */}
+                  <td className={`table-td text-xs ${isOverdue ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                    {dueDisplay}
+                    {isOverdue && <span className="block text-[10px] text-red-500">متأخرة</span>}
+                  </td>
+                  <td className="table-td">{inv.subtotal ? `${Number(inv.subtotal).toFixed(2)} ر.س` : '—'}</td>
+                  <td className="table-td">{inv.vatAmount ? `${Number(inv.vatAmount).toFixed(2)} ر.س` : '—'}</td>
+                  <td className="table-td font-medium">{inv.totalAmount ? `${Number(inv.totalAmount).toFixed(2)} ر.س` : '—'}</td>
+                  {/* [ADD #7] عمود الحالة بـ pill ملون */}
+                  <td className="table-td">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.bg} ${statusInfo.text}`}>
+                      {statusInfo.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
 
