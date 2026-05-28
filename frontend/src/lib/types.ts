@@ -138,3 +138,68 @@ export interface ImportBatch {
   status: string;
   createdAt: string;
 }
+
+export interface InvoiceItem {
+  id: number;
+  invoiceId: number;
+  sku: string;
+  productId: number | null;
+  quantity: number;
+  unitPrice: string;
+  vatRate: string;
+  lineSubtotal: string;
+  lineVat: string;
+  lineTotal: string;
+}
+
+export interface InvoiceDetail extends Invoice {
+  items: InvoiceItem[];
+  warehouse: { id: number; name: string; code: string | null } | null;
+  _count?: { items: number };
+}
+
+export interface Warehouse {
+  id: number;
+  name: string;
+  code: string | null;
+  isActive: boolean;
+  organizationId: number;
+  createdAt: string;
+}
+
+export interface InventoryMovement {
+  id: number;
+  sku: string;
+  movementType: string;
+  quantity: number;
+  reference: string | null;
+  notes: string | null;
+  isVoid: boolean;
+  invoiceId: number | null;
+  warehouseId: number | null;
+  createdAt: string;
+  warehouse: { id: number; name: string } | null;
+  product: { id: number; sku: string; nameEn: string | null } | null;
+}
+
+export interface SalesRow {
+  sku: string;
+  brand: string;
+  name: string;
+  units: number;
+  revenue: number;
+  fees: number;
+  cogs: number;
+  profit: number;
+}
+
+export interface FeesRow {
+  sku: string;
+  brand: string;
+  units: number;
+  referralFees: number;
+  fbnFees: number;
+  totalFees: number;
+  revenue: number;
+  feeRate: number;
+}

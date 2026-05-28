@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Package, ShoppingCart, FileText,
   Warehouse, BarChart2, Calculator, TrendingUp,
-  CreditCard, ShieldCheck, LogOut,
+  CreditCard, ShieldCheck, LogOut, Upload,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { auth } from '@/lib/api';
@@ -13,6 +13,7 @@ import { clearTokens } from '@/lib/auth';
 
 const NAV = [
   { href: '/',               label: 'لوحة التحكم',  icon: LayoutDashboard },
+  { href: '/import',         label: 'الاستيراد',    icon: Upload },
   { href: '/products',       label: 'المنتجات',      icon: Package },
   { href: '/orders',         label: 'الطلبات',       icon: ShoppingCart },
   { href: '/invoices',       label: 'الفواتير',      icon: FileText },

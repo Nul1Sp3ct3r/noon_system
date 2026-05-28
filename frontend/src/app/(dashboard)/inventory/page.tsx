@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, BookOpen } from 'lucide-react';
+import Link from 'next/link';
 import { inventory as api } from '@/lib/api';
 import type { InventoryStock } from '@/lib/types';
 
@@ -28,6 +29,13 @@ export default function InventoryPage() {
             {items.length} SKU · إجمالي التكلفة {totalValue.toLocaleString('ar-SA', { minimumFractionDigits: 2 })} ر.س
           </p>
         </div>
+        <Link
+          href="/inventory/movements"
+          className="flex items-center gap-1.5 text-sm btn-ghost border border-slate-200"
+        >
+          <BookOpen size={15} />
+          دفتر الحركات
+        </Link>
       </div>
 
       {error && (
@@ -52,7 +60,7 @@ export default function InventoryPage() {
             ) : items.length === 0 ? (
               <tr><td colSpan={7} className="table-td text-center py-10 text-slate-400">لا توجد بيانات مخزون</td></tr>
             ) : items.map(s => (
-              <tr key={s.sku} className="hover:bg-slate-50">
+              <tr key={`${s.sku}-${s.warehouse?.id ?? 'null'}`} className="hover:bg-slate-50">
                 <td className="table-td font-mono text-xs">{s.sku}</td>
                 <td className="table-td">{s.nameEn ?? '—'}</td>
                 <td className="table-td">{s.brand ?? '—'}</td>
