@@ -2,7 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
-import { ReportYearDto, SalesReportDto, FeesReportDto } from './dto/report-query.dto';
+import { ReportRangeDto, SalesReportDto, FeesReportDto } from './dto/report-query.dto';
 
 @ApiTags('reports')
 @ApiBearerAuth()
@@ -12,7 +12,7 @@ export class ReportsController {
 
   @Get('pl')
   @ApiOperation({ summary: 'Monthly P&L report' })
-  getPl(@Query() query: ReportYearDto, @CurrentUser() user: JwtPayload) {
+  getPl(@Query() query: ReportRangeDto, @CurrentUser() user: JwtPayload) {
     return this.reports.getPl(user.orgId, query);
   }
 
@@ -35,8 +35,14 @@ export class ReportsController {
   }
 
   @Get('invoices')
-  @ApiOperation({ summary: 'Invoices report with year totals' })
-  getInvoicesReport(@Query() query: ReportYearDto, @CurrentUser() user: JwtPayload) {
+  @ApiOperation({ summary: 'Invoices report with totals' })
+  getInvoicesReport(@Query() query: ReportRangeDto, @CurrentUser() user: JwtPayload) {
     return this.reports.getInvoicesReport(user.orgId, query);
+  }
+
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Dashboard summary + chart data' })
+  getDashboard(@CurrentUser() user: JwtPayload) {
+    return this.reports.getDashboardData(user.orgId);
   }
 }

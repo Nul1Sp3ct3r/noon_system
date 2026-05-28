@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
-export class ReportYearDto {
+export class ReportRangeDto {
   @ApiPropertyOptional({ example: 2024 })
   @Type(() => Number)
   @IsInt()
@@ -10,9 +10,22 @@ export class ReportYearDto {
   @Max(2099)
   @IsOptional()
   year?: number;
+
+  @ApiPropertyOptional({ example: '2024-01-01' })
+  @IsString()
+  @IsOptional()
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: '2024-12-31' })
+  @IsString()
+  @IsOptional()
+  endDate?: string;
 }
 
-export class SalesReportDto extends ReportYearDto {
+/** @deprecated kept for back-compat */
+export class ReportYearDto extends ReportRangeDto {}
+
+export class SalesReportDto extends ReportRangeDto {
   @ApiPropertyOptional({ example: 'Samsung' })
   @IsString()
   @IsOptional()
@@ -23,13 +36,13 @@ export class SalesReportDto extends ReportYearDto {
   @IsOptional()
   sortBy?: string;
 
-  @ApiPropertyOptional({ example: 'Delivered' })
+  @ApiPropertyOptional({ example: 'delivered' })
   @IsString()
   @IsOptional()
   status?: string;
 }
 
-export class FeesReportDto extends ReportYearDto {
+export class FeesReportDto extends ReportRangeDto {
   @ApiPropertyOptional({ example: 'Samsung' })
   @IsString()
   @IsOptional()

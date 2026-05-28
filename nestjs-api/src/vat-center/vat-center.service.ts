@@ -15,10 +15,10 @@ export class VatCenterService {
       this.prisma.order.findMany({
         where: {
           organizationId: orgId,
-          itemStatus: 'Delivered',
+          itemStatus: { equals: 'delivered', mode: 'insensitive' },
           orderedDate: { gte: from, lt: to },
         },
-        select: { totalPayment: true, referralFee: true, fbnOutboundFee: true, orderedDate: true },
+        select: { netProceeds: true, referralFee: true, fbnOutboundFee: true, orderedDate: true },
       }),
       this.prisma.statementFee.findMany({
         where: { organizationId: orgId, statementDate: { startsWith: String(year) } },
@@ -57,7 +57,7 @@ export class VatCenterService {
     for (const o of orders) {
       const m = getMonth(o.orderedDate);
       if (!months[m]) months[m] = this.emptyRow(m);
-      const salesIncl = Number(o.totalPayment ?? 0);
+      const salesIncl = Number(o.netProceeds ?? 0);
       months[m].salesInclVat += salesIncl;
       // output_vat = sales_incl * 15/115
       months[m].outputVat += salesIncl * (15 / 115);

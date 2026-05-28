@@ -56,6 +56,11 @@ export class CreateProductDto {
   @IsOptional()
   unitCost?: string;
 
+  @ApiPropertyOptional({ example: '5.00', description: 'Additional per-unit costs (packaging, delivery, etc.)' })
+  @IsDecimal({ decimal_digits: '0,4' })
+  @IsOptional()
+  extraCosts?: string;
+
   @ApiPropertyOptional({ default: false })
   @IsBoolean()
   @IsOptional()

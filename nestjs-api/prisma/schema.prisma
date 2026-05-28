@@ -113,6 +113,7 @@ model Product {
   brand           String?
   family          String?
   unitCost        Decimal? @map("unit_cost") @db.Decimal(12, 4)
+  extraCosts      Decimal? @map("extra_costs") @db.Decimal(12, 4)
   costIncludesVat Boolean  @default(false) @map("cost_includes_vat")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

@@ -13,12 +13,13 @@ interface ProductForm {
   brand: string;
   family: string;
   unitCost: string;
+  extraCosts: string;
   costIncludesVat: boolean;
 }
 
 const emptyForm = (): ProductForm => ({
   sku: '', partnerSku: '', nameAr: '', nameEn: '',
-  brand: '', family: '', unitCost: '', costIncludesVat: false,
+  brand: '', family: '', unitCost: '', extraCosts: '', costIncludesVat: false,
 });
 
 export default function ProductsPage() {
@@ -73,7 +74,8 @@ export default function ProductsPage() {
       nameEn: p.nameEn ?? '',
       brand: p.brand ?? '',
       family: '',
-      unitCost: p.unitCost ?? '',
+      unitCost:       p.unitCost ?? '',
+      extraCosts:     p.extraCosts ?? '',
       costIncludesVat: p.costIncludesVat,
     });
     setFormError('');
@@ -92,7 +94,8 @@ export default function ProductsPage() {
         nameEn: form.nameEn || undefined,
         brand: form.brand || undefined,
         family: form.family || undefined,
-        unitCost: form.unitCost ? parseFloat(form.unitCost).toFixed(4) : undefined,
+        unitCost:       form.unitCost   ? parseFloat(form.unitCost).toFixed(4)   : undefined,
+        extraCosts:     form.extraCosts ? parseFloat(form.extraCosts).toFixed(4) : undefined,
         costIncludesVat: form.costIncludesVat,
       };
       if (editId !== null) {
@@ -150,16 +153,16 @@ export default function ProductsPage() {
           <table className="w-full">
             <thead>
               <tr>
-                {['SKU', 'الاسم', 'الماركة', 'التكلفة', 'تاريخ الإضافة'].map(h => (
+                {['SKU', 'الاسم', 'الماركة', 'التكلفة', 'ت. إضافية', 'تاريخ الإضافة'].map(h => (
                   <th key={h} className="table-th">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
+                <tr><td colSpan={6} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={5} className="table-td text-center py-10 text-slate-400">
+                <tr><td colSpan={6} className="table-td text-center py-10 text-slate-400">
                   {q ? `لا توجد نتائج لـ "${q}"` : 'لا توجد منتجات'}
                 </td></tr>
               ) : items.map(p => (
@@ -175,12 +178,14 @@ export default function ProductsPage() {
                     {p.unitCost ? (
                       <span>
                         {p.unitCost} ر.س
+                        {p.extraCosts && <span className="text-xs text-slate-400 mr-1">+{p.extraCosts}</span>}
                         {p.costIncludesVat && (
                           <span className="text-xs text-slate-400 mr-1">(شامل ض.ق.م)</span>
                         )}
                       </span>
                     ) : '—'}
                   </td>
+                  <td className="table-td">{p.extraCosts ? `${p.extraCosts} ر.س` : '—'}</td>
                   <td className="table-td text-slate-400">{new Date(p.createdAt).toLocaleDateString('ar-SA')}</td>
                 </tr>
               ))}
@@ -245,7 +250,11 @@ export default function ProductsPage() {
                   <label className="block text-xs font-medium text-slate-600 mb-1">سعر التكلفة (ر.س)</label>
                   <input className="input" type="number" min="0" step="0.01" value={form.unitCost} onChange={set('unitCost')} placeholder="99.99" />
                 </div>
-                <div className="flex items-center gap-2 pt-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">تكاليف إضافية/وحدة (ر.س)</label>
+                  <input className="input" type="number" min="0" step="0.01" value={form.extraCosts} onChange={set('extraCosts')} placeholder="5.00" />
+                </div>
+                <div className="flex items-center gap-2 pt-4 col-span-2">
                   <input
                     type="checkbox"
                     id="costIncludesVat"

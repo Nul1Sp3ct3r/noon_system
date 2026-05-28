@@ -28,6 +28,7 @@ export interface Product {
   nameEn: string | null;
   brand: string | null;
   unitCost: string | null;
+  extraCosts: string | null;
   costIncludesVat: boolean;
   createdAt: string;
 }

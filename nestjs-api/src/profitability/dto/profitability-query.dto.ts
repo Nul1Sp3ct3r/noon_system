@@ -16,4 +16,14 @@ export class ProfitabilityQueryDto {
   @IsString()
   @IsOptional()
   brand?: string;
+
+  @ApiPropertyOptional({ example: 'ABC-123' })
+  @IsString()
+  @IsOptional()
+  sku?: string;
+
+  @ApiPropertyOptional({ example: 'profitable', enum: ['profitable', 'low_margin', 'loss', 'missing_cost'] })
+  @IsString()
+  @IsOptional()
+  badge?: string;
 }

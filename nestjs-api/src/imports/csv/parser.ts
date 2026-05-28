@@ -183,7 +183,7 @@ function parseOld(records: Record<string, unknown>[]): ParsedCsv {
       // These columns exist only in title-case Noon exports; graceful empty if absent
       brandEn:        sanitize(row['brand_english'] ?? row['brand_en'] ?? row['brand']),
       productTitleEn: sanitize(row['product_title_english'] ?? row['product_title_en'] ?? row['description']),
-      itemStatus:     sanitize(row['item_status']),
+      itemStatus:     sanitize(row['item_status']).toLowerCase(),
       orderedDate:    sanitize(row['ordered_date']),
       netProceeds:    toFloat(row['net_proceeds']),
       referralFee:    toFloat(row['referral_fee']),

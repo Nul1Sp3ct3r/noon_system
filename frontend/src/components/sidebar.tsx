@@ -20,6 +20,7 @@ const NAV = [
   { href: '/inventory',      label: 'المخزون',       icon: Warehouse },
   { href: '/reports',        label: 'التقارير',      icon: BarChart2 },
   { href: '/vat-center',     label: 'مركز ضريبة القيمة المضافة', icon: Calculator },
+  { href: '/calculator',     label: 'حاسبة التسعير', icon: Calculator },
   { href: '/profitability',  label: 'الربحية',       icon: TrendingUp },
   { href: '/settlements',    label: 'التسويات',      icon: CreditCard },
   { href: '/admin',          label: 'الإدارة',       icon: ShieldCheck },

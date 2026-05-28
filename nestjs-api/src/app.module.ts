@@ -19,6 +19,7 @@ import { ProfitabilityModule } from './profitability/profitability.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { AdminModule } from './admin/admin.module';
 import { HealthModule } from './health/health.module';
+import { CalculatorModule } from './calculator/calculator.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -61,6 +62,7 @@ import { AppController } from './app.controller';
     SettlementsModule,
     AdminModule,
     HealthModule,
+    CalculatorModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

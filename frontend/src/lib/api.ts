@@ -220,6 +220,44 @@ export const imports = {
     http<{ deleted: boolean }>(`/api/v1/imports/batches/${batchId}`, { method: 'DELETE' }),
 };
 
+// ── Calculator ────────────────────────────────────────────────────────────────
+
+export interface CalcResult {
+  costExclVat: number;
+  fixedFeesExcl: number;
+  commissionAmount: number;
+  feesTotalExcl: number;
+  inputVatNoon: number;
+  sellingExclVat: number;
+  sellingInclVat: number;
+  outputVat: number;
+  netProfit: number;
+  actualMarginPct: number;
+}
+
+export const calculator = {
+  calculate: (body: object) =>
+    http<CalcResult>('/api/v1/calculator/calculate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export const dashboard = {
+  getData: () => http<{
+    summary: {
+      revenue: number; payout: number; fees: number;
+      deliveredCount: number; returnedCount: number;
+      netProfit: number; marginPct: number | null;
+    };
+    dailyRevenue: { date: string; revenue: number }[];
+    topProducts: { sku: string | null; name: string | null; revenue: number }[];
+    orderStatus: { delivered: number; returned: number };
+  }>('/api/v1/reports/dashboard'),
+};
+
 // ── Admin ──────────────────────────────────────────────────────────────────────
 
 export const admin = {
