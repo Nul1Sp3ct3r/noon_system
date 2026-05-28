@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, FileText,
   Warehouse, BarChart2, Calculator, TrendingUp,
   CreditCard, ShieldCheck, LogOut, Upload, BookOpen,
-  ListTree, Scale, BookMarked, Lock,
+  ListTree, Scale, BookMarked, Lock, Receipt,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { auth } from '@/lib/api';
@@ -30,6 +30,7 @@ const NAV = [
   { href: '/accounting/trial-balance',   label: 'ميزان المراجعة',    icon: Scale      },
   { href: '/accounting/ledger',          label: 'دفتر الأستاذ',      icon: BookMarked },
   { href: '/accounting/periods',         label: 'الفترات المحاسبية', icon: Lock       },
+  { href: '/expenses',                   label: 'المصروفات',          icon: Receipt    },
   { href: '/admin',                      label: 'الإدارة',            icon: ShieldCheck },
 ];
 

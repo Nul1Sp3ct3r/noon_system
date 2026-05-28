@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -429,6 +429,73 @@ export async function downloadExport(type: string, params?: object): Promise<voi
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// ── Expenses ─────────────────────────────────────────────────────────────────
+
+export const expenses = {
+  list: (params?: { from?: string; to?: string; q?: string; vendor?: string; categoryId?: number; paymentMethod?: string; status?: string; page?: number; limit?: number }) =>
+    http<PaginatedResponse<Expense>>(`/api/v1/expenses?${qs(params)}`),
+
+  stats: (params?: { from?: string; to?: string }) =>
+    http<ExpenseStats>(`/api/v1/expenses/stats?${qs(params)}`),
+
+  get: (id: number) => http<Expense>(`/api/v1/expenses/${id}`),
+
+  create: (dto: object) =>
+    http<Expense>('/api/v1/expenses', { method: 'POST', body: JSON.stringify(dto) }),
+
+  update: (id: number, dto: object) =>
+    http<Expense>(`/api/v1/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(dto) }),
+
+  post: (id: number) =>
+    http<Expense>(`/api/v1/expenses/${id}/post`, { method: 'POST' }),
+
+  remove: (id: number) =>
+    http<{ deleted: boolean }>(`/api/v1/expenses/${id}`, { method: 'DELETE' }),
+
+  uploadAttachment: (id: number, file: File): Promise<{ uploaded: boolean; filename: string }> => {
+    const token = Cookies.get('token');
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch(`${BASE}/api/v1/expenses/${id}/attachment`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    }).then(async r => {
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(extractMsg(b, `HTTP ${r.status}`)); }
+      return r.json();
+    });
+  },
+
+  attachmentUrl: (id: number) => `${BASE}/api/v1/expenses/${id}/attachment`,
+
+  deleteAttachment: (id: number) =>
+    http<{ deleted: boolean }>(`/api/v1/expenses/${id}/attachment`, { method: 'DELETE' }),
+
+  categories: () =>
+    http<ExpenseCategory[]>('/api/v1/expenses/categories'),
+
+  createCategory: (dto: object) =>
+    http<ExpenseCategory>('/api/v1/expenses/categories', { method: 'POST', body: JSON.stringify(dto) }),
+
+  seedCategories: () =>
+    http<{ seeded: boolean; count?: number; message?: string }>('/api/v1/expenses/categories/seed', { method: 'POST' }),
+
+  exportXlsx: async (params?: object): Promise<void> => {
+    const token = Cookies.get('token');
+    const res = await fetch(`${BASE}/api/v1/expenses/export?${qs(params)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'expenses.xlsx';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+};
 
 // ── util ───────────────────────────────────────────────────────────────────────
 

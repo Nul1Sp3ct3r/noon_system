@@ -380,3 +380,46 @@ export interface GeneralLedger {
   totalCredit: number;
   closingBalance: number;
 }
+
+export type PaymentMethod = 'bank_transfer' | 'cash' | 'credit_card' | 'check' | 'other';
+export type ExpenseStatus = 'draft' | 'posted';
+
+export interface ExpenseCategory {
+  id: number;
+  organizationId: number;
+  name: string;
+  accountCode: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface Expense {
+  id: number;
+  organizationId: number;
+  expenseDate: string;
+  vendor: string | null;
+  categoryId: number | null;
+  description: string | null;
+  amountBeforeVat: string;
+  vatAmount: string;
+  totalAmount: string;
+  paymentMethod: PaymentMethod;
+  referenceNumber: string | null;
+  notes: string | null;
+  attachmentName: string | null;
+  attachmentMime: string | null;
+  status: ExpenseStatus;
+  journalEntryId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  category: ExpenseCategory | null;
+  createdBy: { id: number; fullName: string | null; username: string } | null;
+}
+
+export interface ExpenseStats {
+  totalExpenses: number;
+  totalVat: number;
+  count: number;
+  thisMonth: number;
+  topCategory: string | null;
+}

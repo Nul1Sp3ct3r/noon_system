@@ -57,6 +57,19 @@ enum JournalStatus {
   reversed
 }
 
+enum ExpenseStatus {
+  draft
+  posted
+}
+
+enum PaymentMethod {
+  bank_transfer
+  cash
+  credit_card
+  check
+  other
+}
+
 // ─── Organizations ─────────────────────────────────────────────────────────────
 
 model Organization {
@@ -81,6 +94,8 @@ model Organization {
   accounts            Account[]
   journalTemplates    JournalTemplate[]
   accountingPeriods   AccountingPeriod[]
+  expenseCategories   ExpenseCategory[]
+  expenses            Expense[]
 
   @@map("organizations")
 }
@@ -103,6 +118,7 @@ model User {
   auditLogs        AuditLog[]
   journalsCreated  JournalEntry[] @relation("JournalCreatedBy")
   periodsLocked    AccountingPeriod[] @relation("PeriodClosedBy")
+  expensesCreated  Expense[]      @relation("ExpenseCreatedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -473,4 +489,56 @@ model AccountingPeriod {
   @@unique([organizationId, periodYear, periodMonth])
   @@index([organizationId])
   @@map("accounting_periods")
+}
+
+// ─── Expense Categories ───────────────────────────────────────────────────────
+
+model ExpenseCategory {
+  id             Int      @id @default(autoincrement())
+  organizationId Int      @map("organization_id")
+  name           String
+  accountCode    String?  @map("account_code")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  expenses     Expense[]
+
+  @@index([organizationId])
+  @@map("expense_categories")
+}
+
+// ─── Expenses ─────────────────────────────────────────────────────────────────
+
+model Expense {
+  id              Int           @id @default(autoincrement())
+  organizationId  Int           @map("organization_id")
+  expenseDate     String        @map("expense_date")
+  vendor          String?
+  categoryId      Int?          @map("category_id")
+  description     String?
+  amountBeforeVat Decimal       @map("amount_before_vat") @db.Decimal(14, 2)
+  vatAmount       Decimal       @default(0) @map("vat_amount") @db.Decimal(12, 2)
+  totalAmount     Decimal       @map("total_amount") @db.Decimal(14, 2)
+  paymentMethod   PaymentMethod @default(bank_transfer) @map("payment_method")
+  referenceNumber String?       @map("reference_number")
+  notes           String?
+  attachmentData  Bytes?        @map("attachment_data")
+  attachmentName  String?       @map("attachment_name")
+  attachmentMime  String?       @map("attachment_mime")
+  status          ExpenseStatus @default(draft) @map("status")
+  journalEntryId  Int?          @map("journal_entry_id")
+  createdById     Int?          @map("created_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  category     ExpenseCategory? @relation(fields: [categoryId], references: [id])
+  createdBy    User?            @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([expenseDate])
+  @@index([status])
+  @@index([categoryId])
+  @@map("expenses")
 }
