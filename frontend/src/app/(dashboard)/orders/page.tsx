@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Search, AlertCircle } from 'lucide-react';
-import { orders as api } from '@/lib/api';
+import { Search, AlertCircle, Download } from 'lucide-react';
+import { orders as api, downloadExport } from '@/lib/api';
 import type { Order } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 
@@ -47,9 +47,18 @@ export default function OrdersPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">الطلبات</h1>
-        <p className="text-slate-500 text-sm mt-1">{total.toLocaleString('ar-SA')} طلب</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">الطلبات</h1>
+          <p className="text-slate-500 text-sm mt-1">{total.toLocaleString('ar-SA')} طلب</p>
+        </div>
+        <button
+          onClick={async () => { try { await downloadExport('orders', { q }); } catch {} }}
+          className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
+        >
+          <Download size={14} />
+          تصدير Excel
+        </button>
       </div>
 
       {error && (

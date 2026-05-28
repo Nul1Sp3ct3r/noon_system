@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
-import { reports as api } from '@/lib/api';
+import { AlertCircle, Download } from 'lucide-react';
+import { reports as api, downloadExport } from '@/lib/api';
 import type { PlRow, SalesRow, FeesRow } from '@/lib/types';
 
 const YEAR = new Date().getFullYear();
@@ -18,6 +18,19 @@ export default function ReportsPage() {
   const [salesRows, setSalesRows] = useState<SalesRow[]>([]);
   const [feesRows, setFeesRows]   = useState<FeesRow[]>([]);
   const [sortBy, setSortBy]       = useState('revenue');
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const type = tab === 'pl' ? 'pl' : tab === 'sales' ? 'sales' : 'fees';
+      await downloadExport(type, { year });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'فشل التصدير');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const fmt = (n: number) => n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmt0 = (n: number) => n.toLocaleString('ar-SA', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -54,9 +67,19 @@ export default function ReportsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-slate-900">التقارير</h1>
-        <select className="input w-28 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
-          {[YEAR, YEAR - 1, YEAR - 2].map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          <select className="input w-28 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
+            {[YEAR, YEAR - 1, YEAR - 2].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button
+            onClick={handleExport}
+            disabled={exporting || loading}
+            className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
+          >
+            <Download size={14} />
+            {exporting ? 'جارٍ…' : 'تصدير Excel'}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

@@ -5,5 +5,6 @@ import { VatCenterService } from './vat-center.service';
 @Module({
   controllers: [VatCenterController],
   providers: [VatCenterService],
+  exports: [VatCenterService],
 })
 export class VatCenterModule {}

@@ -268,6 +268,37 @@ export const admin = {
     http<unknown>(`/api/v1/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(dto) }),
 };
 
+// ── Exports ───────────────────────────────────────────────────────────────────
+
+export async function downloadExport(type: string, params?: object): Promise<void> {
+  const token = Cookies.get('token');
+  const queryStr = params
+    ? '?' + new URLSearchParams(
+        Object.entries(params)
+          .filter(([, v]) => v != null && v !== '')
+          .map(([k, v]) => [k, String(v)])
+      ).toString()
+    : '';
+
+  const res = await fetch(`${BASE}/api/v1/exports/${type}${queryStr}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!res.ok) throw new Error(`Export failed: HTTP ${res.status}`);
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const cd = res.headers.get('Content-Disposition') ?? '';
+  const match = cd.match(/filename="([^"]+)"/);
+  a.download = match ? match[1] : `${type}_export.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ── util ───────────────────────────────────────────────────────────────────────
 
 function qs(params?: object): string {

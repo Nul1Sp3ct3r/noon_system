@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
-import { vatCenter as api } from '@/lib/api';
+import { AlertCircle, Download } from 'lucide-react';
+import { vatCenter as api, downloadExport } from '@/lib/api';
 import type { VatRow } from '@/lib/types';
 
 const YEAR = new Date().getFullYear();
@@ -12,6 +12,7 @@ export default function VatCenterPage() {
   const [year, setYear]       = useState(YEAR);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -36,9 +37,19 @@ export default function VatCenterPage() {
           <h1 className="text-2xl font-bold text-slate-900">مركز ضريبة القيمة المضافة</h1>
           <p className="text-sm text-slate-500 mt-1">صافي المستحق = ضريبة المخرجات − ضريبة مدخلات نون − ضريبة مدخلات الموردين</p>
         </div>
-        <select className="input w-28 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
-          {[YEAR, YEAR - 1, YEAR - 2].map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          <select className="input w-28 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
+            {[YEAR, YEAR - 1, YEAR - 2].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button
+            onClick={async () => { setExporting(true); try { await downloadExport('vat', { year }); } catch(e) { setError(String(e)); } finally { setExporting(false); } }}
+            disabled={exporting || loading}
+            className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
+          >
+            <Download size={14} />
+            {exporting ? 'جارٍ…' : 'تصدير Excel'}
+          </button>
+        </div>
       </div>
 
       {error && (

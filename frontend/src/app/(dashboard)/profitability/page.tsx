@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
-import { profitability as api } from '@/lib/api';
+import { AlertCircle, Download } from 'lucide-react';
+import { profitability as api, downloadExport } from '@/lib/api';
 import type { ProfitabilityRow } from '@/lib/types';
 import { Badge, profitBadge } from '@/components/ui/badge';
 
@@ -22,9 +22,19 @@ export default function ProfitabilityPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">تحليل الربحية</h1>
-        <p className="text-slate-500 text-sm mt-1">ربحية لكل SKU · مرتبة تنازلياً حسب الربح للوحدة</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">تحليل الربحية</h1>
+          <p className="text-slate-500 text-sm mt-1">ربحية لكل SKU · مرتبة تنازلياً حسب الربح للوحدة</p>
+        </div>
+        <button
+          onClick={async () => { try { await downloadExport('profitability'); } catch(e) { setError(String(e)); } }}
+          disabled={loading}
+          className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
+        >
+          <Download size={14} />
+          تصدير Excel
+        </button>
       </div>
 
       {error && (

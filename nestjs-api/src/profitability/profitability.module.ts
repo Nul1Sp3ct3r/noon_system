@@ -5,5 +5,6 @@ import { ProfitabilityService } from './profitability.service';
 @Module({
   controllers: [ProfitabilityController],
   providers: [ProfitabilityService],
+  exports: [ProfitabilityService],
 })
 export class ProfitabilityModule {}

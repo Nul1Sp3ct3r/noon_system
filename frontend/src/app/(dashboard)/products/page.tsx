@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Search, AlertCircle, Plus, X } from 'lucide-react';
-import { products as api } from '@/lib/api';
+import { Search, AlertCircle, Plus, X, Download } from 'lucide-react';
+import { products as api, downloadExport } from '@/lib/api';
 import type { Product } from '@/lib/types';
 
 interface ProductForm {
@@ -123,10 +123,19 @@ export default function ProductsPage() {
           <h1 className="text-2xl font-bold text-slate-900">المنتجات</h1>
           <p className="text-slate-500 text-sm mt-1">{total.toLocaleString('ar-SA')} منتج</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-1.5 text-sm">
-          <Plus size={15} />
-          منتج جديد
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => { try { await downloadExport('products'); } catch {} }}
+            className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
+          >
+            <Download size={14} />
+            تصدير Excel
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-1.5 text-sm">
+            <Plus size={15} />
+            منتج جديد
+          </button>
+        </div>
       </div>
 
       {error && (
