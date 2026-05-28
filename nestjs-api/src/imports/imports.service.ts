@@ -93,7 +93,9 @@ export class ImportsService {
 
               if (existing) { rowsSkipped++; continue; }
 
-              const orderedDate = row.docDate ? new Date(row.docDate) : undefined;
+              const orderedDate    = row.docDate ? new Date(row.docDate) : undefined;
+              const deliveredDate  = itemStatus === 'delivered' ? row.docDate : null;
+              const returnedDate   = itemStatus === 'returned'  ? row.docDate : null;
 
               await tx.order.create({
                 data: {
@@ -105,6 +107,8 @@ export class ImportsService {
                   productTitleEn: row.productTitleEn || null,
                   itemStatus,
                   orderedDate,
+                  deliveredDate,
+                  returnedDate,
                   netProceeds:    row.netProceeds.toFixed(2),
                   referralFee:    '0.00',
                   fbnOutboundFee: '0.00',
@@ -221,9 +225,13 @@ export class ImportsService {
                 sku:            row.sku || null,
                 partnerSku:     row.partnerSku || null,
                 brandEn:        row.brandEn || null,
+                brandAr:        row.brandAr || null,
                 productTitleEn: row.productTitleEn || null,
+                productTitleAr: row.productTitleAr || null,
                 itemStatus:     row.itemStatus || null,
                 orderedDate:    parsedDate,
+                deliveredDate:  row.deliveredDate || null,
+                returnedDate:   row.returnedDate || null,
                 netProceeds:    row.netProceeds.toFixed(2),
                 referralFee:    row.referralFee.toFixed(2),
                 fbnOutboundFee: row.fbnOutboundFee.toFixed(2),

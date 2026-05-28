@@ -178,17 +178,20 @@ function parseOld(records: Record<string, unknown>[]): ParsedCsv {
       orderNr,
       itemNr,
       // "sku" may be absent in some Noon report variants; fall back to partner_sku
-      sku:            sanitize(row['sku']),
-      partnerSku:     sanitize(row['partner_sku']),
-      // These columns exist only in title-case Noon exports; graceful empty if absent
-      brandEn:        sanitize(row['brand_english'] ?? row['brand_en'] ?? row['brand']),
-      productTitleEn: sanitize(row['product_title_english'] ?? row['product_title_en'] ?? row['description']),
-      itemStatus:     sanitize(row['item_status']).toLowerCase(),
-      orderedDate:    sanitize(row['ordered_date']),
-      netProceeds:    toFloat(row['net_proceeds']),
-      referralFee:    toFloat(row['referral_fee']),
-      fbnOutboundFee: toFloat(row['fbn_outbound_fee']),
-      totalPayment:   toFloat(row['total_payment']),
+      sku:             sanitize(row['sku']),
+      partnerSku:      sanitize(row['partner_sku']),
+      brandEn:         sanitize(row['brand_english'] ?? row['brand_en'] ?? row['brand']),
+      brandAr:         sanitize(row['brand_arabic']  ?? row['brand_ar']),
+      productTitleEn:  sanitize(row['product_title_english'] ?? row['product_title_en'] ?? row['description']),
+      productTitleAr:  sanitize(row['product_title_arabic']  ?? row['product_title_ar']),
+      itemStatus:      sanitize(row['item_status']).toLowerCase(),
+      orderedDate:     sanitize(row['ordered_date']),
+      deliveredDate:   sanitize(row['delivered_date']),
+      returnedDate:    sanitize(row['returned_date']),
+      netProceeds:     toFloat(row['net_proceeds']),
+      referralFee:     toFloat(row['referral_fee']),
+      fbnOutboundFee:  toFloat(row['fbn_outbound_fee']),
+      totalPayment:    toFloat(row['total_payment']),
     });
   }
 

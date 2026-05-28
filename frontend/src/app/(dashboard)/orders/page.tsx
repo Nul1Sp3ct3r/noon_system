@@ -7,9 +7,9 @@ import type { Order } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 
 const STATUS_VARIANT: Record<string, 'green' | 'amber' | 'red' | 'slate'> = {
-  Delivered: 'green',
-  Cancelled: 'red',
-  Returned:  'amber',
+  delivered: 'green',
+  cancelled: 'red',
+  returned:  'amber',
 };
 
 export default function OrdersPage() {
@@ -76,34 +76,41 @@ export default function OrdersPage() {
           <table className="w-full">
             <thead>
               <tr>
-                {['رقم الطلب', 'SKU', 'المنتج', 'الحالة', 'صافي الدفع', 'التاريخ'].map(h => (
+                {['رقم الطلب', 'SKU', 'المنتج', 'الماركة', 'الحالة', 'الإيراد', 'التاريخ'].map(h => (
                   <th key={h} className="table-th">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
+                <tr><td colSpan={7} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={6} className="table-td text-center py-10 text-slate-400">
+                <tr><td colSpan={7} className="table-td text-center py-10 text-slate-400">
                   {q ? `لا توجد نتائج لـ "${q}"` : 'لا توجد طلبات'}
                 </td></tr>
-              ) : items.map(o => (
-                <tr key={o.id} className="hover:bg-slate-50">
-                  <td className="table-td font-mono text-xs">{o.orderNr}</td>
-                  <td className="table-td font-mono text-xs">{o.sku ?? '—'}</td>
-                  <td className="table-td max-w-xs truncate">{o.productTitleEn ?? '—'}</td>
-                  <td className="table-td">
-                    {o.itemStatus
-                      ? <Badge label={o.itemStatus} variant={STATUS_VARIANT[o.itemStatus] ?? 'slate'} />
-                      : '—'}
-                  </td>
-                  <td className="table-td">{o.totalPayment ? `${o.totalPayment} ر.س` : '—'}</td>
-                  <td className="table-td text-slate-400">
-                    {o.orderedDate ? new Date(o.orderedDate).toLocaleDateString('ar-SA') : '—'}
-                  </td>
-                </tr>
-              ))}
+              ) : items.map(o => {
+                const status = (o.itemStatus ?? '').toLowerCase();
+                const displayDate = o.deliveredDate || o.returnedDate || o.orderedDate;
+                return (
+                  <tr key={o.id} className="hover:bg-slate-50">
+                    <td className="table-td font-mono text-xs">{o.orderNr}</td>
+                    <td className="table-td font-mono text-xs">{o.sku ?? '—'}</td>
+                    <td className="table-td max-w-[200px] truncate">
+                      {o.productTitleAr || o.productTitleEn || '—'}
+                    </td>
+                    <td className="table-td">{o.brandAr || o.brandEn || '—'}</td>
+                    <td className="table-td">
+                      {status
+                        ? <Badge label={status} variant={STATUS_VARIANT[status] ?? 'slate'} />
+                        : '—'}
+                    </td>
+                    <td className="table-td">{o.netProceeds ? `${o.netProceeds} ر.س` : '—'}</td>
+                    <td className="table-td text-slate-400">
+                      {displayDate ? displayDate.slice(0, 10) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

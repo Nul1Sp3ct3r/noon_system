@@ -30,6 +30,7 @@ export interface Product {
   unitCost: string | null;
   extraCosts: string | null;
   costIncludesVat: boolean;
+  notes: string | null;
   createdAt: string;
 }
 
@@ -39,13 +40,17 @@ export interface Order {
   itemNr: string | null;
   sku: string | null;
   productTitleEn: string | null;
+  productTitleAr: string | null;
   brandEn: string | null;
+  brandAr: string | null;
   itemStatus: string | null;
   netProceeds: string | null;
   referralFee: string | null;
   fbnOutboundFee: string | null;
   totalPayment: string | null;
   orderedDate: string | null;
+  deliveredDate: string | null;
+  returnedDate: string | null;
   importBatch: string | null;
 }
 

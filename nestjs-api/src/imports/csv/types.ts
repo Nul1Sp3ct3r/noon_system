@@ -16,9 +16,13 @@ export interface OldRow {
   sku: string;
   partnerSku: string;
   brandEn: string;
+  brandAr: string;
   productTitleEn: string;
+  productTitleAr: string;
   itemStatus: string;
   orderedDate: string;
+  deliveredDate: string;
+  returnedDate: string;
   netProceeds: number;
   referralFee: number;
   fbnOutboundFee: number;

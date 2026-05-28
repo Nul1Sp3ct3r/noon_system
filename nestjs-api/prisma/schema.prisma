@@ -115,6 +115,7 @@ model Product {
   unitCost        Decimal? @map("unit_cost") @db.Decimal(12, 4)
   extraCosts      Decimal? @map("extra_costs") @db.Decimal(12, 4)
   costIncludesVat Boolean  @default(false) @map("cost_includes_vat")
+  notes           String?
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -238,13 +239,17 @@ model Order {
   sku            String?
   partnerSku     String?   @map("partner_sku")
   productTitleEn String?   @map("product_title_en")
+  productTitleAr String?   @map("product_title_ar")
   brandEn        String?   @map("brand_en")
+  brandAr        String?   @map("brand_ar")
   itemStatus     String?   @map("item_status")
   netProceeds    Decimal?  @map("net_proceeds") @db.Decimal(12, 2)
   referralFee    Decimal?  @map("referral_fee") @db.Decimal(12, 2)
   fbnOutboundFee Decimal?  @map("fbn_outbound_fee") @db.Decimal(12, 2)
   totalPayment   Decimal?  @map("total_payment") @db.Decimal(12, 2)
   orderedDate    DateTime? @map("ordered_date")
+  deliveredDate  String?   @map("delivered_date")
+  returnedDate   String?   @map("returned_date")
   importBatch    String?   @map("import_batch")
   createdAt      DateTime  @default(now()) @map("created_at")
 
