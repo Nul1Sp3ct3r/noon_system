@@ -8,11 +8,21 @@ export class OrdersService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(orgId: number, query: ListOrdersDto) {
-    const { status, from, to, sku, partnerSku, orderNr, importBatch, page = 1, limit = 100 } = query;
+    const { q, status, from, to, sku, partnerSku, orderNr, importBatch, page = 1, limit = 100 } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.OrderWhereInput = {
       organizationId: orgId,
+      ...(q ? {
+        OR: [
+          { orderNr:         { contains: q, mode: 'insensitive' } },
+          { sku:             { contains: q, mode: 'insensitive' } },
+          { productTitleEn:  { contains: q, mode: 'insensitive' } },
+          { productTitleAr:  { contains: q, mode: 'insensitive' } },
+          { brandEn:         { contains: q, mode: 'insensitive' } },
+          { brandAr:         { contains: q, mode: 'insensitive' } },
+        ],
+      } : {}),
       ...(status ? { itemStatus: status } : {}),
       ...(sku ? { sku: { contains: sku, mode: 'insensitive' } } : {}),
       ...(partnerSku ? { partnerSku: { contains: partnerSku, mode: 'insensitive' } } : {}),

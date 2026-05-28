@@ -3,6 +3,11 @@ import { Type } from 'class-transformer';
 import { IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListOrdersDto {
+  @ApiPropertyOptional({ description: 'Full-text search: orderNr, SKU, product title, brand' })
+  @IsString()
+  @IsOptional()
+  q?: string;
+
   @ApiPropertyOptional({ description: 'Filter by itemStatus (delivered | returned)' })
   @IsString()
   @IsOptional()
