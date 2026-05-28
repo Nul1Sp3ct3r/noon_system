@@ -124,6 +124,16 @@ export interface SettlementRow {
   mismatchFlag: boolean;
 }
 
+export interface ImportResult {
+  batchId: string;
+  rowsImported: number;
+  rowsSkipped: number;
+  salesCount: number;
+  returnsCount: number;
+  feesCount: number;
+  warnings: string[];
+}
+
 export interface ImportBatch {
   id: number;
   batchId: string;

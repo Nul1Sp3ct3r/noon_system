@@ -1,7 +1,21 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, SalesRow, FeesRow } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+
+function extractMsg(body: unknown, fallback: string): string {
+  if (!body || typeof body !== 'object') return fallback;
+  const b = body as Record<string, unknown>;
+  const m = b.message;
+  if (typeof m === 'string') return m;
+  if (Array.isArray(m)) return m.map(String).join(', ');
+  if (m && typeof m === 'object') {
+    const inner = (m as Record<string, unknown>).message;
+    if (typeof inner === 'string') return inner;
+    if (Array.isArray(inner)) return inner.map(String).join(', ');
+  }
+  return fallback;
+}
 
 async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = Cookies.get('token');
@@ -25,7 +39,7 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
+    throw new Error(extractMsg(body, `HTTP ${res.status}`));
   }
 
   // 204 no content
@@ -170,7 +184,7 @@ export const imports = {
   upload: (
     file: File,
     onProgress?: (pct: number) => void,
-  ): Promise<ImportBatch> => {
+  ): Promise<ImportResult> => {
     return new Promise((resolve, reject) => {
       const token = Cookies.get('token');
       const fd = new FormData();
@@ -183,10 +197,15 @@ export const imports = {
       };
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText)); } catch { resolve(xhr.responseText as unknown as ImportBatch); }
+          try { resolve(JSON.parse(xhr.responseText)); }
+          catch { reject(new Error('Invalid response from server')); }
         } else {
-          try { reject(new Error(JSON.parse(xhr.responseText).message ?? `HTTP ${xhr.status}`)); }
-          catch { reject(new Error(`HTTP ${xhr.status}`)); }
+          try {
+            const body = JSON.parse(xhr.responseText);
+            reject(new Error(extractMsg(body, `HTTP ${xhr.status}`)));
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
         }
       };
       xhr.onerror = () => reject(new Error('Upload failed'));

@@ -22,10 +22,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
+    // Flatten NestJS exception response into a plain string or array of strings
+    // so clients always receive { message: string | string[] } — never a nested object.
+    const raw =
       exception instanceof HttpException
         ? exception.getResponse()
         : 'Internal server error';
+
+    const message: string | string[] =
+      typeof raw === 'string'
+        ? raw
+        : Array.isArray((raw as any)?.message)
+          ? ((raw as any).message as unknown[]).map(String)
+          : typeof (raw as any)?.message === 'string'
+            ? (raw as any).message
+            : JSON.stringify(raw);
 
     if (status >= 500) {
       this.logger.error(

@@ -1,23 +1,23 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Upload, AlertCircle, CheckCircle2, Trash2, RefreshCw } from 'lucide-react';
+import { Upload, AlertCircle, CheckCircle2, Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { imports as api } from '@/lib/api';
-import type { ImportBatch } from '@/lib/types';
+import type { ImportBatch, ImportResult } from '@/lib/types';
 
 export default function ImportPage() {
-  const [batches, setBatches]       = useState<ImportBatch[]>([]);
-  const [total, setTotal]           = useState(0);
-  const [page, setPage]             = useState(1);
+  const [batches, setBatches]         = useState<ImportBatch[]>([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
   const [loadingList, setLoadingList] = useState(true);
-  const [listError, setListError]   = useState('');
+  const [listError, setListError]     = useState('');
 
-  const [dragging, setDragging]     = useState(false);
-  const [uploading, setUploading]   = useState(false);
-  const [progress, setProgress]     = useState(0);
-  const [uploadResult, setUploadResult] = useState<ImportBatch | null>(null);
+  const [dragging, setDragging]         = useState(false);
+  const [uploading, setUploading]       = useState(false);
+  const [progress, setProgress]         = useState(0);
+  const [uploadResult, setUploadResult] = useState<ImportResult | null>(null);
   const [uploadError, setUploadError]   = useState('');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId]     = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,16 +39,25 @@ export default function ImportPage() {
 
   async function handleFile(file: File) {
     if (!file) return;
+
+    // Guard: backend only accepts CSV
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setUploadError('يُقبل فقط ملفات CSV (.csv) — يرجى تصدير الملف بصيغة CSV من نون');
+      return;
+    }
+
     setUploading(true);
     setProgress(0);
     setUploadResult(null);
     setUploadError('');
+
     try {
       const result = await api.upload(file, pct => setProgress(pct));
       setUploadResult(result);
       loadBatches();
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'فشل الرفع');
+      // err.message is always a plain string after our extractMsg fix
+      setUploadError(err instanceof Error ? err.message : 'فشل رفع الملف');
     } finally {
       setUploading(false);
       setProgress(0);
@@ -87,7 +96,7 @@ export default function ImportPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">مركز الاستيراد</h1>
-        <p className="text-slate-500 text-sm mt-1">رفع ملفات CSV/Excel من نون لاستيراد الطلبات والرسوم</p>
+        <p className="text-slate-500 text-sm mt-1">رفع ملفات CSV الشهرية من نون لاستيراد الطلبات والرسوم</p>
       </div>
 
       {/* Upload zone */}
@@ -95,23 +104,25 @@ export default function ImportPage() {
         <h2 className="font-semibold text-slate-800 mb-4">رفع ملف جديد</h2>
 
         {uploadError && (
-          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
-            <AlertCircle size={16} className="shrink-0" />
-            {uploadError}
+          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
+            <span className="break-words">{uploadError}</span>
           </div>
         )}
 
         {uploadResult && (
           <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-4 text-sm text-emerald-700">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <CheckCircle2 size={16} className="shrink-0" />
               <span className="font-semibold">تم الاستيراد بنجاح</span>
             </div>
-            <div className="grid grid-cols-3 gap-3 mt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
               {[
-                { label: 'صفوف مستوردة', value: uploadResult.rowsImported },
-                { label: 'صفوف متخطاة', value: uploadResult.rowsSkipped },
-                { label: 'طلبات مبيعات', value: uploadResult.salesCount },
+                { label: 'صفوف مستوردة',  value: uploadResult.rowsImported },
+                { label: 'صفوف متخطاة',   value: uploadResult.rowsSkipped },
+                { label: 'طلبات',          value: uploadResult.salesCount },
+                { label: 'مرتجعات',        value: uploadResult.returnsCount },
+                { label: 'رسوم',           value: uploadResult.feesCount },
               ].map(({ label, value }) => (
                 <div key={label} className="bg-white rounded-lg p-3 text-center border border-emerald-100">
                   <p className="text-xl font-bold text-emerald-700">{value.toLocaleString('ar-SA')}</p>
@@ -119,15 +130,25 @@ export default function ImportPage() {
                 </div>
               ))}
             </div>
-            {uploadResult.statementNr && (
-              <p className="mt-2 text-xs text-emerald-600">رقم الكشف: {uploadResult.statementNr}</p>
+            {uploadResult.warnings.length > 0 && (
+              <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-amber-700 text-xs font-medium mb-1">
+                  <AlertTriangle size={13} />
+                  {uploadResult.warnings.length} تحذير
+                </div>
+                <ul className="space-y-0.5 max-h-24 overflow-y-auto">
+                  {uploadResult.warnings.map((w, i) => (
+                    <li key={i} className="text-xs text-amber-700 font-mono">{w}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         )}
 
         {uploading ? (
           <div className="border-2 border-dashed border-brand-300 rounded-xl p-10 text-center bg-brand-50">
-            <div className="mb-3">
+            <div className="mb-3 max-w-sm mx-auto">
               <div className="w-full bg-brand-100 rounded-full h-2.5">
                 <div
                   className="bg-brand-600 h-2.5 rounded-full transition-all duration-200"
@@ -135,7 +156,9 @@ export default function ImportPage() {
                 />
               </div>
             </div>
-            <p className="text-brand-700 font-medium">جارٍ الرفع والمعالجة… {progress}%</p>
+            <p className="text-brand-700 font-medium">
+              {progress < 100 ? `جارٍ الرفع… ${progress}%` : 'جارٍ المعالجة…'}
+            </p>
           </div>
         ) : (
           <div
@@ -147,13 +170,13 @@ export default function ImportPage() {
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload size={32} className="mx-auto text-slate-400 mb-3" />
-            <p className="text-slate-600 font-medium">اسحب الملف هنا أو انقر للاختيار</p>
-            <p className="text-slate-400 text-sm mt-1">CSV أو Excel — حد أقصى 10MB</p>
+            <p className="text-slate-600 font-medium">اسحب ملف CSV هنا أو انقر للاختيار</p>
+            <p className="text-slate-400 text-sm mt-1">ملفات CSV فقط · حد أقصى 10MB</p>
             <input
               ref={fileInputRef}
               type="file"
               className="hidden"
-              accept=".csv,.xlsx,.xls"
+              accept=".csv"
               onChange={onFileChange}
             />
           </div>
@@ -184,7 +207,7 @@ export default function ImportPage() {
           <table className="w-full">
             <thead>
               <tr>
-                {['اسم الملف', 'رقم الكشف', 'التاريخ', 'صفوف', 'مبيعات', 'مسترجعات', 'رسوم', 'الحالة', ''].map(h => (
+                {['اسم الملف', 'رقم الكشف', 'التاريخ', 'مستوردة', 'طلبات', 'مرتجعات', 'رسوم', 'الحالة', ''].map(h => (
                   <th key={h} className="table-th">{h}</th>
                 ))}
               </tr>
@@ -196,7 +219,9 @@ export default function ImportPage() {
                 <tr><td colSpan={9} className="table-td text-center py-10 text-slate-400">لا توجد عمليات استيراد سابقة</td></tr>
               ) : batches.map(b => (
                 <tr key={b.batchId} className="hover:bg-slate-50">
-                  <td className="table-td font-mono text-xs max-w-[200px] truncate">{b.fileName ?? '—'}</td>
+                  <td className="table-td font-mono text-xs max-w-[200px] truncate" title={b.fileName ?? undefined}>
+                    {b.fileName ?? '—'}
+                  </td>
                   <td className="table-td font-mono text-xs">{b.statementNr ?? '—'}</td>
                   <td className="table-td text-slate-400 text-xs">
                     {new Date(b.createdAt).toLocaleString('ar-SA')}
@@ -207,8 +232,8 @@ export default function ImportPage() {
                   <td className="table-td">{b.feesCount.toLocaleString('ar-SA')}</td>
                   <td className="table-td">
                     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset
-                      ${b.status === 'done' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200'}`}>
-                      {b.status === 'done' ? 'مكتمل' : b.status}
+                      ${b.status === 'completed' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-amber-200'}`}>
+                      {b.status === 'completed' ? 'مكتمل' : b.status}
                     </span>
                   </td>
                   <td className="table-td">
