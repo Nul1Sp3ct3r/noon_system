@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { ImportType, MovementType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AccountingService } from '../accounting/accounting.service';
 import { parseCsvBuffer } from './csv/parser';
 import { ImportResult } from './csv/types';
 
@@ -22,6 +23,7 @@ export class ImportsService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditLogsService,
+    @Optional() private accounting: AccountingService,
   ) {}
 
   // ─── Upload & process ─────────────────────────────────────────────────────────
@@ -335,6 +337,13 @@ export class ImportsService {
       entityId:   batchId,
       after: { batchId, fileName: file.originalname, format: parsed.format, rowsImported, rowsSkipped, rowsUpdated },
     });
+
+    // Auto-generate accounting journal (non-fatal)
+    if (this.accounting) {
+      this.accounting.generateFromImportBatch(batchId, orgId, actorId).catch(e =>
+        this.logger.warn(`Journal auto-generation skipped: ${e?.message}`),
+      );
+    }
 
     return {
       batchId,

@@ -274,17 +274,109 @@ export interface FeesRow {
 export interface JournalLine {
   id: number;
   journalId: number;
+  accountId: number | null;
   accountAr: string;
   debit: string;
   credit: string;
+  notes: string | null;
+  account: { id: number; code: string; nameAr: string } | null;
 }
 
 export interface JournalEntry {
   id: number;
+  journalNumber: string | null;
   entryDate: string;
   description: string | null;
+  reference: string | null;
+  status: 'draft' | 'posted' | 'reversed';
   sourceType: string | null;
   sourceId: string | null;
   createdAt: string;
+  createdBy: { id: number; fullName: string | null; username: string } | null;
   lines: JournalLine[];
+}
+
+export interface Account {
+  id: number;
+  organizationId: number;
+  code: string;
+  nameAr: string;
+  nameEn: string | null;
+  accountType: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+  normalBalance: 'debit' | 'credit';
+  parentId: number | null;
+  isActive: boolean;
+  description: string | null;
+  createdAt: string;
+  children?: Account[];
+  parent?: Account | null;
+}
+
+export interface AccountingPeriod {
+  id: number;
+  organizationId: number;
+  periodYear: number;
+  periodMonth: number;
+  isClosed: boolean;
+  closedAt: string | null;
+  closedById: number | null;
+  createdAt: string;
+  closedBy: { id: number; fullName: string | null; username: string } | null;
+}
+
+export interface JournalTemplate {
+  id: number;
+  organizationId: number;
+  name: string;
+  description: string | null;
+  templateLines: Array<{
+    accountId: number | null;
+    accountAr: string;
+    side: 'debit' | 'credit';
+    notes: string;
+  }>;
+  isActive: boolean;
+  isSystem: boolean;
+  createdAt: string;
+}
+
+export interface TrialBalanceRow {
+  account: Account;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface TrialBalance {
+  rows: TrialBalanceRow[];
+  totalDebit: number;
+  totalCredit: number;
+  balanced: boolean;
+}
+
+export interface LedgerEntry {
+  id: number;
+  journalId: number;
+  accountId: number | null;
+  accountAr: string;
+  debit: number;
+  credit: number;
+  notes: string | null;
+  runningBalance: number;
+  journal: {
+    id: number;
+    journalNumber: string | null;
+    entryDate: string;
+    description: string | null;
+    reference: string | null;
+    sourceType: string | null;
+  };
+}
+
+export interface GeneralLedger {
+  account: Account;
+  entries: LedgerEntry[];
+  totalDebit: number;
+  totalCredit: number;
+  closingBalance: number;
 }

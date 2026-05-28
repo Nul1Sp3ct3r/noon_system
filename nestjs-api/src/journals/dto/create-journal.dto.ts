@@ -1,43 +1,43 @@
 import { Type } from 'class-transformer';
 import {
-  IsArray,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Min,
-  ValidateNested,
+  IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber,
+  IsOptional, IsString, Min, ValidateNested,
 } from 'class-validator';
 
 export class CreateJournalLineDto {
-  @IsString()
-  @IsNotEmpty()
-  accountAr: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  accountId?: number;
 
-  @IsNumber()
-  @Min(0)
+  @IsString() @IsOptional()
+  accountAr?: string;
+
+  @IsNumber() @Min(0)
   debit: number;
 
-  @IsNumber()
-  @Min(0)
+  @IsNumber() @Min(0)
   credit: number;
+
+  @IsString() @IsOptional()
+  notes?: string;
 }
 
 export class CreateJournalDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsString() @IsNotEmpty()
   entryDate: string;
 
-  @IsString()
-  @IsOptional()
+  @IsString() @IsOptional()
   description?: string;
 
-  @IsString()
-  @IsOptional()
+  @IsString() @IsOptional()
+  reference?: string;
+
+  @IsEnum(['draft', 'posted']) @IsOptional()
+  status?: 'draft' | 'posted';
+
+  @IsString() @IsOptional()
   sourceType?: string;
 
-  @IsString()
-  @IsOptional()
+  @IsString() @IsOptional()
   sourceId?: string;
 
   @IsArray()

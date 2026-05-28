@@ -38,6 +38,25 @@ enum ImportType {
   inventory_sync
 }
 
+enum AccountType {
+  asset       // أصول
+  liability   // خصوم
+  equity      // حقوق الملكية
+  revenue     // إيرادات
+  expense     // مصاريف
+}
+
+enum NormalBalance {
+  debit
+  credit
+}
+
+enum JournalStatus {
+  draft
+  posted
+  reversed
+}
+
 // ─── Organizations ─────────────────────────────────────────────────────────────
 
 model Organization {
@@ -48,17 +67,20 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users          User[]
-  refreshTokens  RefreshToken[]
-  products       Product[]
-  invoices       Invoice[]
-  warehouses     Warehouse[]
-  movements      InventoryMovement[]
-  orders         Order[]
-  importBatches  ImportBatch[]
-  statementFees  StatementFee[]
-  auditLogs      AuditLog[]
-  journalEntries JournalEntry[]
+  users               User[]
+  refreshTokens       RefreshToken[]
+  products            Product[]
+  invoices            Invoice[]
+  warehouses          Warehouse[]
+  movements           InventoryMovement[]
+  orders              Order[]
+  importBatches       ImportBatch[]
+  statementFees       StatementFee[]
+  auditLogs           AuditLog[]
+  journalEntries      JournalEntry[]
+  accounts            Account[]
+  journalTemplates    JournalTemplate[]
+  accountingPeriods   AccountingPeriod[]
 
   @@map("organizations")
 }
@@ -76,9 +98,11 @@ model User {
   createdAt      DateTime  @default(now()) @map("created_at")
   lastLogin      DateTime? @map("last_login")
 
-  organization  Organization   @relation(fields: [organizationId], references: [id])
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
+  organization     Organization   @relation(fields: [organizationId], references: [id])
+  refreshTokens    RefreshToken[]
+  auditLogs        AuditLog[]
+  journalsCreated  JournalEntry[] @relation("JournalCreatedBy")
+  periodsLocked    AccountingPeriod[] @relation("PeriodClosedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -344,34 +368,109 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// ─── Chart of Accounts ────────────────────────────────────────────────────────
+
+model Account {
+  id             Int           @id @default(autoincrement())
+  organizationId Int           @map("organization_id")
+  code           String
+  nameAr         String        @map("name_ar")
+  nameEn         String?       @map("name_en")
+  accountType    AccountType   @map("account_type")
+  normalBalance  NormalBalance @map("normal_balance")
+  parentId       Int?          @map("parent_id")
+  isActive       Boolean       @default(true) @map("is_active")
+  description    String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  parent       Account?       @relation("AccountTree", fields: [parentId], references: [id])
+  children     Account[]      @relation("AccountTree")
+  journalLines JournalLine[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([parentId])
+  @@map("accounts")
+}
+
 // ─── Journal Entries ───────────────────────────────────────────────────────────
 
 model JournalEntry {
   id             Int           @id @default(autoincrement())
   organizationId Int           @map("organization_id")
+  journalNumber  String?       @map("journal_number")
   entryDate      String        @map("entry_date")
   description    String?
+  reference      String?
+  status         JournalStatus @default(posted) @map("status")
   sourceType     String?       @map("source_type")
   sourceId       String?       @map("source_id")
+  createdById    Int?          @map("created_by_id")
   createdAt      DateTime      @default(now()) @map("created_at")
 
   organization Organization   @relation(fields: [organizationId], references: [id])
+  createdBy    User?          @relation("JournalCreatedBy", fields: [createdById], references: [id])
   lines        JournalLine[]
 
   @@index([organizationId])
   @@index([entryDate])
+  @@index([journalNumber])
+  @@index([status])
   @@map("journal_entries")
 }
 
 model JournalLine {
-  id           Int          @id @default(autoincrement())
-  journalId    Int          @map("journal_id")
-  accountAr    String       @map("account_ar")
-  debit        Decimal      @default(0) @db.Decimal(14, 2)
-  credit       Decimal      @default(0) @db.Decimal(14, 2)
+  id        Int     @id @default(autoincrement())
+  journalId Int     @map("journal_id")
+  accountId Int?    @map("account_id")
+  accountAr String  @map("account_ar")
+  debit     Decimal @default(0) @db.Decimal(14, 2)
+  credit    Decimal @default(0) @db.Decimal(14, 2)
+  notes     String?
 
-  journal      JournalEntry @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  journal JournalEntry @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account Account?     @relation(fields: [accountId], references: [id])
 
   @@index([journalId])
+  @@index([accountId])
   @@map("journal_lines")
+}
+
+// ─── Journal Templates ─────────────────────────────────────────────────────────
+
+model JournalTemplate {
+  id             Int      @id @default(autoincrement())
+  organizationId Int      @map("organization_id")
+  name           String
+  description    String?
+  templateLines  Json     @map("template_lines")
+  isActive       Boolean  @default(true) @map("is_active")
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("journal_templates")
+}
+
+// ─── Accounting Periods ────────────────────────────────────────────────────────
+
+model AccountingPeriod {
+  id             Int       @id @default(autoincrement())
+  organizationId Int       @map("organization_id")
+  periodYear     Int       @map("period_year")
+  periodMonth    Int       @map("period_month")
+  isClosed       Boolean   @default(false) @map("is_closed")
+  closedAt       DateTime? @map("closed_at")
+  closedById     Int?      @map("closed_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  closedBy     User?        @relation("PeriodClosedBy", fields: [closedById], references: [id])
+
+  @@unique([organizationId, periodYear, periodMonth])
+  @@index([organizationId])
+  @@map("accounting_periods")
 }

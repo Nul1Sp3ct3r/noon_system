@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, FileText,
   Warehouse, BarChart2, Calculator, TrendingUp,
   CreditCard, ShieldCheck, LogOut, Upload, BookOpen,
+  ListTree, Scale, BookMarked, Lock,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { auth } from '@/lib/api';
@@ -24,8 +25,12 @@ const NAV = [
   { href: '/calculator',     label: 'حاسبة التسعير', icon: Calculator },
   { href: '/profitability',  label: 'الربحية',       icon: TrendingUp },
   { href: '/settlements',    label: 'التسويات',      icon: CreditCard },
-  { href: '/journal',        label: 'القيود المحاسبية', icon: BookOpen },
-  { href: '/admin',          label: 'الإدارة',       icon: ShieldCheck },
+  { href: '/journal',                    label: 'القيود المحاسبية',  icon: BookOpen   },
+  { href: '/accounts',                   label: 'دليل الحسابات',     icon: ListTree   },
+  { href: '/accounting/trial-balance',   label: 'ميزان المراجعة',    icon: Scale      },
+  { href: '/accounting/ledger',          label: 'دفتر الأستاذ',      icon: BookMarked },
+  { href: '/accounting/periods',         label: 'الفترات المحاسبية', icon: Lock       },
+  { href: '/admin',                      label: 'الإدارة',            icon: ShieldCheck },
 ];
 
 export default function Sidebar() {

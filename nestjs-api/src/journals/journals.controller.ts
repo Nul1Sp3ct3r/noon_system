@@ -1,14 +1,6 @@
 import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Post,
-  Query,
+  Body, Controller, Delete, Get, HttpCode, HttpStatus,
+  Param, ParseIntPipe, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
@@ -30,23 +22,40 @@ export class JournalsController {
     return this.journals.findAll(user.orgId, query);
   }
 
+  @Get('stats')
+  @ApiOperation({ summary: 'Journal KPI stats' })
+  getStats(@CurrentUser() user: JwtPayload) {
+    return this.journals.getStats(user.orgId);
+  }
+
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single journal entry with lines' })
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.journals.findOne(id, user.orgId);
   }
 
   @Post()
   @Roles(Role.admin, Role.super_admin)
-  @ApiOperation({ summary: 'Create a balanced journal entry' })
   create(@Body() dto: CreateJournalDto, @CurrentUser() user: JwtPayload) {
-    return this.journals.create(dto, user.orgId);
+    return this.journals.create(dto, user.orgId, user.sub);
+  }
+
+  @Post(':id/post')
+  @Roles(Role.admin, Role.super_admin)
+  @ApiOperation({ summary: 'Post a draft journal entry' })
+  post(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
+    return this.journals.post(id, user.orgId);
+  }
+
+  @Post(':id/reverse')
+  @Roles(Role.admin, Role.super_admin)
+  @ApiOperation({ summary: 'Reverse a posted journal entry' })
+  reverse(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
+    return this.journals.reverse(id, user.orgId, user.sub);
   }
 
   @Delete(':id')
   @Roles(Role.admin, Role.super_admin)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete a journal entry' })
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.journals.remove(id, user.orgId);
   }

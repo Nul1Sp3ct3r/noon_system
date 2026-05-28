@@ -1,11 +1,14 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AccountingService } from '../accounting/accounting.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CreateInvoiceItemDto } from './dto/create-invoice-item.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
@@ -14,9 +17,12 @@ import { VoidInvoiceDto } from './dto/void-invoice.dto';
 
 @Injectable()
 export class InvoicesService {
+  private readonly logger = new Logger(InvoicesService.name);
+
   constructor(
     private prisma: PrismaService,
     private audit: AuditLogsService,
+    @Optional() private accounting: AccountingService,
   ) {}
 
   private computeItemTotals(item: { quantity: number; unitPrice: string; vatRate?: string }) {

@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -287,16 +287,68 @@ export async function downloadInventoryExport(): Promise<void> {
 // ── Journals ───────────────────────────────────────────────────────────────────
 
 export const journals = {
-  list: (params?: { q?: string; from?: string; to?: string; page?: number; limit?: number }) =>
+  list: (params?: { q?: string; from?: string; to?: string; status?: string; accountId?: number; page?: number; limit?: number }) =>
     http<PaginatedResponse<JournalEntry>>(`/api/v1/journals?${qs(params)}`),
+
+  stats: () =>
+    http<{ total: number; todayCount: number; posted: number; draft: number; totalDebit: number; totalCredit: number }>('/api/v1/journals/stats'),
 
   get: (id: number) => http<JournalEntry>(`/api/v1/journals/${id}`),
 
   create: (dto: object) =>
     http<JournalEntry>('/api/v1/journals', { method: 'POST', body: JSON.stringify(dto) }),
 
+  post: (id: number) =>
+    http<JournalEntry>(`/api/v1/journals/${id}/post`, { method: 'POST' }),
+
+  reverse: (id: number) =>
+    http<JournalEntry>(`/api/v1/journals/${id}/reverse`, { method: 'POST' }),
+
   remove: (id: number) =>
     http<{ deleted: boolean }>(`/api/v1/journals/${id}`, { method: 'DELETE' }),
+};
+
+// ── Accounts ──────────────────────────────────────────────────────────────────
+
+export const accounts = {
+  list: (params?: { q?: string; type?: string; activeOnly?: boolean }) =>
+    http<Account[]>(`/api/v1/accounts?${qs(params)}`),
+
+  get: (id: number) => http<Account>(`/api/v1/accounts/${id}`),
+
+  create: (dto: object) =>
+    http<Account>('/api/v1/accounts', { method: 'POST', body: JSON.stringify(dto) }),
+
+  update: (id: number, dto: object) =>
+    http<Account>(`/api/v1/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(dto) }),
+
+  seedDefaults: () =>
+    http<{ seeded: boolean; count?: number; message?: string }>('/api/v1/accounts/seed-defaults', { method: 'POST' }),
+};
+
+// ── Accounting ────────────────────────────────────────────────────────────────
+
+export const accounting = {
+  trialBalance: (params?: { from?: string; to?: string }) =>
+    http<TrialBalance>(`/api/v1/accounting/trial-balance?${qs(params)}`),
+
+  ledger: (accountId: number, params?: { from?: string; to?: string }) =>
+    http<GeneralLedger>(`/api/v1/accounting/ledger/${accountId}?${qs(params)}`),
+
+  periods: () =>
+    http<AccountingPeriod[]>('/api/v1/accounting/periods'),
+
+  togglePeriod: (year: number, month: number, close: boolean) =>
+    http<AccountingPeriod>('/api/v1/accounting/periods/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ year, month, close }),
+    }),
+
+  templates: () =>
+    http<JournalTemplate[]>('/api/v1/accounting/templates'),
+
+  seedTemplates: () =>
+    http<{ seeded: boolean; count?: number }>('/api/v1/accounting/templates/seed', { method: 'POST' }),
 };
 
 // ── Calculator ────────────────────────────────────────────────────────────────
