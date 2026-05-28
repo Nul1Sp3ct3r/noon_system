@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProfitabilityQueryDto } from './dto/profitability-query.dto';
 
-type Badge = 'profitable' | 'low_margin' | 'loss' | 'missing_cost';
+type Badge = 'profitable' | 'low_margin' | 'loss' | 'missing_cost' | 'no_fees_allocated';
 
 const VAT_FACTOR = 15 / 115;
 const VAT_RATE   = 0.15;
@@ -21,13 +21,17 @@ export class ProfitabilityService {
     }
     if (query.brand) where.brandEn = { contains: query.brand, mode: 'insensitive' };
 
-    const orders = await this.prisma.order.findMany({
-      where,
-      select: {
-        sku: true, brandEn: true, netProceeds: true,
-        referralFee: true, fbnOutboundFee: true, itemStatus: true,
-      },
-    });
+    const [orders, stmtFeeCount] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        select: {
+          sku: true, brandEn: true, netProceeds: true,
+          referralFee: true, fbnOutboundFee: true, itemStatus: true,
+        },
+      }),
+      this.prisma.statementFee.count({ where: { organizationId: orgId } }),
+    ]);
+    const hasStmtFees = stmtFeeCount > 0;
 
     const products = await this.prisma.product.findMany({
       where: { organizationId: orgId },
@@ -100,7 +104,7 @@ export class ProfitabilityService {
       const noonFeesExclVat  = Math.round(r.fees * 100) / 100;
       const inputVatNoon     = Math.round(r.fees * VAT_RATE * 100) / 100;
 
-      r.badge = this.badge(r.profitPerUnit, hasCost);
+      r.badge = this.badge(r.profitPerUnit, hasCost, hasStmtFees && r.fees === 0 && r.units > 0);
 
       return {
         ...r,
@@ -125,10 +129,11 @@ export class ProfitabilityService {
     return filtered.sort((a, b) => b.profitPerUnit - a.profitPerUnit);
   }
 
-  private badge(profitPerUnit: number, hasCost: boolean): Badge {
-    if (!hasCost) return 'missing_cost';
-    if (profitPerUnit >= 2)  return 'profitable';
-    if (profitPerUnit >= 0)  return 'low_margin';
+  private badge(profitPerUnit: number, hasCost: boolean, noFeesAllocated: boolean): Badge {
+    if (!hasCost)          return 'missing_cost';
+    if (noFeesAllocated)   return 'no_fees_allocated';
+    if (profitPerUnit >= 2) return 'profitable';
+    if (profitPerUnit >= 0) return 'low_margin';
     return 'loss';
   }
 }

@@ -111,7 +111,7 @@ export interface ProfitabilityRow {
   cogs: number;
   profit: number;
   profitPerUnit: number;
-  badge: 'profitable' | 'low_margin' | 'loss' | 'missing_cost';
+  badge: 'profitable' | 'low_margin' | 'loss' | 'missing_cost' | 'no_fees_allocated';
 }
 
 export interface SettlementRow {

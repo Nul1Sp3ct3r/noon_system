@@ -20,10 +20,11 @@ export function Badge({ label, variant = 'slate' }: { label: string; variant?: V
 
 export function profitBadge(badge: string) {
   const MAP: Record<string, { label: string; variant: Variant }> = {
-    profitable:   { label: 'مربح',           variant: 'green' },
-    low_margin:   { label: 'هامش منخفض',     variant: 'amber' },
-    loss:         { label: 'خسارة',          variant: 'red' },
-    missing_cost: { label: 'تكلفة مفقودة',   variant: 'slate' },
+    profitable:        { label: 'مربح',             variant: 'green' },
+    low_margin:        { label: 'هامش منخفض',       variant: 'amber' },
+    loss:              { label: 'خسارة',            variant: 'red' },
+    missing_cost:      { label: 'تكلفة مفقودة',     variant: 'slate' },
+    no_fees_allocated: { label: 'رسوم غير مخصصة',   variant: 'blue' },
   };
   return MAP[badge] ?? { label: badge, variant: 'slate' as Variant };
 }
