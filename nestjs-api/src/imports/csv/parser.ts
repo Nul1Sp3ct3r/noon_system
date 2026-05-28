@@ -1,17 +1,34 @@
 import { parse } from 'csv-parse/sync';
 import { BadRequestException } from '@nestjs/common';
-import { CustomerRow, FeeRow, ParsedCsv } from './types';
+import { CustomerRow, OldRow, FeeRow, ParsedCsv } from './types';
 
-const MONTHLY_REQUIRED = new Set([
+// Monthly format: detected by these 5 columns all being present
+const MONTHLY_DETECT = [
   'Transaction Type',
   'Document Type',
+  'Document Subtype',
   'Price Including VAT (Document Currency)',
   'VAT Amount (Document Currency)',
-  'Source Doc Nr',
-  'Source Doc Line Nr',
-  'SKU',
-  'Document Date',
-]);
+];
+
+// Old format: detected by these 3 columns all being present
+const OLD_DETECT = ['Net Proceeds', 'Referral Fee', 'FBN Outbound Fee'];
+
+// Column name → OldRow field mapping
+const CSV_COLUMN_MAP: Record<string, keyof OldRow> = {
+  'Order Nr':                'orderNr',
+  'Item Nr':                 'itemNr',
+  'SKU':                     'sku',
+  'Partner SKU':             'partnerSku',
+  'Brand (English)':         'brandEn',
+  'Product Title (English)': 'productTitleEn',
+  'Item Status':             'itemStatus',
+  'Ordered Date':            'orderedDate',
+  'Net Proceeds':            'netProceeds',
+  'Referral Fee':            'referralFee',
+  'FBN Outbound Fee':        'fbnOutboundFee',
+  'Total Payment':           'totalPayment',
+};
 
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 
@@ -26,6 +43,14 @@ function toFloat(val: unknown): number {
   const s = String(val ?? '').replace(/,/g, '');
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
+}
+
+// Converts "1.0" → "1", matching Flask's int(float(raw)) logic
+function normalizeItemNr(raw: string): string {
+  if (!raw) return raw;
+  const n = parseFloat(raw);
+  if (!isNaN(n) && Number.isFinite(n)) return String(Math.floor(n));
+  return raw;
 }
 
 export function parseCsvBuffer(buffer: Buffer): ParsedCsv {
@@ -47,13 +72,19 @@ export function parseCsvBuffer(buffer: Buffer): ParsedCsv {
   }
 
   const cols = new Set(Object.keys(records[0]));
-  const missing = [...MONTHLY_REQUIRED].filter(c => !cols.has(c));
-  if (missing.length > 0) {
+  const isMonthly = MONTHLY_DETECT.every(c => cols.has(c));
+  const isOld = OLD_DETECT.every(c => cols.has(c));
+
+  if (!isMonthly && !isOld) {
     throw new BadRequestException(
-      `Unrecognised CSV format — missing columns: ${missing.join(', ')}`,
+      'تنسيق الملف غير معروف. تأكد من رفع ملف CSV صحيح من بوابة نون.',
     );
   }
 
+  return isMonthly ? parseMonthly(records) : parseOld(records);
+}
+
+function parseMonthly(records: Record<string, unknown>[]): ParsedCsv {
   const customerRows: CustomerRow[] = [];
   const feeRows: FeeRow[] = [];
   let statementNr = '';
@@ -67,8 +98,8 @@ export function parseCsvBuffer(buffer: Buffer): ParsedCsv {
       if (docType !== 'Invoice' && docType !== 'Creditnote') continue;
 
       const orderNr = sanitize(row['Source Doc Nr']);
-      const itemNr = sanitize(row['Source Doc Line Nr']);
-      if (!orderNr || !itemNr) continue;
+      const rawItemNr = sanitize(row['Source Doc Line Nr']);
+      if (!orderNr || !rawItemNr) continue;
 
       const inclVat = toFloat(row['Price Including VAT (Document Currency)']);
       const vat = toFloat(row['VAT Amount (Document Currency)']);
@@ -77,7 +108,7 @@ export function parseCsvBuffer(buffer: Buffer): ParsedCsv {
         docType: docType as 'Invoice' | 'Creditnote',
         docDate: sanitize(row['Document Date']),
         orderNr,
-        itemNr,
+        itemNr: normalizeItemNr(rawItemNr),
         sku: sanitize(row['SKU']),
         partnerSku: sanitize(row['Partner SKU']),
         productTitleEn: sanitize(row['Description']),
@@ -106,5 +137,35 @@ export function parseCsvBuffer(buffer: Buffer): ParsedCsv {
     }
   }
 
-  return { customerRows, feeRows, statementNr, statementDate };
+  return { format: 'monthly', customerRows, oldRows: [], feeRows, statementNr, statementDate };
+}
+
+function parseOld(records: Record<string, unknown>[]): ParsedCsv {
+  const oldRows: OldRow[] = [];
+
+  for (const row of records) {
+    const orderNr = sanitize(row['Order Nr']);
+    const itemNr = sanitize(row['Item Nr']);
+    if (!orderNr || !itemNr) continue;
+
+    oldRows.push({
+      orderNr,
+      itemNr,
+      sku:            sanitize(row['SKU']),
+      partnerSku:     sanitize(row['Partner SKU']),
+      brandEn:        sanitize(row['Brand (English)']),
+      productTitleEn: sanitize(row['Product Title (English)']),
+      itemStatus:     sanitize(row['Item Status']),
+      orderedDate:    sanitize(row['Ordered Date']),
+      netProceeds:    toFloat(row['Net Proceeds']),
+      referralFee:    toFloat(row['Referral Fee']),
+      fbnOutboundFee: toFloat(row['FBN Outbound Fee']),
+      totalPayment:   toFloat(row['Total Payment']),
+    });
+  }
+
+  // CSV_COLUMN_MAP kept for reference — unused directly but documents mapping
+  void CSV_COLUMN_MAP;
+
+  return { format: 'old', customerRows: [], oldRows, feeRows: [], statementNr: '', statementDate: '' };
 }

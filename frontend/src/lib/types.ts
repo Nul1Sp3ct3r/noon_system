@@ -126,17 +126,23 @@ export interface SettlementRow {
 
 export interface ImportResult {
   batchId: string;
+  format: 'monthly' | 'old';
   rowsImported: number;
   rowsSkipped: number;
+  rowsUpdated: number;
   salesCount: number;
   returnsCount: number;
   feesCount: number;
+  totalSales: number;
+  totalFees: number;
+  feesVat: number;
   warnings: string[];
 }
 
 export interface ImportBatch {
   id: number;
   batchId: string;
+  importType: string;
   fileName: string | null;
   rowsImported: number;
   rowsSkipped: number;

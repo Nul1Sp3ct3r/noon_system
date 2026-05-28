@@ -5,6 +5,8 @@ import { Upload, AlertCircle, CheckCircle2, Trash2, RefreshCw, AlertTriangle } f
 import { imports as api } from '@/lib/api';
 import type { ImportBatch, ImportResult } from '@/lib/types';
 
+const fmt = (n: number) => n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export default function ImportPage() {
   const [batches, setBatches]         = useState<ImportBatch[]>([]);
   const [total, setTotal]             = useState(0);
@@ -40,7 +42,6 @@ export default function ImportPage() {
   async function handleFile(file: File) {
     if (!file) return;
 
-    // Guard: backend only accepts CSV
     if (!file.name.toLowerCase().endsWith('.csv')) {
       setUploadError('يُقبل فقط ملفات CSV (.csv) — يرجى تصدير الملف بصيغة CSV من نون');
       return;
@@ -56,7 +57,6 @@ export default function ImportPage() {
       setUploadResult(result);
       loadBatches();
     } catch (err) {
-      // err.message is always a plain string after our extractMsg fix
       setUploadError(err instanceof Error ? err.message : 'فشل رفع الملف');
     } finally {
       setUploading(false);
@@ -115,21 +115,54 @@ export default function ImportPage() {
             <div className="flex items-center gap-2 mb-3">
               <CheckCircle2 size={16} className="shrink-0" />
               <span className="font-semibold">تم الاستيراد بنجاح</span>
+              <span className="mr-auto text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                {uploadResult.format === 'monthly' ? 'كشف شهري' : 'ملف مبيعات'}
+              </span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
-              {[
-                { label: 'صفوف مستوردة',  value: uploadResult.rowsImported },
-                { label: 'صفوف متخطاة',   value: uploadResult.rowsSkipped },
-                { label: 'طلبات',          value: uploadResult.salesCount },
-                { label: 'مرتجعات',        value: uploadResult.returnsCount },
-                { label: 'رسوم',           value: uploadResult.feesCount },
-              ].map(({ label, value }) => (
-                <div key={label} className="bg-white rounded-lg p-3 text-center border border-emerald-100">
-                  <p className="text-xl font-bold text-emerald-700">{value.toLocaleString('ar-SA')}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{label}</p>
-                </div>
-              ))}
-            </div>
+
+            {uploadResult.format === 'monthly' ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+                {[
+                  { label: 'طلبات مستوردة',  value: uploadResult.salesCount },
+                  { label: 'مرتجعات',         value: uploadResult.returnsCount },
+                  { label: 'رسوم',            value: uploadResult.feesCount },
+                  { label: 'صفوف متخطاة',    value: uploadResult.rowsSkipped },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-white rounded-lg p-3 text-center border border-emerald-100">
+                    <p className="text-xl font-bold text-emerald-700">{value.toLocaleString('ar-SA')}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                  </div>
+                ))}
+                {uploadResult.totalSales > 0 && (
+                  <div className="col-span-2 sm:col-span-4 grid grid-cols-3 gap-3 mt-1">
+                    {[
+                      { label: 'إجمالي المبيعات', value: `${fmt(uploadResult.totalSales)} ر.س` },
+                      { label: 'إجمالي الرسوم',   value: `${fmt(uploadResult.totalFees)} ر.س` },
+                      { label: 'ضريبة الرسوم',    value: `${fmt(uploadResult.feesVat)} ر.س` },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="bg-white rounded-lg p-3 text-center border border-emerald-100">
+                        <p className="text-sm font-bold text-emerald-700">{value}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3 mt-2">
+                {[
+                  { label: 'صفوف مضافة',    value: uploadResult.rowsImported },
+                  { label: 'صفوف محدّثة',   value: uploadResult.rowsUpdated },
+                  { label: 'صفوف متخطاة',   value: uploadResult.rowsSkipped },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-white rounded-lg p-3 text-center border border-emerald-100">
+                    <p className="text-xl font-bold text-emerald-700">{value.toLocaleString('ar-SA')}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {uploadResult.warnings.length > 0 && (
               <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
                 <div className="flex items-center gap-1.5 text-amber-700 text-xs font-medium mb-1">
@@ -207,19 +240,27 @@ export default function ImportPage() {
           <table className="w-full">
             <thead>
               <tr>
-                {['اسم الملف', 'رقم الكشف', 'التاريخ', 'مستوردة', 'طلبات', 'مرتجعات', 'رسوم', 'الحالة', ''].map(h => (
+                {['النوع', 'اسم الملف', 'رقم الكشف', 'التاريخ', 'مستوردة', 'طلبات', 'مرتجعات', 'رسوم', 'الحالة', ''].map(h => (
                   <th key={h} className="table-th">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loadingList ? (
-                <tr><td colSpan={9} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
+                <tr><td colSpan={10} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
               ) : batches.length === 0 ? (
-                <tr><td colSpan={9} className="table-td text-center py-10 text-slate-400">لا توجد عمليات استيراد سابقة</td></tr>
+                <tr><td colSpan={10} className="table-td text-center py-10 text-slate-400">لا توجد عمليات استيراد سابقة</td></tr>
               ) : batches.map(b => (
                 <tr key={b.batchId} className="hover:bg-slate-50">
-                  <td className="table-td font-mono text-xs max-w-[200px] truncate" title={b.fileName ?? undefined}>
+                  <td className="table-td">
+                    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset
+                      ${b.importType === 'monthly_statement'
+                        ? 'bg-blue-50 text-blue-700 ring-blue-200'
+                        : 'bg-slate-50 text-slate-600 ring-slate-200'}`}>
+                      {b.importType === 'monthly_statement' ? 'شهري' : 'مبيعات'}
+                    </span>
+                  </td>
+                  <td className="table-td font-mono text-xs max-w-[180px] truncate" title={b.fileName ?? undefined}>
                     {b.fileName ?? '—'}
                   </td>
                   <td className="table-td font-mono text-xs">{b.statementNr ?? '—'}</td>
