@@ -181,7 +181,7 @@ export const inventory = {
 
   warehouses: () => http<Warehouse[]>('/api/v1/inventory/warehouses'),
 
-  movements: (params?: { sku?: string; warehouseId?: number; movementType?: string; from?: string; to?: string; page?: number; limit?: number }) =>
+  movements: (params?: { q?: string; sku?: string; warehouseId?: number; movementType?: string; referenceType?: string; reasonCode?: string; from?: string; to?: string; page?: number; limit?: number }) =>
     http<PaginatedResponse<InventoryMovement>>(`/api/v1/inventory/movements?${qs(params)}`),
 
   createMovement: (dto: object) =>

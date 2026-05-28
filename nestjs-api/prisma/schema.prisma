@@ -254,11 +254,14 @@ model InventoryMovement {
   invoiceId      Int?         @map("invoice_id")
   movementType   MovementType @map("movement_type")
   quantity       Int
-  isVoid         Boolean      @default(false) @map("is_void")
-  reference      String?
-  batchId        String?      @map("batch_id")
-  notes          String?
-  createdAt      DateTime     @default(now()) @map("created_at")
+  isVoid            Boolean       @default(false)  @map("is_void")
+  reference         String?
+  batchId           String?       @map("batch_id")
+  notes             String?
+  referenceType     String?       @map("reference_type")
+  reasonCode        String?       @map("reason_code")
+  unitCostOverride  Decimal?      @map("unit_cost_override") @db.Decimal(12, 4)
+  createdAt         DateTime      @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   product      Product?     @relation(fields: [productId], references: [id])
@@ -270,6 +273,8 @@ model InventoryMovement {
   @@index([batchId])
   @@index([invoiceId])
   @@index([createdAt])
+  @@index([referenceType])
+  @@index([reasonCode])
   @@map("inventory_movements")
 }
 

@@ -69,24 +69,31 @@ export class InventoryService {
   // ─── Movements ────────────────────────────────────────────────────────────────
 
   async findAllMovements(orgId: number, query: ListMovementsDto) {
-    const { sku, warehouseId, movementType, from, to, page = 1, limit = 100 } = query;
+    const { q, sku, warehouseId, movementType, referenceType, reasonCode, from, to, page = 1, limit = 100 } = query;
     const skip = (page - 1) * limit;
 
-    // Build parameterized WHERE for the enriched raw query
     const params: unknown[] = [orgId];
     let pi = 2;
     const extraConds: string[] = [];
 
-    if (sku)           { extraConds.push(`m.sku ILIKE $${pi++}`);                params.push(`%${sku}%`); }
-    if (warehouseId)   { extraConds.push(`m.warehouse_id = $${pi++}`);           params.push(warehouseId); }
-    if (movementType)  { extraConds.push(`m.movement_type = $${pi++}::text::"MovementType"`); params.push(movementType); }
-    if (from)          { extraConds.push(`m.created_at >= $${pi++}`);            params.push(new Date(from)); }
-    if (to)            { extraConds.push(`m.created_at <= $${pi++}`);            params.push(new Date(to)); }
+    // Combined search (q) — SKU, reference, notes
+    if (q) {
+      extraConds.push(`(m.sku ILIKE $${pi} OR m.reference ILIKE $${pi} OR m.notes ILIKE $${pi})`);
+      params.push(`%${q}%`);
+      pi++;
+    }
+    if (sku)           { extraConds.push(`m.sku ILIKE $${pi++}`);                                    params.push(`%${sku}%`); }
+    if (warehouseId)   { extraConds.push(`m.warehouse_id = $${pi++}`);                               params.push(warehouseId); }
+    if (movementType)  { extraConds.push(`m.movement_type = $${pi++}::text::"MovementType"`);         params.push(movementType); }
+    if (referenceType) { extraConds.push(`m.reference_type = $${pi++}`);                              params.push(referenceType); }
+    if (reasonCode)    { extraConds.push(`m.reason_code = $${pi++}`);                                 params.push(reasonCode); }
+    if (from)          { extraConds.push(`m.created_at >= $${pi++}`);                                 params.push(new Date(from)); }
+    if (to)            { extraConds.push(`m.created_at <= $${pi++}`);                                 params.push(new Date(to + 'T23:59:59')); }
 
     const extraWhere = extraConds.length ? ' AND ' + extraConds.join(' AND ') : '';
 
     params.push(limit, skip);
-    const limitIdx = pi;
+    const limitIdx  = pi;
     const offsetIdx = pi + 1;
 
     type MovRow = {
@@ -96,6 +103,8 @@ export class InventoryService {
       qty_before: bigint; qty_after: bigint;
       unit_cost: string | null; cost_impact: string | null;
       warehouse_name: string | null; product_name: string | null;
+      reference_type: string | null; reason_code: string | null;
+      unit_cost_override: string | null;
     };
 
     const [countRows, rows] = await Promise.all([
@@ -118,12 +127,13 @@ export class InventoryService {
         SELECT
           m.id, m.sku, m.warehouse_id, m.movement_type::text AS movement_type,
           m.quantity, m.reference, m.notes, m.created_at, m.invoice_id,
+          m.reference_type, m.reason_code, m.unit_cost_override::text AS unit_cost_override,
           r.qty_before,
           r.qty_before + m.quantity AS qty_after,
-          p.unit_cost::text        AS unit_cost,
-          (COALESCE(p.unit_cost, 0) * m.quantity)::text AS cost_impact,
-          w.name                   AS warehouse_name,
-          p.name_en                AS product_name
+          COALESCE(m.unit_cost_override, p.unit_cost)::text  AS unit_cost,
+          (COALESCE(m.unit_cost_override, p.unit_cost, 0) * m.quantity)::text AS cost_impact,
+          w.name  AS warehouse_name,
+          p.name_en AS product_name
         FROM inventory_movements m
         JOIN running r ON r.id = m.id
         LEFT JOIN products p ON p.sku = m.sku AND p.organization_id = $1
@@ -137,20 +147,23 @@ export class InventoryService {
     const total = Number(countRows[0].count);
 
     const items = rows.map(r => ({
-      id:           Number(r.id),
-      sku:          r.sku,
-      movementType: r.movement_type,
-      quantity:     Number(r.quantity),
-      qtyBefore:    Number(r.qty_before),
-      qtyAfter:     Number(r.qty_after),
-      unitCost:     r.unit_cost ?? null,
-      costImpact:   r.cost_impact ? parseFloat(r.cost_impact) : null,
-      reference:    r.reference ?? null,
-      notes:        r.notes ?? null,
-      createdAt:    r.created_at,
-      invoiceId:    r.invoice_id ? Number(r.invoice_id) : null,
-      warehouse:    r.warehouse_name ? { id: Number(r.warehouse_id), name: r.warehouse_name } : null,
-      product:      r.product_name  ? { nameEn: r.product_name } : null,
+      id:               Number(r.id),
+      sku:              r.sku,
+      movementType:     r.movement_type,
+      quantity:         Number(r.quantity),
+      qtyBefore:        Number(r.qty_before),
+      qtyAfter:         Number(r.qty_after),
+      unitCost:         r.unit_cost ?? null,
+      costImpact:       r.cost_impact ? parseFloat(r.cost_impact) : null,
+      reference:        r.reference ?? null,
+      notes:            r.notes ?? null,
+      referenceType:    r.reference_type ?? null,
+      reasonCode:       r.reason_code ?? null,
+      unitCostOverride: r.unit_cost_override ?? null,
+      createdAt:        r.created_at,
+      invoiceId:        r.invoice_id ? Number(r.invoice_id) : null,
+      warehouse:        r.warehouse_name ? { id: Number(r.warehouse_id), name: r.warehouse_name } : null,
+      product:          r.product_name  ? { nameEn: r.product_name } : null,
     }));
 
     return { items, total, page, limit, pages: Math.ceil(total / limit) };
@@ -163,14 +176,17 @@ export class InventoryService {
 
     const movement = await this.prisma.inventoryMovement.create({
       data: {
-        organizationId: orgId,
-        sku: dto.sku,
-        productId: dto.productId,
-        warehouseId: dto.warehouseId,
-        movementType: dto.movementType,
-        quantity: dto.quantity,
-        reference: dto.reference,
-        notes: dto.notes,
+        organizationId:   orgId,
+        sku:              dto.sku,
+        productId:        dto.productId,
+        warehouseId:      dto.warehouseId,
+        movementType:     dto.movementType,
+        quantity:         dto.quantity,
+        reference:        dto.reference,
+        notes:            dto.notes,
+        referenceType:    dto.referenceType,
+        reasonCode:       dto.reasonCode,
+        unitCostOverride: dto.unitCostOverride,
       },
     });
 
@@ -330,28 +346,54 @@ export class InventoryService {
     const missingCost   = items.filter(i => !i.hasCost).length;
     const staleCount    = items.filter(i => i.isStale && i.qty > 0).length;
 
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const recentSaleSkus = new Set(
-      (await this.prisma.inventoryMovement.findMany({
+    // Time windows
+    const todayStart      = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const monthStart      = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+    const thirtyDaysAgo   = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const [todayCount, monthPurchases, monthIssues, recentSaleSkusData] = await Promise.all([
+      this.prisma.inventoryMovement.count({
+        where: { organizationId: orgId, isVoid: false, createdAt: { gte: todayStart } },
+      }),
+      this.prisma.inventoryMovement.aggregate({
+        where: {
+          organizationId: orgId, isVoid: false,
+          movementType: MovementType.purchase,
+          createdAt: { gte: monthStart },
+        },
+        _sum: { quantity: true },
+      }),
+      this.prisma.inventoryMovement.aggregate({
+        where: {
+          organizationId: orgId, isVoid: false,
+          movementType: { in: [MovementType.sale, MovementType.noon_sync, MovementType.noon_return] },
+          createdAt: { gte: monthStart },
+        },
+        _sum: { quantity: true },
+      }),
+      this.prisma.inventoryMovement.findMany({
         where: {
           organizationId: orgId,
           movementType: { in: [MovementType.sale, MovementType.noon_sync] },
-          isVoid: false,
-          createdAt: { gte: thirtyDaysAgo },
+          isVoid: false, createdAt: { gte: thirtyDaysAgo },
         },
-        select: { sku: true },
-        distinct: ['sku'],
-      })).map(m => m.sku)
-    );
+        select: { sku: true }, distinct: ['sku'],
+      }),
+    ]);
+
+    const recentSaleSkus = new Set(recentSaleSkusData.map(m => m.sku));
 
     return {
       kpis: {
-        totalValue:     parseFloat(totalValue.toFixed(2)),
-        totalSkus:      items.length,
+        totalValue:          parseFloat(totalValue.toFixed(2)),
+        totalSkus:           items.length,
         outOfStock,
         lowStock,
         missingCost,
-        staleInventory: staleCount,
+        staleInventory:      staleCount,
+        todayMovements:      todayCount,
+        thisMonthPurchases:  Number(monthPurchases._sum.quantity ?? 0),
+        thisMonthIssues:     Math.abs(Number(monthIssues._sum.quantity ?? 0)),
       },
       alerts: {
         zeroStockRecentSales: items

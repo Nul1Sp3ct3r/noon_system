@@ -109,6 +109,9 @@ export interface InventoryDashboard {
     lowStock: number;
     missingCost: number;
     staleInventory: number;
+    todayMovements: number;
+    thisMonthPurchases: number;
+    thisMonthIssues: number;
   };
   alerts: {
     zeroStockRecentSales:  Array<{ sku: string; nameEn: string | null; qty: number }>;
@@ -241,6 +244,9 @@ export interface InventoryMovement {
   costImpact: number | null;
   reference: string | null;
   notes: string | null;
+  referenceType: string | null;
+  reasonCode: string | null;
+  unitCostOverride: string | null;
   isVoid: boolean;
   invoiceId: number | null;
   warehouseId: number | null;
