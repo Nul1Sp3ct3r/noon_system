@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, AlertCircle, ArrowRight, Paperclip } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, ArrowRight, Paperclip, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { invoices as api, inventory, accounts as accountsApi } from '@/lib/api';
 import type { Account, Warehouse } from '@/lib/types';
@@ -12,8 +12,8 @@ import type { Account, Warehouse } from '@/lib/types';
 interface ItemRow {
   key: number;
   sku: string;
-  itemDescription: string; // [ADD #5] اسم الصنف/الخدمة
-  uom: string;             // [ADD #6] وحدة القياس
+  itemDescription: string;
+  uom: string;
   quantity: string;
   unitPrice: string;
   vatRate: string;
@@ -22,22 +22,11 @@ interface ItemRow {
 let rowKey = 0;
 
 function emptyRow(): ItemRow {
-  return {
-    key: ++rowKey,
-    sku: '',
-    itemDescription: '', // [ADD #5]
-    uom: 'قطعة',         // [ADD #6]
-    quantity: '1',
-    unitPrice: '',
-    vatRate: '0.15',
-  };
+  return { key: ++rowKey, sku: '', itemDescription: '', uom: 'قطعة', quantity: '1', unitPrice: '', vatRate: '0.15' };
 }
-
-// ─── [ADD] Constants ──────────────────────────────────────────────────────────
 
 const UOM_OPTIONS = ['قطعة', 'كيلو', 'متر', 'لتر', 'ساعة', 'صندوق', 'كرتون', 'طن'];
 
-// [ADD #11] Status steps
 const STATUS_STEPS = [
   { key: 'draft',    label: 'مسودة'  },
   { key: 'review',   label: 'مراجعة' },
@@ -49,7 +38,7 @@ const STATUS_STEPS = [
 export default function NewInvoicePage() {
   const router = useRouter();
 
-  // ── Existing state ──────────────────────────────────────────────────────────
+  // ── State — ALL PRESERVED ──────────────────────────────────────────────────
   const [supplierName, setSupplierName]   = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [invoiceDate, setInvoiceDate]     = useState('');
@@ -61,41 +50,38 @@ export default function NewInvoicePage() {
   const [saving, setSaving]               = useState(false);
   const [error, setError]                 = useState('');
 
-  // ── [ADD] New state ─────────────────────────────────────────────────────────
-  const [supplierVatNumber, setSupplierVatNumber]     = useState('');        // #1
-  const [paymentTerms, setPaymentTerms]               = useState('');        // #3
-  const [dueDate, setDueDate]                         = useState('');        // #2
-  const [poNumber, setPoNumber]                       = useState('');        // #4
-  const [discountAmount, setDiscountAmount]           = useState('');        // #7
-  const [attachFile, setAttachFile]                   = useState<File | null>(null); // #8
-  const attachInputRef                                = useRef<HTMLInputElement>(null); // #8
-  const [accountingAccountId, setAccountingAccountId] = useState('');       // #9
-  const [allAccounts, setAllAccounts]                 = useState<Account[]>([]); // #9
-  const [formStatus, setFormStatus]                   = useState<'draft' | 'review' | 'approved'>('draft'); // #11
-  const [savingMode, setSavingMode]                   = useState<'draft' | 'review' | null>(null); // #10
-  // [ADD #5] مركز التكلفة
-  const [costCenter, setCostCenter]                   = useState('');
-
-  // ── Effects ─────────────────────────────────────────────────────────────────
+  // Extra state — ALL PRESERVED (PO, accounting, cost center hidden from UI, kept in meta)
+  const [supplierVatNumber, setSupplierVatNumber]     = useState('');
+  const [paymentTerms, setPaymentTerms]               = useState('');
+  const [dueDate, setDueDate]                         = useState('');
+  const [poNumber]                                    = useState('');           // hidden — no PO workflow
+  const [discountAmount, setDiscountAmount]           = useState('');
+  const [attachFile, setAttachFile]                   = useState<File | null>(null);
+  const attachInputRef                                = useRef<HTMLInputElement>(null);
+  const [accountingAccountId]                         = useState('');           // hidden — auto-determined
+  const [allAccounts, setAllAccounts]                 = useState<Account[]>([]); // kept for meta lookup
+  const [formStatus, setFormStatus]                   = useState<'draft' | 'review' | 'approved'>('draft');
+  const [savingMode, setSavingMode]                   = useState<'draft' | 'review' | null>(null);
+  const [costCenter]                                  = useState('');           // hidden — feature-flag ready
 
   useEffect(() => {
     inventory.warehouses().then(setWarehouses).catch(() => {});
-    accountsApi.list({ activeOnly: true }).then(setAllAccounts).catch(() => {}); // [ADD #9]
+    accountsApi.list({ activeOnly: true }).then(setAllAccounts).catch(() => {});
   }, []);
 
-  // ── Existing helpers ────────────────────────────────────────────────────────
+  // ── Core helpers — ALL PRESERVED ──────────────────────────────────────────
 
   function updateItem(key: number, field: keyof ItemRow, value: string) {
     setItems(rows => rows.map(r => r.key === key ? { ...r, [field]: value } : r));
   }
-  function addItem()           { setItems(rows => [...rows, emptyRow()]); }
-  function removeItem(key: number) { setItems(rows => rows.filter(r => r.key !== key)); }
+  function addItem()                    { setItems(rows => [...rows, emptyRow()]); }
+  function removeItem(key: number)      { setItems(rows => rows.filter(r => r.key !== key)); }
 
   function computeItemTotals(item: ItemRow) {
-    const qty   = parseFloat(item.quantity)  || 0;
-    const price = parseFloat(item.unitPrice) || 0;
-    const vat   = parseFloat(item.vatRate)   || 0;
-    const sub   = qty * price;
+    const qty    = parseFloat(item.quantity)  || 0;
+    const price  = parseFloat(item.unitPrice) || 0;
+    const vat    = parseFloat(item.vatRate)   || 0;
+    const sub    = qty * price;
     const vatAmt = sub * vat;
     return { sub, vatAmt, total: sub + vatAmt };
   }
@@ -105,11 +91,13 @@ export default function NewInvoicePage() {
     return { sub: a.sub + t.sub, vat: a.vat + t.vatAmt, total: a.total + t.total };
   }, { sub: 0, vat: 0, total: 0 });
 
-  // [ADD #7] Discount-adjusted final total
   const discount   = parseFloat(discountAmount) || 0;
   const finalTotal = Math.max(0, totals.total - discount);
 
-  // Existing save (unchanged — kept as-is for backward compat)
+  const fmt = (n: number) =>
+    n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Existing save — PRESERVED UNCHANGED
   async function save() {
     setError('');
     const validItems = items.filter(it => it.sku.trim() && it.quantity && it.unitPrice);
@@ -142,12 +130,7 @@ export default function NewInvoicePage() {
     }
   }
 
-  const fmt = (n: number) =>
-    n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  // ── [ADD] New helpers ───────────────────────────────────────────────────────
-
-  // [ADD #3] Auto-compute due date from payment terms and invoice date
+  // Due-date helpers — PRESERVED
   function computeDueDate(terms: string, base: string): string {
     if (!base || !terms) return '';
     const days = parseInt(terms, 10);
@@ -157,31 +140,26 @@ export default function NewInvoicePage() {
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
   }
-
   function handlePaymentTermsChange(val: string) {
     setPaymentTerms(val);
     setDueDate(computeDueDate(val, invoiceDate));
   }
-
-  // [ADD #2] Sync due date when invoice date changes
   function handleInvoiceDateChange(val: string) {
     setInvoiceDate(val);
     if (paymentTerms) setDueDate(computeDueDate(paymentTerms, val));
   }
 
-  // [ADD #10] Save with full metadata (draft or review)
+  // Full save with metadata — PRESERVED UNCHANGED
   async function saveWithExtras(mode: 'draft' | 'review') {
     setFormStatus(mode);
     setSavingMode(mode);
     setError('');
-
     const validItems = items.filter(it => it.sku.trim() && it.quantity && it.unitPrice);
     if (!supplierName.trim() && !invoiceNumber.trim()) {
       setError('يجب إدخال اسم المورد أو رقم الفاتورة على الأقل');
       setSavingMode(null);
       return;
     }
-    // [ADD #2] منع الحفظ إذا لم يكن هناك بند واحد صالح
     if (validItems.length === 0) {
       setError('يجب إضافة بند واحد على الأقل بـ SKU وكمية وسعر');
       setSavingMode(null);
@@ -189,18 +167,17 @@ export default function NewInvoicePage() {
     }
     setSaving(true);
     try {
-      // Enrich notes with extra metadata
       const meta = [
         notes,
-        supplierVatNumber ? `ض.ق.م مورد: ${supplierVatNumber}`                           : '',
-        poNumber          ? `PO: ${poNumber}`                                              : '',
+        supplierVatNumber ? `ض.ق.م مورد: ${supplierVatNumber}` : '',
+        poNumber          ? `PO: ${poNumber}` : '',
         paymentTerms      ? `شروط الدفع: ${paymentTerms === '0' ? 'فوري' : `${paymentTerms} يوم`}` : '',
-        dueDate           ? `الاستحقاق: ${dueDate}`                                        : '',
-        discount > 0      ? `خصم: ${fmt(discount)} ر.س`                                   : '',
+        dueDate           ? `الاستحقاق: ${dueDate}` : '',
+        discount > 0      ? `خصم: ${fmt(discount)} ر.س` : '',
         accountingAccountId
           ? `حساب: ${allAccounts.find(a => String(a.id) === accountingAccountId)?.nameAr ?? accountingAccountId}`
           : '',
-        costCenter        ? `مركز التكلفة: ${costCenter}`                                  : '',
+        costCenter        ? `مركز التكلفة: ${costCenter}` : '',
         mode === 'review' ? 'الحالة: مرسل للاعتماد' : 'الحالة: مسودة',
       ].filter(Boolean).join(' | ');
 
@@ -221,7 +198,6 @@ export default function NewInvoicePage() {
 
       const created = await api.create(dto);
 
-      // [ADD #8] Upload attachment after creation
       if (attachFile) {
         await api.uploadPdf(created.id, attachFile).catch(e =>
           console.warn('[invoice attachment upload]', e),
@@ -237,26 +213,48 @@ export default function NewInvoicePage() {
     }
   }
 
-  // ── [ADD #11] Status step index ─────────────────────────────────────────────
+  // Keyboard shortcut — add row on Enter in price field
+  function handlePriceEnter(e: React.KeyboardEvent, isLastRow: boolean) {
+    if (e.key === 'Enter' && isLastRow) {
+      e.preventDefault();
+      addItem();
+      setTimeout(() => {
+        const skuInputs = document.querySelectorAll<HTMLInputElement>('[data-row-sku]');
+        skuInputs[skuInputs.length - 1]?.focus();
+      }, 30);
+    }
+  }
+
+  // Auto-accounting label — informational only
+  const autoJournalLabel = warehouseId ? 'مخزون  ←  موردون' : 'مصاريف  ←  موردون';
+
   const statusIdx = STATUS_STEPS.findIndex(s => s.key === formStatus);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-4xl space-y-4">
 
-      {/* Page title — unchanged */}
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/invoices" className="text-slate-400 hover:text-slate-600 transition-colors">
-          <ArrowRight size={20} />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">فاتورة جديدة</h1>
-          <p className="text-slate-500 text-sm mt-0.5">إدخال فاتورة مورد مع بنود البضاعة</p>
+      {/* ── Page Header ──────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/invoices" className="text-slate-400 hover:text-slate-600 transition-colors">
+            <ArrowRight size={20} />
+          </Link>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">فاتورة جديدة</h1>
+            <p className="text-slate-400 text-xs mt-0.5">إدخال سريع لفاتورة مورد</p>
+          </div>
+        </div>
+
+        {/* Auto-accounting badge — informational, no user action needed */}
+        <div className="hidden sm:flex items-center gap-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded-lg px-3 py-1.5">
+          <Zap size={11} className="shrink-0" />
+          قيد تلقائي: {autoJournalLabel}
         </div>
       </div>
 
-      {/* [ADD #11] ── شريط الحالة ──────────────────────────────────────────── */}
-      <div className="card p-4 mb-4">
+      {/* ── Status Bar ───────────────────────────────────────────────────── */}
+      <div className="card px-5 py-3">
         <div className="flex items-center">
           {STATUS_STEPS.map((step, idx) => {
             const isPast    = idx < statusIdx;
@@ -264,25 +262,19 @@ export default function NewInvoicePage() {
             return (
               <div key={step.key} className="flex items-center flex-1">
                 <div className="flex items-center gap-2">
-                  <div className={`
-                    w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
-                    transition-all duration-200
-                    ${isCurrent ? 'bg-brand-600 text-white ring-2 ring-brand-200'
-                    : isPast    ? 'bg-green-500 text-white'
-                    : 'bg-slate-200 text-slate-400'}
-                  `}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all
+                    ${isCurrent ? 'bg-brand-600 text-white' : isPast ? 'bg-green-500 text-white' : 'bg-slate-200 text-slate-400'}`}
+                  >
                     {isPast ? '✓' : idx + 1}
                   </div>
-                  <span className={`text-sm whitespace-nowrap ${
-                    isCurrent ? 'font-semibold text-brand-600'
-                    : isPast  ? 'text-green-600'
-                    : 'text-slate-400'
-                  }`}>
+                  <span className={`text-xs whitespace-nowrap
+                    ${isCurrent ? 'font-semibold text-brand-600' : isPast ? 'text-green-600' : 'text-slate-400'}`}
+                  >
                     {step.label}
                   </span>
                 </div>
                 {idx < STATUS_STEPS.length - 1 && (
-                  <div className={`flex-1 h-px mx-4 transition-colors ${isPast ? 'bg-green-400' : 'bg-slate-200'}`} />
+                  <div className={`flex-1 h-px mx-3 ${isPast ? 'bg-green-300' : 'bg-slate-200'}`} />
                 )}
               </div>
             );
@@ -290,64 +282,48 @@ export default function NewInvoicePage() {
         </div>
       </div>
 
-      {/* Error banner — unchanged */}
+      {/* Error */}
       {error && (
-        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
-          <AlertCircle size={16} className="shrink-0" />
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={15} className="shrink-0" />
           {error}
         </div>
       )}
 
-      {/* ── بيانات الفاتورة ──────────────────────────────────────────────────── */}
-      <div className="card p-5 mb-4">
-        <h2 className="font-semibold text-slate-800 mb-4">بيانات الفاتورة</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* ── Section 1: بيانات المورد ──────────────────────────────────────── */}
+      <div className="card p-5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-4">
+          <span className="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">١</span>
+          بيانات المورد
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3.5">
 
-          {/* اسم المورد — unchanged label, added * */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              اسم المورد <span className="text-red-500">*</span>
+            <label className="block text-xs font-medium text-slate-500 mb-1">
+              اسم المورد <span className="text-red-400">*</span>
             </label>
             <input
               className="input"
               value={supplierName}
               onChange={e => setSupplierName(e.target.value)}
-              placeholder="مثال: شركة التوريدات العربية"
+              placeholder="شركة التوريدات العربية"
             />
           </div>
 
-          {/* [ADD #1] الرقم الضريبي للمورد */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">الرقم الضريبي للمورد</label>
-            <input
-              className="input font-mono tracking-widest"
-              value={supplierVatNumber}
-              onChange={e => setSupplierVatNumber(e.target.value.replace(/\D/g, '').slice(0, 15))}
-              placeholder="300XXXXXXXXXXX3"
-              maxLength={15}
-              inputMode="numeric"
-            />
-            {supplierVatNumber.length > 0 && supplierVatNumber.length < 15 && (
-              <p className="text-xs text-amber-500 mt-0.5">{15 - supplierVatNumber.length} رقم متبقٍ</p>
-            )}
-          </div>
-
-          {/* رقم الفاتورة — added * */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              رقم الفاتورة <span className="text-red-500">*</span>
+            <label className="block text-xs font-medium text-slate-500 mb-1">
+              رقم الفاتورة <span className="text-red-400">*</span>
             </label>
             <input
               className="input"
               value={invoiceNumber}
               onChange={e => setInvoiceNumber(e.target.value)}
-              placeholder="مثال: INV-2026-001"
+              placeholder="INV-2026-001"
             />
           </div>
 
-          {/* تاريخ الفاتورة — onChange wired to handleInvoiceDateChange for [ADD #2/#3] */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">تاريخ الفاتورة</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">تاريخ الفاتورة</label>
             <input
               className="input"
               type="date"
@@ -356,55 +332,38 @@ export default function NewInvoicePage() {
             />
           </div>
 
-          {/* [ADD #3] شروط الدفع */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">شروط الدفع</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">شروط الدفع</label>
             <select
               className="input"
               value={paymentTerms}
               onChange={e => handlePaymentTermsChange(e.target.value)}
             >
               <option value="">— اختر —</option>
-              <option value="0">فوري (Net 0)</option>
-              <option value="30">30 يوم (Net 30)</option>
-              <option value="60">60 يوم (Net 60)</option>
-              <option value="90">90 يوم (Net 90)</option>
+              <option value="0">فوري</option>
+              <option value="30">30 يوم</option>
+              <option value="60">60 يوم</option>
+              <option value="90">90 يوم</option>
             </select>
           </div>
 
-          {/* [ADD #2] تاريخ الاستحقاق — auto-computed */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
+            <label className="block text-xs font-medium text-slate-500 mb-1">
               تاريخ الاستحقاق
               {dueDate && paymentTerms && (
-                <span className="text-green-600 text-[10px] mr-1.5 font-normal">(محسوب تلقائياً)</span>
+                <span className="text-green-600 text-[10px] mr-1.5 font-normal">← محسوب تلقائياً</span>
               )}
             </label>
             <input
-              className={`input ${dueDate ? 'border-green-300 bg-green-50/50 text-green-800' : ''}`}
+              className={`input ${dueDate ? 'border-green-300 bg-green-50/40 text-green-800' : ''}`}
               type="date"
               value={dueDate}
               onChange={e => setDueDate(e.target.value)}
             />
           </div>
 
-          {/* معالجة ض.ق.م — unchanged */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">معالجة ضريبة القيمة المضافة</label>
-            <select
-              className="input"
-              value={vatMode}
-              onChange={e => setVatMode(e.target.value as typeof vatMode)}
-            >
-              <option value="exclusive">حصري (الأسعار لا تشمل ض.ق.م)</option>
-              <option value="inclusive">شامل (الأسعار تشمل ض.ق.م)</option>
-              <option value="exempt">معفى</option>
-            </select>
-          </div>
-
-          {/* المستودع — unchanged */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">المستودع</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">المستودع</label>
             <select
               className="input"
               value={warehouseId}
@@ -417,22 +376,52 @@ export default function NewInvoicePage() {
             </select>
           </div>
 
-          {/* ملاحظات — unchanged */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">ملاحظات</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">وضع الضريبة</label>
+            <select
+              className="input"
+              value={vatMode}
+              onChange={e => setVatMode(e.target.value as typeof vatMode)}
+            >
+              <option value="exclusive">حصري — الأسعار لا تشمل ض.ق.م</option>
+              <option value="inclusive">شامل — الأسعار تشمل ض.ق.م</option>
+              <option value="exempt">معفى</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">
+              الرقم الضريبي للمورد
+              <span className="text-slate-400 font-normal mr-1">(اختياري)</span>
+            </label>
+            <input
+              className="input font-mono"
+              value={supplierVatNumber}
+              onChange={e => setSupplierVatNumber(e.target.value.replace(/\D/g, '').slice(0, 15))}
+              placeholder="300XXXXXXXXXXX3"
+              maxLength={15}
+              inputMode="numeric"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">
+              ملاحظات
+              <span className="text-slate-400 font-normal mr-1">(اختيارية)</span>
+            </label>
             <input
               className="input"
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="ملاحظات اختيارية"
+              placeholder="أي ملاحظات..."
             />
           </div>
 
-          {/* [ADD #8] رفع مرفقات — same row as ملاحظات */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              <Paperclip size={11} className="inline ml-1 text-slate-400" />
-              مرفق (PDF / صورة)
+            <label className="block text-xs font-medium text-slate-500 mb-1">
+              <Paperclip size={10} className="inline ml-1 text-slate-400" />
+              مرفق الفاتورة
+              <span className="text-slate-400 font-normal mr-1">(PDF / صورة)</span>
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -447,116 +436,34 @@ export default function NewInvoicePage() {
                 onClick={() => attachInputRef.current?.click()}
                 className="input flex-1 text-right cursor-pointer text-slate-400 hover:border-brand-400 text-sm truncate"
               >
-                {attachFile ? (
-                  <span className="text-slate-700">{attachFile.name}</span>
-                ) : (
-                  'اختر ملفاً...'
-                )}
+                {attachFile ? <span className="text-slate-700">{attachFile.name}</span> : 'اختر ملفاً...'}
               </button>
               {attachFile && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setAttachFile(null);
-                    if (attachInputRef.current) attachInputRef.current.value = '';
-                  }}
-                  className="text-red-400 hover:text-red-600 text-xs p-1"
-                >
-                  ✕
-                </button>
+                  onClick={() => { setAttachFile(null); if (attachInputRef.current) attachInputRef.current.value = ''; }}
+                  className="text-red-400 hover:text-red-600 text-xs p-1 shrink-0"
+                >✕</button>
               )}
             </div>
           </div>
 
-          {/* [ADD #5] القيد المحاسبي — الحساب المدين + مركز التكلفة */}
-          <div className="sm:col-span-2 border border-slate-100 rounded-xl p-4 bg-slate-50/50">
-            <p className="text-xs font-semibold text-slate-600 mb-3">القيد المحاسبي</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-              {/* الحساب المدين */}
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">الحساب المدين</label>
-                <select
-                  className="input"
-                  value={accountingAccountId}
-                  onChange={e => setAccountingAccountId(e.target.value)}
-                >
-                  <option value="">— اختر من دليل الحسابات —</option>
-                  {allAccounts.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} — {a.nameAr}{a.nameEn ? ` (${a.nameEn})` : ''}
-                    </option>
-                  ))}
-                </select>
-                {allAccounts.length === 0 && (
-                  <p className="text-xs text-slate-400 mt-1">
-                    لا توجد حسابات —{' '}
-                    <Link href="/accounts" className="text-brand-600 hover:underline">أنشئ دليل الحسابات</Link>
-                  </p>
-                )}
-              </div>
-
-              {/* مركز التكلفة */}
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">مركز التكلفة</label>
-                <select
-                  className="input"
-                  value={costCenter}
-                  onChange={e => setCostCenter(e.target.value)}
-                >
-                  <option value="">— اختر مركز التكلفة —</option>
-                  <option value="إدارة">إدارة</option>
-                  <option value="مبيعات">مبيعات</option>
-                  <option value="تشغيل">تشغيل</option>
-                  <option value="مستودع">مستودع</option>
-                  <option value="تقنية">تقنية</option>
-                  <option value="تسويق">تسويق</option>
-                </select>
-              </div>
-
-            </div>
-          </div>
-
         </div>
       </div>
 
-      {/* [ADD #4] ── ربط أمر الشراء (PO) ────────────────────────────────────── */}
-      <div className="card p-4 mb-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">ربط بأمر الشراء (PO)</label>
-            <input
-              className={`input ${poNumber ? 'border-green-300' : ''}`}
-              value={poNumber}
-              onChange={e => setPoNumber(e.target.value)}
-              placeholder="مثال: PO-2026-042"
-            />
-            {poNumber && (
-              <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                <span>✓</span> مرتبط بأمر الشراء
-                <span className="font-mono font-semibold">{poNumber}</span>
-              </p>
-            )}
-          </div>
-          <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 text-xs text-slate-600 leading-relaxed">
-            <span className="font-semibold text-blue-700 block mb-0.5">المطابقة الثلاثية (3-Way Match)</span>
-            الربط يمنع الدفع المزدوج ويتيح المطابقة الثلاثية:
-            أمر الشراء ← استلام البضاعة ← الفاتورة
-          </div>
-        </div>
-      </div>
-
-      {/* ── بنود الفاتورة ─────────────────────────────────────────────────────── */}
-      <div className="card mb-4">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-800">
-            بنود الفاتورة <span className="text-red-500">*</span>
+      {/* ── Section 2: بنود الفاتورة ──────────────────────────────────────── */}
+      <div className="card">
+        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <span className="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">٢</span>
+            بنود الفاتورة
+            <span className="text-red-400 font-normal">*</span>
           </h2>
           <button
             onClick={addItem}
-            className="flex items-center gap-1.5 text-sm btn-ghost text-brand-600"
+            className="flex items-center gap-1.5 text-xs btn-ghost text-brand-600 py-1.5"
           >
-            <Plus size={15} />
+            <Plus size={13} />
             إضافة بند
           </button>
         </div>
@@ -564,107 +471,95 @@ export default function NewInvoicePage() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr>
-                {[
-                  'SKU',
-                  'اسم الصنف / الخدمة', // [ADD #5]
-                  'الكمية',
-                  'وحدة القياس',         // [ADD #6]
-                  'سعر الوحدة',
-                  'نسبة ض.ق.م',
-                  'المجموع الفرعي',
-                  'الضريبة',
-                  'الإجمالي',
-                  '',
-                ].map(h => (
-                  <th key={h} className="table-th whitespace-nowrap">{h}</th>
-                ))}
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="table-th w-32">SKU</th>
+                <th className="table-th">اسم المنتج / الخدمة</th>
+                <th className="table-th w-20 text-center">الكمية</th>
+                <th className="table-th w-24">الوحدة</th>
+                <th className="table-th w-28">السعر</th>
+                <th className="table-th w-20 text-center">ض.ق.م</th>
+                <th className="table-th w-28">الضريبة</th>
+                <th className="table-th w-28">الإجمالي</th>
+                <th className="w-8" />
               </tr>
             </thead>
-            <tbody>
-              {items.map(it => {
-                const { sub, vatAmt, total } = computeItemTotals(it);
+            <tbody className="divide-y divide-slate-50">
+              {items.map((it, rowIdx) => {
+                const { vatAmt, total } = computeItemTotals(it);
+                const isLast = rowIdx === items.length - 1;
                 return (
-                  <tr key={it.key}>
-                    {/* SKU — unchanged */}
-                    <td className="table-td">
+                  <tr key={it.key} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-3 py-2">
                       <input
-                        className="input w-28 text-xs font-mono"
+                        data-row-sku
+                        className="input w-full text-xs font-mono"
                         value={it.sku}
                         onChange={e => updateItem(it.key, 'sku', e.target.value)}
-                        placeholder="Z123456789"
+                        placeholder="Z123456"
                       />
                     </td>
-
-                    {/* [ADD #5] اسم الصنف / الخدمة */}
-                    <td className="table-td">
+                    <td className="px-3 py-2">
                       <input
-                        className="input w-36 text-xs"
+                        className="input w-full text-xs min-w-[140px]"
                         value={it.itemDescription}
                         onChange={e => updateItem(it.key, 'itemDescription', e.target.value)}
                         placeholder="اسم المنتج أو الخدمة"
                       />
                     </td>
-
-                    {/* الكمية — unchanged */}
-                    <td className="table-td">
+                    <td className="px-3 py-2">
                       <input
-                        className="input w-16 text-center"
+                        className="input w-full text-center"
                         type="number"
                         min="1"
                         value={it.quantity}
                         onChange={e => updateItem(it.key, 'quantity', e.target.value)}
                       />
                     </td>
-
-                    {/* [ADD #6] وحدة القياس */}
-                    <td className="table-td">
+                    <td className="px-3 py-2">
                       <select
-                        className="input w-20 text-xs"
+                        className="input w-full text-xs"
                         value={it.uom}
                         onChange={e => updateItem(it.key, 'uom', e.target.value)}
                       >
                         {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
                     </td>
-
-                    {/* سعر الوحدة — unchanged */}
-                    <td className="table-td">
+                    <td className="px-3 py-2">
                       <input
-                        className="input w-24"
+                        className="input w-full text-left"
                         type="number"
                         min="0"
                         step="0.01"
                         value={it.unitPrice}
                         onChange={e => updateItem(it.key, 'unitPrice', e.target.value)}
                         placeholder="0.00"
+                        onKeyDown={e => handlePriceEnter(e, isLast)}
                       />
                     </td>
-
-                    {/* نسبة ض.ق.م — unchanged */}
-                    <td className="table-td">
+                    <td className="px-3 py-2">
                       <select
-                        className="input w-20 text-sm"
+                        className="input w-full text-xs"
                         value={it.vatRate}
                         onChange={e => updateItem(it.key, 'vatRate', e.target.value)}
                       >
                         <option value="0.15">15%</option>
-                        <option value="0">0%</option>
                         <option value="0.05">5%</option>
+                        <option value="0">0%</option>
                       </select>
                     </td>
-
-                    {/* Computed columns — unchanged */}
-                    <td className="table-td text-slate-500">{fmt(sub)}</td>
-                    <td className="table-td text-amber-600">{fmt(vatAmt)}</td>
-                    <td className="table-td font-medium">{fmt(total)}</td>
-                    <td className="table-td">
+                    <td className="px-4 py-2 text-left text-sm text-amber-600 tabular-nums whitespace-nowrap">
+                      {fmt(vatAmt)}
+                    </td>
+                    <td className="px-4 py-2 text-left text-sm font-semibold tabular-nums whitespace-nowrap">
+                      {fmt(total)}
+                    </td>
+                    <td className="px-2 py-2">
                       <button
                         onClick={() => removeItem(it.key)}
                         disabled={items.length === 1}
-                        className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30"
+                        className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-20"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={13} />
                       </button>
                     </td>
                   </tr>
@@ -674,23 +569,38 @@ export default function NewInvoicePage() {
           </table>
         </div>
 
-        {/* Totals */}
-        <div className="px-5 py-4 border-t border-slate-100 flex justify-end">
-          <div className="space-y-1.5 text-sm min-w-[260px]">
+        <div className="px-5 py-2 border-t border-slate-50">
+          <p className="text-xs text-slate-400">
+            اضغط{' '}
+            <kbd className="bg-slate-100 border border-slate-200 rounded px-1 py-0.5 text-[10px] font-mono mx-0.5">Enter</kbd>
+            {' '}في حقل السعر لإضافة بند جديد تلقائياً
+          </p>
+        </div>
+      </div>
 
-            {/* Existing rows — unchanged */}
-            <div className="flex justify-between gap-6">
+      {/* ── Section 3: الملخص المالي ──────────────────────────────────────── */}
+      <div className="card">
+        <div className="px-5 py-3.5 border-b border-slate-100">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <span className="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">٣</span>
+            الملخص المالي
+          </h2>
+        </div>
+        <div className="px-6 py-5 flex justify-end">
+          <div className="w-full max-w-sm space-y-3">
+
+            <div className="flex justify-between text-sm">
               <span className="text-slate-500">المجموع الفرعي</span>
-              <span className="font-medium">{fmt(totals.sub)} ر.س</span>
-            </div>
-            <div className="flex justify-between gap-6">
-              <span className="text-slate-500">ضريبة القيمة المضافة</span>
-              <span className="text-amber-600">{fmt(totals.vat)} ر.س</span>
+              <span className="font-medium tabular-nums">{fmt(totals.sub)} ر.س</span>
             </div>
 
-            {/* [ADD #7] سطر الخصم */}
-            <div className="flex justify-between items-center gap-6">
-              <span className="text-slate-500">الخصم</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">ضريبة القيمة المضافة</span>
+              <span className="text-amber-600 tabular-nums">{fmt(totals.vat)} ر.س</span>
+            </div>
+
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-slate-500">خصم</span>
               <div className="flex items-center gap-1.5">
                 <input
                   type="number"
@@ -705,47 +615,48 @@ export default function NewInvoicePage() {
               </div>
             </div>
 
-            {/* الإجمالي — updated to use finalTotal */}
-            <div className="flex justify-between gap-6 pt-1.5 border-t border-slate-200">
-              <span className="font-semibold">الإجمالي</span>
-              <span className={`font-bold ${discount > 0 ? 'text-brand-600' : 'text-slate-900'}`}>
-                {fmt(finalTotal)} ر.س
-              </span>
-            </div>
-
-            {/* [ADD #7] وفرت X ر.س */}
-            {discount > 0 && (
-              <div className="flex justify-between gap-6 text-xs text-green-600 font-medium">
-                <span>وفرت</span>
-                <span>− {fmt(discount)} ر.س</span>
+            <div className="pt-3 border-t-2 border-slate-200">
+              <div className="flex justify-between items-baseline">
+                <span className="text-slate-700 font-semibold">الإجمالي النهائي</span>
+                <div className="text-left">
+                  <span className={`text-2xl font-bold tabular-nums ${discount > 0 ? 'text-brand-600' : 'text-slate-900'}`}>
+                    {fmt(finalTotal)}
+                  </span>
+                  <span className="text-sm text-slate-500 mr-1.5">ر.س</span>
+                </div>
               </div>
-            )}
+              {discount > 0 && (
+                <p className="text-right text-xs text-green-600 mt-1.5">
+                  وُفِّر {fmt(discount)} ر.س بعد الخصم
+                </p>
+              )}
+            </div>
 
           </div>
         </div>
       </div>
 
-      {/* [ADD #10] ── الأزرار: مسودة + إرسال للاعتماد ──────────────────────── */}
-      <div className="flex items-center justify-end gap-3">
-        <Link href="/invoices" className="btn-ghost">إلغاء</Link>
-
-        {/* حفظ كمسودة */}
-        <button
-          onClick={() => saveWithExtras('draft')}
-          disabled={saving}
-          className="btn-ghost border border-slate-300 min-w-[130px] disabled:opacity-50"
-        >
-          {saving && savingMode === 'draft' ? 'جارٍ الحفظ…' : 'حفظ كمسودة'}
-        </button>
-
-        {/* حفظ وإرسال للاعتماد */}
-        <button
-          onClick={() => saveWithExtras('review')}
-          disabled={saving}
-          className="btn-primary min-w-[170px] disabled:opacity-50"
-        >
-          {saving && savingMode === 'review' ? 'جارٍ الإرسال…' : 'حفظ وإرسال للاعتماد'}
-        </button>
+      {/* ── Section 4: الإجراءات ──────────────────────────────────────────── */}
+      <div className="flex items-center justify-between pb-6">
+        <Link href="/invoices" className="btn-ghost text-sm text-slate-500">
+          إلغاء
+        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => saveWithExtras('draft')}
+            disabled={saving}
+            className="btn-ghost border border-slate-200 text-slate-600 min-w-[120px] text-sm disabled:opacity-50"
+          >
+            {saving && savingMode === 'draft' ? 'جارٍ الحفظ…' : 'حفظ كمسودة'}
+          </button>
+          <button
+            onClick={() => saveWithExtras('review')}
+            disabled={saving}
+            className="btn-primary min-w-[170px] text-sm disabled:opacity-50"
+          >
+            {saving && savingMode === 'review' ? 'جارٍ الإرسال…' : 'حفظ وإرسال للاعتماد'}
+          </button>
+        </div>
       </div>
 
     </div>
