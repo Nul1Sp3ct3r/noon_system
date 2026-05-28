@@ -1,18 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ShoppingCart, Package, TrendingUp, TrendingDown, AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+} from 'recharts';
 import { dashboard } from '@/lib/api';
 
 const fmt = (n: number) =>
   n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const fmt0 = (n: number) =>
+  n.toLocaleString('ar-SA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
 type DashData = Awaited<ReturnType<typeof dashboard.getData>>;
 
+const PIE_COLORS = ['#10b981', '#f59e0b'];
+
 export default function DashboardPage() {
-  const [data, setData]     = useState<DashData | null>(null);
+  const [data, setData]       = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState('');
+  const [error, setError]     = useState('');
 
   function load() {
     setLoading(true);
@@ -27,6 +36,11 @@ export default function DashboardPage() {
 
   const s = data?.summary;
   const profitable = s && s.netProfit >= 0;
+
+  const pieData = data ? [
+    { name: 'مسلّم', value: data.orderStatus?.delivered ?? s?.deliveredCount ?? 0 },
+    { name: 'مرتجع', value: data.orderStatus?.returned ?? s?.returnedCount ?? 0 },
+  ] : [];
 
   return (
     <div className="space-y-6">
@@ -89,6 +103,84 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Revenue Line Chart */}
+        <div className="card p-5 lg:col-span-2">
+          <h2 className="font-semibold text-slate-800 mb-4">الإيرادات اليومية</h2>
+          {loading || !data?.dailyRevenue?.length ? (
+            <div className="h-48 flex items-center justify-center text-slate-400 text-sm">
+              {loading ? 'جارٍ التحميل…' : 'لا توجد بيانات'}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={data.dailyRevenue} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  tickFormatter={d => d.slice(5)}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  tickFormatter={v => fmt0(v)}
+                  width={60}
+                />
+                <Tooltip
+                  formatter={(v) => [`${fmt(Number(v ?? 0))} ر.س`, 'الإيرادات']}
+                  labelFormatter={l => `تاريخ: ${l}`}
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Delivered / Returned Doughnut */}
+        <div className="card p-5">
+          <h2 className="font-semibold text-slate-800 mb-4">توزيع الطلبات</h2>
+          {loading || (pieData[0].value === 0 && pieData[1].value === 0) ? (
+            <div className="h-48 flex items-center justify-center text-slate-400 text-sm">
+              {loading ? 'جارٍ التحميل…' : 'لا توجد بيانات'}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="45%"
+                  innerRadius={55}
+                  outerRadius={80}
+                  paddingAngle={3}
+                  dataKey="value"
+                >
+                  {pieData.map((_, i) => (
+                    <Cell key={i} fill={PIE_COLORS[i]} />
+                  ))}
+                </Pie>
+                <Legend
+                  formatter={(value) => <span style={{ fontSize: 12 }}>{value}</span>}
+                />
+                <Tooltip
+                  formatter={(v) => [Number(v ?? 0).toLocaleString('ar-SA'), '']}
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Products */}
         <div className="card">
@@ -131,6 +223,7 @@ export default function DashboardPage() {
               { href: '/vat-center',   label: 'ضريبة القيمة المضافة' },
               { href: '/settlements',  label: 'التسويات' },
               { href: '/calculator',   label: 'حاسبة التسعير' },
+              { href: '/profitability', label: 'الربحية' },
             ].map(({ href, label }) => (
               <a
                 key={href}
