@@ -11,6 +11,7 @@ import { VatCenterService } from '../vat-center/vat-center.service';
 import { SettlementsService } from '../settlements/settlements.service';
 import { ProfitabilityService } from '../profitability/profitability.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { ReportRangeDto, SalesReportDto, FeesReportDto } from '../reports/dto/report-query.dto';
 
 const BADGE_AR: Record<string, string> = {
@@ -52,6 +53,7 @@ export class ExportsController {
     private vatCenter: VatCenterService,
     private settlements: SettlementsService,
     private profitability: ProfitabilityService,
+    private inventorySvc: InventoryService,
     private prisma: PrismaService,
   ) {}
 
@@ -233,5 +235,43 @@ export class ExportsController {
     }
     ws.columns.forEach(c => { c.width = 18; });
     return sendXlsx(res, wb, `orders.xlsx`);
+  }
+
+  @Get('inventory-stock')
+  async exportInventoryStock(
+    @CurrentUser() user: JwtPayload,
+    @Res() res: Response,
+  ) {
+    const { items } = await this.inventorySvc.getStockEnriched(user.orgId, { page: 1, limit: 99999 });
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('المخزون');
+    ws.views = [{ rightToLeft: true }];
+    applyHeader(ws, [
+      'SKU', 'الاسم', 'الماركة', 'المستودع',
+      'الكمية', 'تكلفة الوحدة', 'آخر تكلفة شراء', 'سعر البيع',
+      'هامش الربح %', 'القيمة الإجمالية', 'آخر حركة', 'الحالة',
+    ]);
+    const STATUS_AR: Record<string, string> = {
+      in_stock: 'متوفر', low_stock: 'مخزون منخفض', out_of_stock: 'نفاد المخزون',
+    };
+    for (const r of items) {
+      ws.addRow([
+        r.sku,
+        r.nameEn ?? r.nameAr ?? '',
+        r.brand ?? '',
+        r.warehouse?.name ?? '',
+        r.qty,
+        r.unitCost      ? Number(r.unitCost)      : '',
+        r.lastPurchaseCost ? Number(r.lastPurchaseCost) : '',
+        r.sellingPrice  ? Number(r.sellingPrice)  : '',
+        r.expectedMarginPct != null ? r.expectedMarginPct : '',
+        r.totalValue    != null     ? r.totalValue         : '',
+        r.lastMovementDate ? r.lastMovementDate.slice(0, 10) : '',
+        STATUS_AR[r.stockStatus] ?? r.stockStatus,
+      ]);
+    }
+    ws.columns.forEach(c => { c.width = 18; });
+    return sendXlsx(res, wb, `inventory_stock.xlsx`);
   }
 }

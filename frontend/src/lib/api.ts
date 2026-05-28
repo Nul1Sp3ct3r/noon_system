@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -170,6 +170,15 @@ export const inventory = {
   stock: (warehouseId?: number) =>
     http<InventoryStock[]>(`/api/v1/inventory/stock${warehouseId ? `?warehouseId=${warehouseId}` : ''}`),
 
+  stockEnriched: (params?: {
+    q?: string; warehouseId?: number; stockStatus?: string;
+    missingCost?: boolean; staleStock?: boolean; negativeMargin?: boolean;
+    page?: number; limit?: number;
+  }) =>
+    http<PaginatedResponse<InventoryStockDetail>>(`/api/v1/inventory/stock-enriched?${qs(params)}`),
+
+  dashboard: () => http<InventoryDashboard>('/api/v1/inventory/dashboard'),
+
   warehouses: () => http<Warehouse[]>('/api/v1/inventory/warehouses'),
 
   movements: (params?: { sku?: string; warehouseId?: number; movementType?: string; from?: string; to?: string; page?: number; limit?: number }) =>
@@ -177,6 +186,10 @@ export const inventory = {
 
   createMovement: (dto: object) =>
     http<InventoryMovement>('/api/v1/inventory/movements', { method: 'POST', body: JSON.stringify(dto) }),
+
+  adjustStock: (dto: { sku: string; warehouseId?: number; newQty: number; reason: string }) =>
+    http<{ adjusted: boolean; previousQty: number; newQty: number; diff: number; reference?: string }>
+      ('/api/v1/inventory/adjust', { method: 'POST', body: JSON.stringify(dto) }),
 };
 
 // ── Reports ────────────────────────────────────────────────────────────────────
@@ -253,6 +266,23 @@ export const imports = {
   deleteBatch: (batchId: string) =>
     http<{ deleted: boolean }>(`/api/v1/imports/batches/${batchId}`, { method: 'DELETE' }),
 };
+
+// ── Exports (inventory-stock is a direct endpoint, not generic /exports/:type) ─
+
+export async function downloadInventoryExport(): Promise<void> {
+  const token = Cookies.get('token');
+  const res = await fetch(`${BASE}/api/v1/exports/inventory-stock`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`Export failed: HTTP ${res.status}`);
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'inventory_stock.xlsx';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // ── Journals ───────────────────────────────────────────────────────────────────
 

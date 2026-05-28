@@ -4,9 +4,10 @@ import { ReportsModule } from '../reports/reports.module';
 import { VatCenterModule } from '../vat-center/vat-center.module';
 import { SettlementsModule } from '../settlements/settlements.module';
 import { ProfitabilityModule } from '../profitability/profitability.module';
+import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [ReportsModule, VatCenterModule, SettlementsModule, ProfitabilityModule],
+  imports: [ReportsModule, VatCenterModule, SettlementsModule, ProfitabilityModule, InventoryModule],
   controllers: [ExportsController],
 })
 export class ExportsModule {}

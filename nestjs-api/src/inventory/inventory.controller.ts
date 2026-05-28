@@ -19,6 +19,8 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { CreateMovementDto } from './dto/create-movement.dto';
 import { ListMovementsDto } from './dto/list-movements.dto';
+import { StockQueryDto } from './dto/stock-query.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -61,7 +63,7 @@ export class InventoryController {
   // ─── Movements ────────────────────────────────────────────────────────────────
 
   @Get('movements')
-  @ApiOperation({ summary: 'List inventory movements with filters' })
+  @ApiOperation({ summary: 'List inventory movements with running qty totals, unit cost, cost impact' })
   findAllMovements(@Query() query: ListMovementsDto, @CurrentUser() user: JwtPayload) {
     return this.inventory.findAllMovements(user.orgId, query);
   }
@@ -73,10 +75,10 @@ export class InventoryController {
     return this.inventory.createMovement(dto, user.orgId, user.sub);
   }
 
-  // ─── Stock ────────────────────────────────────────────────────────────────────
+  // ─── Stock (legacy simple) ────────────────────────────────────────────────────
 
   @Get('stock')
-  @ApiOperation({ summary: 'Get current stock levels per SKU (sum of non-voided movements)' })
+  @ApiOperation({ summary: 'Simple stock levels per SKU (sum of non-voided movements)' })
   @ApiQuery({ name: 'warehouseId', required: false, type: Number })
   getStockLevels(
     @Query('warehouseId') warehouseId: string | undefined,
@@ -86,5 +88,27 @@ export class InventoryController {
       user.orgId,
       warehouseId ? parseInt(warehouseId, 10) : undefined,
     );
+  }
+
+  // ─── Enriched stock ───────────────────────────────────────────────────────────
+
+  @Get('stock-enriched')
+  @ApiOperation({ summary: 'Enriched stock: costs, margins, movement dates, status, paginated' })
+  getStockEnriched(@Query() query: StockQueryDto, @CurrentUser() user: JwtPayload) {
+    return this.inventory.getStockEnriched(user.orgId, query);
+  }
+
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Inventory KPIs and financial alerts' })
+  getInventoryDashboard(@CurrentUser() user: JwtPayload) {
+    return this.inventory.getInventoryDashboard(user.orgId);
+  }
+
+  @Post('adjust')
+  @Roles(Role.admin, Role.super_admin)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Adjust physical stock count — creates adjustment movement' })
+  adjustStock(@Body() dto: AdjustStockDto, @CurrentUser() user: JwtPayload) {
+    return this.inventory.adjustStock(dto, user.orgId, user.sub);
   }
 }

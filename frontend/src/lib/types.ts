@@ -79,6 +79,45 @@ export interface InventoryStock {
   totalCost: number | null;
 }
 
+export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
+
+export interface InventoryStockDetail {
+  sku: string;
+  nameEn: string | null;
+  nameAr: string | null;
+  brand: string | null;
+  warehouse: { id: number; name: string; code: string | null } | null;
+  qty: number;
+  unitCost: string | null;
+  extraCosts: string | null;
+  lastPurchaseCost: string | null;
+  sellingPrice: string | null;
+  expectedMarginPct: number | null;
+  totalValue: number | null;
+  lastMovementDate: string | null;
+  stockStatus: StockStatus;
+  isStale: boolean;
+  hasCost: boolean;
+  costExceedsPrice: boolean;
+}
+
+export interface InventoryDashboard {
+  kpis: {
+    totalValue: number;
+    totalSkus: number;
+    outOfStock: number;
+    lowStock: number;
+    missingCost: number;
+    staleInventory: number;
+  };
+  alerts: {
+    zeroStockRecentSales:  Array<{ sku: string; nameEn: string | null; qty: number }>;
+    missingCostInStock:    Array<{ sku: string; nameEn: string | null; qty: number }>;
+    costExceedsPrice:      Array<{ sku: string; nameEn: string | null; unitCost: string | null; sellingPrice: string | null }>;
+    noMovement60Days:      Array<{ sku: string; nameEn: string | null; qty: number; lastMovementDate: string | null }>;
+  };
+}
+
 export interface PlRow {
   month: string;
   revenue: number;
@@ -196,6 +235,10 @@ export interface InventoryMovement {
   sku: string;
   movementType: string;
   quantity: number;
+  qtyBefore: number;
+  qtyAfter: number;
+  unitCost: string | null;
+  costImpact: number | null;
   reference: string | null;
   notes: string | null;
   isVoid: boolean;
@@ -203,7 +246,7 @@ export interface InventoryMovement {
   warehouseId: number | null;
   createdAt: string;
   warehouse: { id: number; name: string } | null;
-  product: { id: number; sku: string; nameEn: string | null } | null;
+  product: { id?: number; sku?: string; nameEn: string | null } | null;
 }
 
 export interface SalesRow {
