@@ -15,6 +15,7 @@ const NAV = [
   { href: '/',               label: 'لوحة التحكم',  icon: LayoutDashboard },
   { href: '/import',         label: 'الاستيراد',    icon: Upload },
   { href: '/products',       label: 'المنتجات',      icon: Package },
+  { href: '/costs',          label: 'إدارة التكاليف', icon: Package },
   { href: '/orders',         label: 'الطلبات',       icon: ShoppingCart },
   { href: '/invoices',       label: 'الفواتير',      icon: FileText },
   { href: '/inventory',      label: 'المخزون',       icon: Warehouse },

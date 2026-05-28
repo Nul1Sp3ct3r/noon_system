@@ -125,6 +125,7 @@ export default function DashboardPage() {
               { href: '/import',       label: 'استيراد CSV' },
               { href: '/orders',       label: 'الطلبات' },
               { href: '/products',     label: 'المنتجات' },
+              { href: '/costs',        label: 'إدارة التكاليف' },
               { href: '/invoices',     label: 'الفواتير' },
               { href: '/reports',      label: 'التقارير' },
               { href: '/vat-center',   label: 'ضريبة القيمة المضافة' },

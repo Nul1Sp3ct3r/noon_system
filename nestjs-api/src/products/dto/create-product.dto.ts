@@ -65,4 +65,10 @@ export class CreateProductDto {
   @IsBoolean()
   @IsOptional()
   costIncludesVat?: boolean;
+
+  @ApiPropertyOptional({ example: 'ملاحظات خاصة بهذا المنتج' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  notes?: string;
 }

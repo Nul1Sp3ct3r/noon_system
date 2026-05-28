@@ -15,11 +15,12 @@ interface ProductForm {
   unitCost: string;
   extraCosts: string;
   costIncludesVat: boolean;
+  notes: string;
 }
 
 const emptyForm = (): ProductForm => ({
   sku: '', partnerSku: '', nameAr: '', nameEn: '',
-  brand: '', family: '', unitCost: '', extraCosts: '', costIncludesVat: false,
+  brand: '', family: '', unitCost: '', extraCosts: '', costIncludesVat: false, notes: '',
 });
 
 export default function ProductsPage() {
@@ -77,6 +78,7 @@ export default function ProductsPage() {
       unitCost:       p.unitCost ?? '',
       extraCosts:     p.extraCosts ?? '',
       costIncludesVat: p.costIncludesVat,
+      notes:          p.notes ?? '',
     });
     setFormError('');
     setShowModal(true);
@@ -97,6 +99,7 @@ export default function ProductsPage() {
         unitCost:       form.unitCost   ? parseFloat(form.unitCost).toFixed(4)   : undefined,
         extraCosts:     form.extraCosts ? parseFloat(form.extraCosts).toFixed(4) : undefined,
         costIncludesVat: form.costIncludesVat,
+        notes:          form.notes || undefined,
       };
       if (editId !== null) {
         await api.update(editId, dto);
@@ -272,6 +275,10 @@ export default function ProductsPage() {
                     className="w-4 h-4 rounded accent-brand-600"
                   />
                   <label htmlFor="costIncludesVat" className="text-sm text-slate-600">التكلفة تشمل ض.ق.م</label>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">ملاحظات</label>
+                  <input className="input text-xs" value={form.notes} onChange={set('notes')} placeholder="ملاحظات خاصة بهذا المنتج" />
                 </div>
               </div>
             </div>
