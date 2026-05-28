@@ -240,16 +240,16 @@ export default function ImportPage() {
           <table className="w-full">
             <thead>
               <tr>
-                {['النوع', 'اسم الملف', 'رقم الكشف', 'التاريخ', 'مستوردة', 'طلبات', 'مرتجعات', 'رسوم', 'الحالة', ''].map(h => (
+                {['النوع', 'اسم الملف', 'رقم الكشف', 'تاريخ الكشف', 'تاريخ الاستيراد', 'مستوردة', 'متخطاة', 'طلبات', 'مرتجعات', 'رسوم', 'الحالة', ''].map(h => (
                   <th key={h} className="table-th">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loadingList ? (
-                <tr><td colSpan={10} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
+                <tr><td colSpan={12} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
               ) : batches.length === 0 ? (
-                <tr><td colSpan={10} className="table-td text-center py-10 text-slate-400">لا توجد عمليات استيراد سابقة</td></tr>
+                <tr><td colSpan={12} className="table-td text-center py-10 text-slate-400">لا توجد عمليات استيراد سابقة</td></tr>
               ) : batches.map(b => (
                 <tr key={b.batchId} className="hover:bg-slate-50">
                   <td className="table-td">
@@ -260,14 +260,16 @@ export default function ImportPage() {
                       {b.importType === 'monthly_statement' ? 'شهري' : 'مبيعات'}
                     </span>
                   </td>
-                  <td className="table-td font-mono text-xs max-w-[180px] truncate" title={b.fileName ?? undefined}>
+                  <td className="table-td font-mono text-xs max-w-[150px] truncate" title={b.fileName ?? undefined}>
                     {b.fileName ?? '—'}
                   </td>
                   <td className="table-td font-mono text-xs">{b.statementNr ?? '—'}</td>
+                  <td className="table-td text-slate-400 text-xs">{b.statementDate ?? '—'}</td>
                   <td className="table-td text-slate-400 text-xs">
                     {new Date(b.createdAt).toLocaleString('ar-SA')}
                   </td>
-                  <td className="table-td">{b.rowsImported.toLocaleString('ar-SA')}</td>
+                  <td className="table-td text-emerald-700 font-medium">{b.rowsImported.toLocaleString('ar-SA')}</td>
+                  <td className="table-td text-slate-400">{b.rowsSkipped.toLocaleString('ar-SA')}</td>
                   <td className="table-td">{b.salesCount.toLocaleString('ar-SA')}</td>
                   <td className="table-td">{b.returnsCount.toLocaleString('ar-SA')}</td>
                   <td className="table-td">{b.feesCount.toLocaleString('ar-SA')}</td>
