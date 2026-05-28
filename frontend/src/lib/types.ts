@@ -387,8 +387,9 @@ export interface GeneralLedger {
   closingBalance: number;
 }
 
-export type PaymentMethod = 'bank_transfer' | 'cash' | 'credit_card' | 'check' | 'other';
-export type ExpenseStatus = 'draft' | 'posted';
+export type PaymentMethod = 'bank_transfer' | 'cash' | 'credit_card' | 'check' | 'other'
+  | 'treasury' | 'stc_pay' | 'employee_advance' | 'deferred';
+export type ExpenseStatus = 'draft' | 'posted' | 'pending_approval' | 'approved' | 'paid' | 'rejected';
 
 export interface ExpenseCategory {
   id: number;
@@ -414,6 +415,9 @@ export interface Expense {
   notes: string | null;
   attachmentName: string | null;
   attachmentMime: string | null;
+  vatTreatment: string | null;
+  costCenter: string | null;
+  accountCode: string | null;
   status: ExpenseStatus;
   journalEntryId: number | null;
   createdAt: string;
@@ -428,4 +432,6 @@ export interface ExpenseStats {
   count: number;
   thisMonth: number;
   topCategory: string | null;
+  unpaidExpenses: number;
+  monthlyAverage: number;
 }

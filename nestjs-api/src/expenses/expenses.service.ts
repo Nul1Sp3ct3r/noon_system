@@ -80,7 +80,7 @@ export class ExpensesService {
   // ─── CRUD ─────────────────────────────────────────────────────────────────────
 
   async findAll(orgId: number, query: ListExpensesDto) {
-    const { from, to, q, vendor, categoryId, paymentMethod, status, page = 1, limit = 50 } = query;
+    const { from, to, q, vendor, categoryId, paymentMethod, status, amountMin, amountMax, page = 1, limit = 50 } = query;
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId: orgId };
@@ -89,6 +89,12 @@ export class ExpensesService {
     if (categoryId) where.categoryId = categoryId;
     if (paymentMethod) where.paymentMethod = paymentMethod;
     if (vendor) where.vendor = { contains: vendor, mode: 'insensitive' };
+    if (amountMin != null || amountMax != null) {
+      where.totalAmount = {
+        ...(amountMin != null ? { gte: amountMin } : {}),
+        ...(amountMax != null ? { lte: amountMax } : {}),
+      };
+    }
     if (q) {
       where.OR = [
         { description:     { contains: q, mode: 'insensitive' } },
@@ -152,12 +158,34 @@ export class ExpensesService {
       topCategory = cat?.name ?? null;
     }
 
+    // Unpaid = draft + pending_approval + approved (committed but not disbursed)
+    const [unpaidCount, yearAgg] = await Promise.all([
+      this.prisma.expense.count({
+        where: {
+          organizationId: orgId,
+          status: { in: ['draft', 'pending_approval', 'approved'] as any },
+        },
+      }),
+      this.prisma.expense.aggregate({
+        where: {
+          organizationId: orgId,
+          status: { in: ['posted', 'paid'] as any },
+          expenseDate: { gte: new Date(new Date().getFullYear() - 1, new Date().getMonth(), 1).toISOString().slice(0, 10) },
+        },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+
+    const monthlyAverage = parseFloat((Number(yearAgg._sum.totalAmount ?? 0) / 12).toFixed(2));
+
     return {
       totalExpenses:   Number(totalAgg._sum.totalAmount ?? 0),
       totalVat:        Number(vatAgg._sum.vatAmount ?? 0),
       count:           totalAgg._count.id,
       thisMonth:       Number(monthAgg._sum.totalAmount ?? 0),
       topCategory,
+      unpaidExpenses:  unpaidCount,
+      monthlyAverage,
     };
   }
 
@@ -188,6 +216,10 @@ export class ExpensesService {
           paymentMethod:   dto.paymentMethod ?? PaymentMethod.bank_transfer,
           referenceNumber: dto.referenceNumber,
           notes:           dto.notes,
+          vatTreatment:    dto.vatTreatment,
+          costCenter:      dto.costCenter,
+          accountCode:     dto.accountCode,
+          status:          dto.status ?? undefined,
           createdById:     userId ?? null,
         },
         include: INCLUDE_EXPENSE,
@@ -215,6 +247,10 @@ export class ExpensesService {
           paymentMethod:   dto.paymentMethod,
           referenceNumber: dto.referenceNumber,
           notes:           dto.notes,
+          vatTreatment:    dto.vatTreatment,
+          costCenter:      dto.costCenter,
+          accountCode:     dto.accountCode,
+          status:          dto.status ?? undefined,
         },
         include: INCLUDE_EXPENSE,
       }),

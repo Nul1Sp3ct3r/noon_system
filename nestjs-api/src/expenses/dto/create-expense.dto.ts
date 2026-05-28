@@ -3,7 +3,7 @@ import {
   IsOptional, IsString, MaxLength, Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PaymentMethod } from '@prisma/client';
+import { ExpenseStatus, PaymentMethod } from '@prisma/client';
 
 export class CreateExpenseDto {
   @IsDateString()
@@ -35,4 +35,17 @@ export class CreateExpenseDto {
 
   @IsString() @IsOptional()
   notes?: string;
+
+  // ── Enrichment fields ────────────────────────────────────────────────────────
+  @IsString() @IsOptional() @MaxLength(64)
+  vatTreatment?: string;
+
+  @IsString() @IsOptional() @MaxLength(128)
+  costCenter?: string;
+
+  @IsString() @IsOptional() @MaxLength(32)
+  accountCode?: string;
+
+  @IsEnum(ExpenseStatus) @IsOptional()
+  status?: ExpenseStatus;
 }

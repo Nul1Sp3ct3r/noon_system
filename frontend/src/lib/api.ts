@@ -433,7 +433,7 @@ export async function downloadExport(type: string, params?: object): Promise<voi
 // ── Expenses ─────────────────────────────────────────────────────────────────
 
 export const expenses = {
-  list: (params?: { from?: string; to?: string; q?: string; vendor?: string; categoryId?: number; paymentMethod?: string; status?: string; page?: number; limit?: number }) =>
+  list: (params?: { from?: string; to?: string; q?: string; vendor?: string; categoryId?: number; paymentMethod?: string; status?: string; amountMin?: number; amountMax?: number; page?: number; limit?: number }) =>
     http<PaginatedResponse<Expense>>(`/api/v1/expenses?${qs(params)}`),
 
   stats: (params?: { from?: string; to?: string }) =>

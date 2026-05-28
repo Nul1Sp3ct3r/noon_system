@@ -60,6 +60,10 @@ enum JournalStatus {
 enum ExpenseStatus {
   draft
   posted
+  pending_approval
+  approved
+  paid
+  rejected
 }
 
 enum PaymentMethod {
@@ -68,6 +72,10 @@ enum PaymentMethod {
   credit_card
   check
   other
+  treasury
+  stc_pay
+  employee_advance
+  deferred
 }
 
 // ─── Organizations ─────────────────────────────────────────────────────────────
@@ -528,6 +536,9 @@ model Expense {
   paymentMethod   PaymentMethod @default(bank_transfer) @map("payment_method")
   referenceNumber String?       @map("reference_number")
   notes           String?
+  vatTreatment    String?       @map("vat_treatment")
+  costCenter      String?       @map("cost_center")
+  accountCode     String?       @map("account_code")
   attachmentData  Bytes?        @map("attachment_data")
   attachmentName  String?       @map("attachment_name")
   attachmentMime  String?       @map("attachment_mime")

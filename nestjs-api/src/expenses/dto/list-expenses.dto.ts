@@ -1,15 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDateString, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListExpensesDto {
-  @IsDateString() @IsOptional()
-  from?: string;
-
-  @IsDateString() @IsOptional()
-  to?: string;
+  @IsDateString() @IsOptional() from?: string;
+  @IsDateString() @IsOptional() to?: string;
 
   @IsString() @IsOptional()
-  q?: string;
+  q?: string;         // combined search: vendor + description + referenceNumber
 
   @IsString() @IsOptional()
   vendor?: string;
@@ -22,6 +19,12 @@ export class ListExpensesDto {
 
   @IsString() @IsOptional()
   status?: string;
+
+  @IsNumber() @Min(0) @Type(() => Number) @IsOptional()
+  amountMin?: number;
+
+  @IsNumber() @Min(0) @Type(() => Number) @IsOptional()
+  amountMax?: number;
 
   @Type(() => Number) @IsInt() @Min(1) @IsOptional()
   page?: number = 1;
