@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm run build && npx prisma generate",
+  "buildCommand": "npx prisma generate && npm run build && npx prisma migrate deploy",
   "installCommand": "npm ci",
   "functions": {
     "api/index.ts": {
