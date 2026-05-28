@@ -227,3 +227,21 @@ export interface FeesRow {
   revenue: number;
   feeRate: number;
 }
+
+export interface JournalLine {
+  id: number;
+  journalId: number;
+  accountAr: string;
+  debit: string;
+  credit: string;
+}
+
+export interface JournalEntry {
+  id: number;
+  entryDate: string;
+  description: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  createdAt: string;
+  lines: JournalLine[];
+}

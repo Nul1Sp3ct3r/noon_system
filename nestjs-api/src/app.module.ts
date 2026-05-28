@@ -21,6 +21,7 @@ import { AdminModule } from './admin/admin.module';
 import { HealthModule } from './health/health.module';
 import { CalculatorModule } from './calculator/calculator.module';
 import { ExportsModule } from './exports/exports.module';
+import { JournalsModule } from './journals/journals.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -65,6 +66,7 @@ import { AppController } from './app.controller';
     HealthModule,
     CalculatorModule,
     ExportsModule,
+    JournalsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

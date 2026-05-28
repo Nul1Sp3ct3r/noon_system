@@ -58,6 +58,7 @@ model Organization {
   importBatches  ImportBatch[]
   statementFees  StatementFee[]
   auditLogs      AuditLog[]
+  journalEntries JournalEntry[]
 
   @@map("organizations")
 }
@@ -341,4 +342,36 @@ model AuditLog {
   @@index([createdAt])
   @@index([action])
   @@map("audit_logs")
+}
+
+// ─── Journal Entries ───────────────────────────────────────────────────────────
+
+model JournalEntry {
+  id             Int           @id @default(autoincrement())
+  organizationId Int           @map("organization_id")
+  entryDate      String        @map("entry_date")
+  description    String?
+  sourceType     String?       @map("source_type")
+  sourceId       String?       @map("source_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  lines        JournalLine[]
+
+  @@index([organizationId])
+  @@index([entryDate])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id           Int          @id @default(autoincrement())
+  journalId    Int          @map("journal_id")
+  accountAr    String       @map("account_ar")
+  debit        Decimal      @default(0) @db.Decimal(14, 2)
+  credit       Decimal      @default(0) @db.Decimal(14, 2)
+
+  journal      JournalEntry @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
+  @@index([journalId])
+  @@map("journal_lines")
 }

@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -252,6 +252,21 @@ export const imports = {
 
   deleteBatch: (batchId: string) =>
     http<{ deleted: boolean }>(`/api/v1/imports/batches/${batchId}`, { method: 'DELETE' }),
+};
+
+// ── Journals ───────────────────────────────────────────────────────────────────
+
+export const journals = {
+  list: (params?: { q?: string; from?: string; to?: string; page?: number; limit?: number }) =>
+    http<PaginatedResponse<JournalEntry>>(`/api/v1/journals?${qs(params)}`),
+
+  get: (id: number) => http<JournalEntry>(`/api/v1/journals/${id}`),
+
+  create: (dto: object) =>
+    http<JournalEntry>('/api/v1/journals', { method: 'POST', body: JSON.stringify(dto) }),
+
+  remove: (id: number) =>
+    http<{ deleted: boolean }>(`/api/v1/journals/${id}`, { method: 'DELETE' }),
 };
 
 // ── Calculator ────────────────────────────────────────────────────────────────

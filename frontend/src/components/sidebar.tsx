@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Package, ShoppingCart, FileText,
   Warehouse, BarChart2, Calculator, TrendingUp,
-  CreditCard, ShieldCheck, LogOut, Upload,
+  CreditCard, ShieldCheck, LogOut, Upload, BookOpen,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { auth } from '@/lib/api';
@@ -24,6 +24,7 @@ const NAV = [
   { href: '/calculator',     label: 'حاسبة التسعير', icon: Calculator },
   { href: '/profitability',  label: 'الربحية',       icon: TrendingUp },
   { href: '/settlements',    label: 'التسويات',      icon: CreditCard },
+  { href: '/journal',        label: 'القيود المحاسبية', icon: BookOpen },
   { href: '/admin',          label: 'الإدارة',       icon: ShieldCheck },
 ];
 
