@@ -1,6 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import { BadRequestException } from '@nestjs/common';
-import { CustomerRow, OldRow, FeeRow, ParsedCsv } from './types';
+import { CustomerRow, OldRow, WeeklyRow, InventoryRow, FeeRow, ParsedCsv } from './types';
 
 // ── Column name normalizer ────────────────────────────────────────────────────
 // Maps both title-case ("Net Proceeds") and snake_case ("net_proceeds") to the
@@ -26,7 +26,8 @@ function normalizeRecords(
   });
 }
 
-// ── Format signatures (normalized column names) ───────────────────────────────
+// ── Format detection signatures (normalized column names) ─────────────────────
+
 // Monthly statement: Transaction Type + Document Type driven rows
 const MONTHLY_DETECT = [
   'transaction_type',
@@ -36,8 +37,19 @@ const MONTHLY_DETECT = [
   'vat_amount_document_currency',
 ];
 
-// Old / sales CSV: per-row financial columns
+// Weekly Noon sales: per-row order data with extra fee breakdown columns
+// These columns are present in weekly but NOT in the old/manual sales format
+const WEEKLY_DETECT = ['id_partner', 'fee_name', 'shipping_fee'];
+
+// Full inventory snapshot
+const INVENTORY_DETECT = ['warehouse_code', 'inventory_type', 'inventory_snapshot_at', 'box_barcode'];
+
+// Old / sales CSV: per-row financial columns (also present in weekly, checked after weekly)
 const OLD_DETECT = ['net_proceeds', 'referral_fee', 'fbn_outbound_fee'];
+
+// Required columns — surfaced as readable errors if hint is provided but file is wrong
+const WEEKLY_REQUIRED    = ['order_nr', 'item_nr', 'net_proceeds', 'total_payment', 'fee_name'];
+const INVENTORY_REQUIRED = ['warehouse_code', 'qty', 'inventory_type'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
@@ -64,7 +76,9 @@ function normalizeItemNr(raw: string): string {
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
-export function parseCsvBuffer(buffer: Buffer): ParsedCsv {
+// hintType is the explicit importType selected by the user on the frontend.
+// It takes priority over auto-detection but still validates required columns.
+export function parseCsvBuffer(buffer: Buffer, hintType?: string): ParsedCsv {
   let rawRecords: Record<string, unknown>[];
 
   try {
@@ -86,16 +100,41 @@ export function parseCsvBuffer(buffer: Buffer): ParsedCsv {
   const records = normalizeRecords(rawRecords);
   const cols = new Set(Object.keys(records[0]));
 
-  const isMonthly = MONTHLY_DETECT.every(c => cols.has(c));
-  const isOld     = OLD_DETECT.every(c => cols.has(c));
-
-  if (!isMonthly && !isOld) {
-    throw new BadRequestException(
-      'تنسيق الملف غير معروف. تأكد من رفع ملف CSV صحيح من بوابة نون.',
-    );
+  // ── Explicit hint: validate required columns then parse ──────────────────────
+  if (hintType === 'full_inventory') {
+    const missing = INVENTORY_REQUIRED.filter(c => !cols.has(c));
+    if (missing.length) {
+      throw new BadRequestException(
+        `الأعمدة المطلوبة غير موجودة في ملف المخزون: ${missing.join(', ')}`,
+      );
+    }
+    return parseInventory(records);
   }
 
-  return isMonthly ? parseMonthly(records) : parseOld(records);
+  if (hintType === 'weekly_noon') {
+    const missing = WEEKLY_REQUIRED.filter(c => !cols.has(c));
+    if (missing.length) {
+      throw new BadRequestException(
+        `الأعمدة المطلوبة غير موجودة في الملف الأسبوعي: ${missing.join(', ')}`,
+      );
+    }
+    return parseWeekly(records);
+  }
+
+  // ── Auto-detection (checked in priority order) ───────────────────────────────
+  const isInventory = INVENTORY_DETECT.every(c => cols.has(c));
+  const isMonthly   = MONTHLY_DETECT.every(c => cols.has(c));
+  const isWeekly    = WEEKLY_DETECT.every(c => cols.has(c));   // checked before OLD
+  const isOld       = OLD_DETECT.every(c => cols.has(c));
+
+  if (isInventory) return parseInventory(records);
+  if (isMonthly)   return parseMonthly(records);
+  if (isWeekly)    return parseWeekly(records);
+  if (isOld)       return parseOld(records);
+
+  throw new BadRequestException(
+    'تنسيق الملف غير معروف. تأكد من رفع ملف CSV صحيح من بوابة نون.',
+  );
 }
 
 // ── Monthly statement parser ──────────────────────────────────────────────────
@@ -141,27 +180,24 @@ function parseMonthly(records: Record<string, unknown>[]): ParsedCsv {
       if (!statementDate && sDate) statementDate = sDate;
 
       feeRows.push({
-        feeType:      txType,
-        description:  sanitize(row['description']),
-        exclVat:      excl,
-        vatAmount:    vat,
+        feeType:       txType,
+        description:   sanitize(row['description']),
+        exclVat:       excl,
+        vatAmount:     vat,
         inclVat,
-        statementNr:  sNr,
+        statementNr:   sNr,
         statementDate: sDate,
       });
     }
   }
 
-  return { format: 'monthly', customerRows, oldRows: [], feeRows, statementNr, statementDate };
+  return { format: 'monthly', customerRows, oldRows: [], weeklyRows: [], inventoryRows: [], feeRows, statementNr, statementDate };
 }
 
 // ── Old / sales CSV parser ────────────────────────────────────────────────────
-// Real Noon files use snake_case headers (order_nr, net_proceeds, …) which
-// after normalization are identical to what we read below.
 function parseOld(records: Record<string, unknown>[]): ParsedCsv {
   const oldRows: OldRow[] = [];
 
-  // statement_nr / statement_date live as row-level columns in real Noon files.
   let statementNr   = sanitize(records[0]?.['statement_nr']);
   let statementDate = sanitize(records[0]?.['statement_date']);
 
@@ -170,14 +206,12 @@ function parseOld(records: Record<string, unknown>[]): ParsedCsv {
     const itemNr  = sanitize(row['item_nr']);
     if (!orderNr || !itemNr) continue;
 
-    // Keep first non-empty statement metadata found in any row
     if (!statementNr   && row['statement_nr'])   statementNr   = sanitize(row['statement_nr']);
     if (!statementDate && row['statement_date']) statementDate = sanitize(row['statement_date']);
 
     oldRows.push({
       orderNr,
       itemNr,
-      // "sku" may be absent in some Noon report variants; fall back to partner_sku
       sku:             sanitize(row['sku']),
       partnerSku:      sanitize(row['partner_sku']),
       brandEn:         sanitize(row['brand_english'] ?? row['brand_en'] ?? row['brand']),
@@ -195,5 +229,102 @@ function parseOld(records: Record<string, unknown>[]): ParsedCsv {
     });
   }
 
-  return { format: 'old', customerRows: [], oldRows, feeRows: [], statementNr, statementDate };
+  return { format: 'old', customerRows: [], oldRows, weeklyRows: [], inventoryRows: [], feeRows: [], statementNr, statementDate };
+}
+
+// ── Weekly Noon sales parser ──────────────────────────────────────────────────
+// Maps the exact snake_case headers from ملف_المبيعات_الاسبوعي.csv
+function parseWeekly(records: Record<string, unknown>[]): ParsedCsv {
+  const weeklyRows: WeeklyRow[] = [];
+
+  let statementNr   = sanitize(records[0]?.['statement_nr']);
+  let statementDate = sanitize(records[0]?.['statement_date']);
+
+  for (const row of records) {
+    const orderNr = sanitize(row['order_nr']);
+    const rawItem = sanitize(row['item_nr']);
+    // Rows without order/item identifiers are skipped gracefully
+    if (!orderNr || !rawItem) continue;
+
+    if (!statementNr   && row['statement_nr'])   statementNr   = sanitize(row['statement_nr']);
+    if (!statementDate && row['statement_date']) statementDate = sanitize(row['statement_date']);
+
+    weeklyRows.push({
+      orderNr,
+      itemNr:         normalizeItemNr(rawItem),
+      sku:            sanitize(row['sku']),
+      partnerSku:     sanitize(row['partner_sku']),
+      brandEn:        sanitize(row['brand_en']),
+      brandAr:        sanitize(row['brand_ar']),
+      productTitleEn: sanitize(row['product_title_en']),
+      productTitleAr: sanitize(row['product_title_ar']),
+      feeName:        sanitize(row['fee_name']),
+      itemStatus:     sanitize(row['item_status']).toLowerCase(),
+      orderedDate:    sanitize(row['ordered_date']),
+      shippedDate:    sanitize(row['shipped_date']),
+      deliveredDate:  sanitize(row['delivered_date']),
+      returnedDate:   sanitize(row['returned_date']),
+      netProceeds:    toFloat(row['net_proceeds']),
+      referralFee:    toFloat(row['referral_fee']),
+      fbnOutboundFee: toFloat(row['fbn_outbound_fee']),
+      shippingFee:    toFloat(row['shipping_fee']),
+      noonMarkup:     toFloat(row['noon_markup']),
+      noonPromo:      toFloat(row['noon_promo']),
+      otherAmounts:   toFloat(row['other_amounts']),
+      totalPayment:   toFloat(row['total_payment']),
+    });
+  }
+
+  return {
+    format: 'weekly_noon',
+    customerRows: [],
+    oldRows: [],
+    weeklyRows,
+    inventoryRows: [],
+    feeRows: [],
+    statementNr,
+    statementDate,
+  };
+}
+
+// ── Full inventory snapshot parser ────────────────────────────────────────────
+// Maps the exact snake_case headers from Inventory (1).csv
+function parseInventory(records: Record<string, unknown>[]): ParsedCsv {
+  const inventoryRows: InventoryRow[] = [];
+
+  for (const row of records) {
+    const sku        = sanitize(row['sku']);
+    const partnerSku = sanitize(row['partner_sku']);
+    // Must have at least one identifier
+    if (!sku && !partnerSku) continue;
+
+    inventoryRows.push({
+      warehouseCode:      sanitize(row['warehouse_code']),
+      barcode:            sanitize(row['barcode']),
+      qty:                Math.round(toFloat(row['qty'])), // qty is integer
+      inventoryType:      sanitize(row['inventory_type']),
+      sku,
+      partnerSku,
+      title:              sanitize(row['title']),
+      brand:              sanitize(row['brand']),
+      family:             sanitize(row['family']),
+      reasonCode:         sanitize(row['reason_code']),
+      snapshotAt:         sanitize(row['inventory_snapshot_at']),
+      pbarcode:           sanitize(row['pbarcode']),
+      classificationCode: sanitize(row['classification_code']),
+    });
+  }
+
+  const snapshotDate = sanitize(records[0]?.['inventory_snapshot_at']).slice(0, 10);
+
+  return {
+    format: 'full_inventory',
+    customerRows: [],
+    oldRows: [],
+    weeklyRows: [],
+    inventoryRows,
+    feeRows: [],
+    statementNr:  '',
+    statementDate: snapshotDate,
+  };
 }

@@ -36,6 +36,8 @@ enum ImportType {
   orders
   monthly_statement
   inventory_sync
+  weekly_noon
+  full_inventory
 }
 
 enum AccountType {

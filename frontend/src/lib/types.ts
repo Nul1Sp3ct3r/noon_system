@@ -177,7 +177,7 @@ export interface SettlementRow {
 
 export interface ImportResult {
   batchId: string;
-  format: 'monthly' | 'old';
+  format: 'monthly' | 'old' | 'weekly_noon' | 'full_inventory';
   rowsImported: number;
   rowsSkipped: number;
   rowsUpdated: number;
@@ -187,6 +187,8 @@ export interface ImportResult {
   totalSales: number;
   totalFees: number;
   feesVat: number;
+  productsUpdated?: number;
+  stockUpdated?: number;
   warnings: string[];
 }
 

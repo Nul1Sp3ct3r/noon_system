@@ -32,6 +32,7 @@ export class ImportsService {
     file: Express.Multer.File,
     orgId: number,
     actorId: number,
+    importTypeHint?: string,
   ): Promise<ImportResult> {
     // Guard: multer may not populate file in some Vercel environments
     if (!file) {
@@ -59,21 +60,23 @@ export class ImportsService {
       );
     }
 
-    const parsed = parseCsvBuffer(file.buffer);
+    const parsed = parseCsvBuffer(file.buffer, importTypeHint);
     this.logger.log(
-      `Parsed CSV: format=${parsed.format} customerRows=${parsed.customerRows.length} oldRows=${parsed.oldRows.length} feeRows=${parsed.feeRows.length}`,
+      `Parsed CSV: format=${parsed.format} customerRows=${parsed.customerRows.length} oldRows=${parsed.oldRows.length} weeklyRows=${parsed.weeklyRows.length} inventoryRows=${parsed.inventoryRows.length} feeRows=${parsed.feeRows.length}`,
     );
 
     const batchId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const warnings: string[] = [];
-    let rowsImported = 0;
-    let rowsSkipped  = 0;
-    let rowsUpdated  = 0;
-    let salesCount   = 0;
-    let returnsCount = 0;
-    let totalSales   = 0;
-    let totalFees    = 0;
-    let feesVat      = 0;
+    let rowsImported    = 0;
+    let rowsSkipped     = 0;
+    let rowsUpdated     = 0;
+    let salesCount      = 0;
+    let returnsCount    = 0;
+    let totalSales      = 0;
+    let totalFees       = 0;
+    let feesVat         = 0;
+    let productsUpdated = 0;
+    let stockUpdated    = 0;
 
     try {
       if (parsed.format === 'monthly') {
@@ -201,6 +204,249 @@ export class ImportsService {
           });
         }, TX_OPTS);
 
+      } else if (parsed.format === 'weekly_noon') {
+        // ── WEEKLY NOON SALES FORMAT ────────────────────────────────────────────
+        // Same upsert logic as old format; weekly has richer fee breakdown columns
+        // that are not yet stored in separate DB fields — mapped to existing Order fields.
+        await this.prisma.$transaction(async tx => {
+          for (const row of parsed.weeklyRows) {
+            try {
+              const rNet = r4(row.netProceeds);
+              const rRef = r4(row.referralFee);
+              const rFbn = r4(row.fbnOutboundFee);
+              const rPay = r4(row.totalPayment);
+
+              const existing = await tx.order.findFirst({
+                where:  { organizationId: orgId, orderNr: row.orderNr, itemNr: row.itemNr },
+                select: { id: true, netProceeds: true, referralFee: true, fbnOutboundFee: true, totalPayment: true },
+              });
+
+              const parsedDate = row.orderedDate ? safeDate(row.orderedDate) : undefined;
+
+              const createData = {
+                organizationId: orgId,
+                orderNr:        row.orderNr,
+                itemNr:         row.itemNr,
+                sku:            row.sku       || null,
+                partnerSku:     row.partnerSku || null,
+                brandEn:        row.brandEn   || null,
+                brandAr:        row.brandAr   || null,
+                productTitleEn: row.productTitleEn || null,
+                productTitleAr: row.productTitleAr || null,
+                itemStatus:     row.itemStatus || null,
+                orderedDate:    parsedDate,
+                deliveredDate:  row.deliveredDate || null,
+                returnedDate:   row.returnedDate  || null,
+                netProceeds:    row.netProceeds.toFixed(2),
+                referralFee:    row.referralFee.toFixed(2),
+                fbnOutboundFee: row.fbnOutboundFee.toFixed(2),
+                totalPayment:   row.totalPayment.toFixed(2),
+                importBatch:    batchId,
+              };
+
+              if (!existing) {
+                await tx.order.create({ data: createData });
+                rowsImported++;
+                const st = (row.itemStatus ?? '').toLowerCase();
+                if (st.includes('deliver'))     { salesCount++; totalSales += row.netProceeds; }
+                else if (st.includes('return')) returnsCount++;
+              } else {
+                const exNet = r4(parseFloat((existing.netProceeds  ?? 0).toString()));
+                const exRef = r4(parseFloat((existing.referralFee  ?? 0).toString()));
+                const exFbn = r4(parseFloat((existing.fbnOutboundFee ?? 0).toString()));
+                const exPay = r4(parseFloat((existing.totalPayment ?? 0).toString()));
+
+                if (rNet === exNet && rRef === exRef && rFbn === exFbn && rPay === exPay) {
+                  rowsSkipped++;
+                } else {
+                  await tx.order.update({
+                    where: { id: existing.id },
+                    data:  {
+                      netProceeds:    row.netProceeds.toFixed(2),
+                      referralFee:    row.referralFee.toFixed(2),
+                      fbnOutboundFee: row.fbnOutboundFee.toFixed(2),
+                      totalPayment:   row.totalPayment.toFixed(2),
+                    },
+                  });
+                  rowsUpdated++;
+                }
+              }
+
+              // Product upsert
+              if (row.sku) {
+                const ep = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } });
+                if (!ep) {
+                  await tx.product.create({
+                    data: {
+                      organizationId: orgId,
+                      sku:       row.sku,
+                      partnerSku: row.partnerSku || null,
+                      brand:     row.brandEn || null,
+                      nameEn:    row.productTitleEn || null,
+                      nameAr:    row.productTitleAr || null,
+                    },
+                  }).catch(() => {});
+                } else {
+                  const updates: Record<string, unknown> = {};
+                  if (!ep.partnerSku && row.partnerSku) updates.partnerSku = row.partnerSku;
+                  if (!ep.brand      && row.brandEn)    updates.brand      = row.brandEn;
+                  if (!ep.nameEn     && row.productTitleEn) updates.nameEn = row.productTitleEn;
+                  if (Object.keys(updates).length > 0) {
+                    await tx.product.update({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } }, data: updates });
+                    productsUpdated++;
+                  }
+                }
+              }
+            } catch (err) {
+              this.logger.warn(`Skipped weekly row ${row.orderNr}/${row.itemNr}: ${(err as Error).message}`);
+              rowsSkipped++;
+            }
+          }
+
+          await tx.importBatch.create({
+            data: {
+              organizationId: orgId,
+              batchId,
+              importType:    ImportType.weekly_noon,
+              fileName:      file.originalname,
+              fileHash,
+              rowsImported,
+              rowsSkipped,
+              salesCount,
+              returnsCount,
+              feesCount:     0,
+              statementNr:   parsed.statementNr  || null,
+              statementDate: parsed.statementDate || null,
+              status:        'completed',
+            },
+          });
+        }, TX_OPTS);
+
+      } else if (parsed.format === 'full_inventory') {
+        // ── FULL INVENTORY SNAPSHOT FORMAT ─────────────────────────────────────
+        // For each row: find/create warehouse + product, then sync stock via adjustment.
+        await this.prisma.$transaction(async tx => {
+          // Cache warehouses looked up in this batch to avoid repeated queries
+          const whCache = new Map<string, number>();
+
+          for (const row of parsed.inventoryRows) {
+            try {
+              const effectiveSku = row.sku || row.partnerSku;
+              if (!effectiveSku || !row.warehouseCode) { rowsSkipped++; continue; }
+
+              // ── Warehouse lookup / create ──────────────────────────────────
+              let warehouseId = whCache.get(row.warehouseCode);
+              if (warehouseId === undefined) {
+                let wh = await tx.warehouse.findFirst({
+                  where: { organizationId: orgId, code: row.warehouseCode },
+                });
+                if (!wh) {
+                  wh = await tx.warehouse.create({
+                    data: { organizationId: orgId, name: row.warehouseCode, code: row.warehouseCode },
+                  });
+                }
+                warehouseId = wh.id;
+                whCache.set(row.warehouseCode, wh.id);
+              }
+
+              // ── Product lookup / create / update ───────────────────────────
+              let product = row.partnerSku
+                ? await tx.product.findFirst({ where: { organizationId: orgId, partnerSku: row.partnerSku } })
+                : null;
+              if (!product && row.sku) {
+                product = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } });
+              }
+
+              if (!product) {
+                const newSku = row.sku || row.partnerSku;
+                product = await tx.product.create({
+                  data: {
+                    organizationId: orgId,
+                    sku:        newSku,
+                    partnerSku: row.partnerSku || null,
+                    barcode:    row.barcode    || null,
+                    brand:      row.brand      || null,
+                    family:     row.family     || null,
+                    nameEn:     row.title      || null,
+                  },
+                }).catch(async () => {
+                  return tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: newSku } } });
+                }) as typeof product;
+                rowsImported++;
+              } else {
+                // Enrich product fields if currently blank
+                const upd: Record<string, unknown> = {};
+                if (!product.barcode && row.barcode) upd.barcode    = row.barcode;
+                if (!product.brand   && row.brand)   upd.brand      = row.brand;
+                if (!product.nameEn  && row.title)   upd.nameEn     = row.title;
+                if (!product.family  && row.family)  upd.family     = row.family;
+                if (!product.partnerSku && row.partnerSku) upd.partnerSku = row.partnerSku;
+                if (Object.keys(upd).length > 0) {
+                  await tx.product.update({ where: { id: product.id }, data: upd });
+                  productsUpdated++;
+                }
+              }
+
+              // ── Stock sync via adjustment movement ─────────────────────────
+              // Only sync for saleable inventory (skip damaged/quarantine)
+              const invType = row.inventoryType.toLowerCase();
+              if (!invType.includes('saleable') && invType !== '') {
+                rowsSkipped++;
+                continue;
+              }
+
+              const stockAgg = await tx.inventoryMovement.aggregate({
+                where: { organizationId: orgId, sku: effectiveSku, warehouseId, isVoid: false },
+                _sum:  { quantity: true },
+              });
+              const currentQty = Number(stockAgg._sum.quantity ?? 0);
+              const delta      = row.qty - currentQty;
+
+              if (delta !== 0) {
+                const snapshotRef = `INV-SYNC-${row.snapshotAt?.slice(0, 10) || 'snapshot'}`;
+                await tx.inventoryMovement.create({
+                  data: {
+                    organizationId: orgId,
+                    sku:          effectiveSku,
+                    productId:    product?.id ?? null,
+                    warehouseId,
+                    movementType: MovementType.noon_sync,
+                    quantity:     delta,
+                    batchId,
+                    reference:    snapshotRef,
+                    notes:        `مزامنة مخزون: ${row.inventoryType}`,
+                    reasonCode:   row.reasonCode || null,
+                  },
+                });
+                stockUpdated++;
+              } else {
+                rowsSkipped++;
+              }
+            } catch (err) {
+              this.logger.warn(`Skipped inventory row sku=${row.sku} wh=${row.warehouseCode}: ${(err as Error).message}`);
+              rowsSkipped++;
+            }
+          }
+
+          await tx.importBatch.create({
+            data: {
+              organizationId: orgId,
+              batchId,
+              importType:    ImportType.full_inventory,
+              fileName:      file.originalname,
+              fileHash,
+              rowsImported,
+              rowsSkipped,
+              salesCount:    0,
+              returnsCount:  0,
+              feesCount:     0,
+              statementNr:   null,
+              statementDate: parsed.statementDate || null,
+              status:        'completed',
+            },
+          });
+        }, { timeout: 60_000, maxWait: 10_000 });
+
       } else {
         // ── OLD / SALES FORMAT ──────────────────────────────────────────────────
         await this.prisma.$transaction(async tx => {
@@ -319,12 +565,12 @@ export class ImportsService {
     } catch (err) {
       // Log single-line JSON so Vercel runtime logs capture the full error without truncation
       console.error(JSON.stringify({
-        event:    'import_error',
+        event:   'import_error',
         orgId,
-        format:   parsed.format,
-        rows:     parsed.format === 'monthly' ? parsed.customerRows.length : parsed.oldRows.length,
-        message:  (err as Error).message,
-        stack:    (err as Error).stack,
+        format:  parsed.format,
+        rows:    parsed.customerRows.length + parsed.oldRows.length + parsed.weeklyRows.length + parsed.inventoryRows.length,
+        message: (err as Error).message,
+        stack:   (err as Error).stack,
       }));
       throw err;
     }
@@ -335,7 +581,7 @@ export class ImportsService {
       orgId,
       entityType: 'import_batch',
       entityId:   batchId,
-      after: { batchId, fileName: file.originalname, format: parsed.format, rowsImported, rowsSkipped, rowsUpdated },
+      after: { batchId, fileName: file.originalname, format: parsed.format, rowsImported, rowsSkipped, rowsUpdated, productsUpdated, stockUpdated },
     });
 
     // Auto-generate accounting journal (non-fatal)
@@ -347,16 +593,18 @@ export class ImportsService {
 
     return {
       batchId,
-      format:       parsed.format,
+      format:          parsed.format,
       rowsImported,
       rowsSkipped,
       rowsUpdated,
       salesCount,
       returnsCount,
-      feesCount:    parsed.feeRows.length,
-      totalSales:   Math.round(totalSales * 100) / 100,
-      totalFees:    Math.round(totalFees  * 100) / 100,
-      feesVat:      Math.round(feesVat    * 100) / 100,
+      feesCount:       parsed.feeRows.length,
+      totalSales:      Math.round(totalSales * 100) / 100,
+      totalFees:       Math.round(totalFees  * 100) / 100,
+      feesVat:         Math.round(feesVat    * 100) / 100,
+      productsUpdated,
+      stockUpdated,
       warnings,
     };
   }

@@ -230,14 +230,18 @@ export const settlements = {
 export const imports = {
   upload: (
     file: File,
+    importType?: string,
     onProgress?: (pct: number) => void,
   ): Promise<ImportResult> => {
     return new Promise((resolve, reject) => {
       const token = Cookies.get('token');
       const fd = new FormData();
       fd.append('file', file);
+      const url = importType
+        ? `${BASE}/api/v1/imports/upload?importType=${encodeURIComponent(importType)}`
+        : `${BASE}/api/v1/imports/upload`;
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${BASE}/api/v1/imports/upload`);
+      xhr.open('POST', url);
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.upload.onprogress = e => {
         if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));

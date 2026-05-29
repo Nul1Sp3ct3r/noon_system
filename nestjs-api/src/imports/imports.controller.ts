@@ -9,6 +9,7 @@ import {
   Query,
   UploadedFile,
   UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -34,12 +35,17 @@ export class ImportsController {
       required: ['file'],
     },
   })
-  @ApiOperation({ summary: 'Upload and process a Noon monthly statement CSV' })
+  @ApiOperation({ summary: 'Upload and process a Noon CSV file. Pass ?importType=weekly_noon|full_inventory|monthly_statement to override auto-detection.' })
   upload(
     @UploadedFile() file: Express.Multer.File,
+    @Query('importType') importType: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.imports.processUpload(file, user.orgId, user.sub);
+    const ALLOWED = ['weekly_noon', 'full_inventory', 'monthly_statement', 'orders'];
+    if (importType && !ALLOWED.includes(importType)) {
+      throw new BadRequestException(`importType غير مدعوم: ${importType}. القيم المسموحة: ${ALLOWED.join(', ')}`);
+    }
+    return this.imports.processUpload(file, user.orgId, user.sub, importType);
   }
 
   @Get('batches')
