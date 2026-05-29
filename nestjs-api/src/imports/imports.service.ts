@@ -61,8 +61,23 @@ export class ImportsService {
     }
 
     const parsed = parseCsvBuffer(file.buffer, importTypeHint);
+
+    // Log to Vercel function logs — visible in dashboard for debugging
+    console.log(JSON.stringify({
+      event:          'import_parsed',
+      importType:     importTypeHint ?? 'auto',
+      detectedFormat: parsed.format,
+      filename:       file.originalname,
+      customerRows:   parsed.customerRows.length,
+      oldRows:        parsed.oldRows.length,
+      weeklyRows:     parsed.weeklyRows.length,
+      inventoryRows:  parsed.inventoryRows.length,
+      feeRows:        parsed.feeRows.length,
+    }));
+
     this.logger.log(
-      `Parsed CSV: format=${parsed.format} customerRows=${parsed.customerRows.length} oldRows=${parsed.oldRows.length} weeklyRows=${parsed.weeklyRows.length} inventoryRows=${parsed.inventoryRows.length} feeRows=${parsed.feeRows.length}`,
+      `Import: type=${importTypeHint ?? 'auto'} format=${parsed.format} file=${file.originalname} ` +
+      `rows=${parsed.customerRows.length + parsed.oldRows.length + parsed.weeklyRows.length + parsed.inventoryRows.length}`,
     );
 
     const batchId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -324,128 +339,183 @@ export class ImportsService {
 
       } else if (parsed.format === 'full_inventory') {
         // ── FULL INVENTORY SNAPSHOT FORMAT ─────────────────────────────────────
-        // For each row: find/create warehouse + product, then sync stock via adjustment.
-        await this.prisma.$transaction(async tx => {
-          // Cache warehouses looked up in this batch to avoid repeated queries
-          const whCache = new Map<string, number>();
+        // Batch-optimised: 3 reads up-front, all rows processed in memory,
+        // one createMany at the end. No wrapping transaction → no 30s Vercel timeout.
 
-          for (const row of parsed.inventoryRows) {
-            try {
-              const effectiveSku = row.sku || row.partnerSku;
-              if (!effectiveSku || !row.warehouseCode) { rowsSkipped++; continue; }
+        console.log(JSON.stringify({
+          event: 'inventory_import_start',
+          importType: importTypeHint,
+          filename:   file.originalname,
+          rows:       parsed.inventoryRows.length,
+        }));
 
-              // ── Warehouse lookup / create ──────────────────────────────────
-              let warehouseId = whCache.get(row.warehouseCode);
-              if (warehouseId === undefined) {
-                let wh = await tx.warehouse.findFirst({
-                  where: { organizationId: orgId, code: row.warehouseCode },
-                });
-                if (!wh) {
-                  wh = await tx.warehouse.create({
-                    data: { organizationId: orgId, name: row.warehouseCode, code: row.warehouseCode },
-                  });
-                }
-                warehouseId = wh.id;
-                whCache.set(row.warehouseCode, wh.id);
+        // ── Step 1: Pre-load warehouses ─────────────────────────────────────────
+        const uniqueWhCodes = [...new Set(parsed.inventoryRows.map(r => r.warehouseCode).filter(Boolean))];
+        const existingWh    = await this.prisma.warehouse.findMany({
+          where: { organizationId: orgId, code: { in: uniqueWhCodes } },
+          select: { id: true, code: true },
+        });
+        const whCodeMap = new Map(existingWh.map(w => [w.code!, w.id]));
+
+        // Create any missing warehouses
+        for (const code of uniqueWhCodes) {
+          if (code && !whCodeMap.has(code)) {
+            const wh = await this.prisma.warehouse.create({
+              data: { organizationId: orgId, name: code, code },
+            }).catch(() => null);
+            if (wh) whCodeMap.set(code, wh.id);
+          }
+        }
+
+        // ── Step 2: Pre-load products ───────────────────────────────────────────
+        const uniqueSkus        = [...new Set(parsed.inventoryRows.map(r => r.sku).filter(Boolean))];
+        const uniquePartnerSkus = [...new Set(parsed.inventoryRows.map(r => r.partnerSku).filter(Boolean))];
+
+        const prodSelect = { id: true, sku: true, partnerSku: true, barcode: true, brand: true, nameEn: true, family: true } as const;
+
+        const orClauses: object[] = [];
+        if (uniqueSkus.length)        orClauses.push({ sku:        { in: uniqueSkus        } });
+        if (uniquePartnerSkus.length) orClauses.push({ partnerSku: { in: uniquePartnerSkus } });
+
+        const existingProducts = orClauses.length
+          ? await this.prisma.product.findMany({ where: { organizationId: orgId, OR: orClauses }, select: prodSelect })
+          : [];
+
+        const prodBySkuMap     = new Map(existingProducts.map(p => [p.sku, p]));
+        const prodByPartSkuMap = new Map(existingProducts.filter(p => p.partnerSku).map(p => [p.partnerSku!, p]));
+
+        // ── Step 3: Pre-load current stock levels via one groupBy ───────────────
+        const stockGroupBy = await this.prisma.inventoryMovement.groupBy({
+          by: ['sku', 'warehouseId'],
+          where: { organizationId: orgId, isVoid: false },
+          _sum: { quantity: true },
+        });
+        const skStr = (sku: string, whId: number) => `${sku}|${whId}`;
+        const stockMap = new Map(
+          stockGroupBy.map(s => [skStr(s.sku, s.warehouseId ?? 0), Number(s._sum.quantity ?? 0)])
+        );
+
+        // ── Step 4: Process rows in memory ──────────────────────────────────────
+        const movements: {
+          organizationId: number; sku: string; productId: number | null;
+          warehouseId: number; movementType: MovementType; quantity: number;
+          batchId: string; reference: string; notes: string; reasonCode: string | null;
+        }[] = [];
+
+        for (const row of parsed.inventoryRows) {
+          try {
+            const effectiveSku = row.sku || row.partnerSku;
+            if (!effectiveSku || !row.warehouseCode) { rowsSkipped++; continue; }
+
+            const warehouseId = whCodeMap.get(row.warehouseCode);
+            if (!warehouseId) { rowsSkipped++; continue; }
+
+            // Find product in cache
+            let product = (row.partnerSku ? prodByPartSkuMap.get(row.partnerSku) : undefined)
+                       ?? prodBySkuMap.get(row.sku);
+
+            if (!product) {
+              const newSku = row.sku || row.partnerSku;
+              const created = await this.prisma.product.create({
+                data: {
+                  organizationId: orgId,
+                  sku:        newSku,
+                  partnerSku: row.partnerSku || null,
+                  barcode:    row.barcode    || null,
+                  brand:      row.brand      || null,
+                  family:     row.family     || null,
+                  nameEn:     row.title      || null,
+                },
+                select: prodSelect,
+              }).catch(async () =>
+                this.prisma.product.findUnique({
+                  where: { organizationId_sku: { organizationId: orgId, sku: newSku } },
+                  select: prodSelect,
+                })
+              );
+              if (!created) { rowsSkipped++; continue; }
+              product = created;
+              prodBySkuMap.set(product.sku, product);
+              if (product.partnerSku) prodByPartSkuMap.set(product.partnerSku, product);
+              rowsImported++;
+            } else {
+              // Enrich blank fields (non-destructive)
+              const upd: Record<string, unknown> = {};
+              if (!product.barcode    && row.barcode)     upd.barcode    = row.barcode;
+              if (!product.brand      && row.brand)       upd.brand      = row.brand;
+              if (!product.nameEn     && row.title)       upd.nameEn     = row.title;
+              if (!product.family     && row.family)      upd.family     = row.family;
+              if (!product.partnerSku && row.partnerSku)  upd.partnerSku = row.partnerSku;
+              if (Object.keys(upd).length > 0) {
+                await this.prisma.product.update({ where: { id: product.id }, data: upd }).catch(() => {});
+                productsUpdated++;
               }
+            }
 
-              // ── Product lookup / create / update ───────────────────────────
-              let product = row.partnerSku
-                ? await tx.product.findFirst({ where: { organizationId: orgId, partnerSku: row.partnerSku } })
-                : null;
-              if (!product && row.sku) {
-                product = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } });
-              }
+            // Only sync saleable inventory
+            const invType = row.inventoryType.toLowerCase();
+            if (invType && !invType.includes('saleable')) { rowsSkipped++; continue; }
 
-              if (!product) {
-                const newSku = row.sku || row.partnerSku;
-                product = await tx.product.create({
-                  data: {
-                    organizationId: orgId,
-                    sku:        newSku,
-                    partnerSku: row.partnerSku || null,
-                    barcode:    row.barcode    || null,
-                    brand:      row.brand      || null,
-                    family:     row.family     || null,
-                    nameEn:     row.title      || null,
-                  },
-                }).catch(async () => {
-                  return tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: newSku } } });
-                }) as typeof product;
-                rowsImported++;
-              } else {
-                // Enrich product fields if currently blank
-                const upd: Record<string, unknown> = {};
-                if (!product.barcode && row.barcode) upd.barcode    = row.barcode;
-                if (!product.brand   && row.brand)   upd.brand      = row.brand;
-                if (!product.nameEn  && row.title)   upd.nameEn     = row.title;
-                if (!product.family  && row.family)  upd.family     = row.family;
-                if (!product.partnerSku && row.partnerSku) upd.partnerSku = row.partnerSku;
-                if (Object.keys(upd).length > 0) {
-                  await tx.product.update({ where: { id: product.id }, data: upd });
-                  productsUpdated++;
-                }
-              }
+            // Stock delta from in-memory map
+            const currentQty = stockMap.get(skStr(effectiveSku, warehouseId)) ?? 0;
+            const delta       = row.qty - currentQty;
 
-              // ── Stock sync via adjustment movement ─────────────────────────
-              // Only sync for saleable inventory (skip damaged/quarantine)
-              const invType = row.inventoryType.toLowerCase();
-              if (!invType.includes('saleable') && invType !== '') {
-                rowsSkipped++;
-                continue;
-              }
-
-              const stockAgg = await tx.inventoryMovement.aggregate({
-                where: { organizationId: orgId, sku: effectiveSku, warehouseId, isVoid: false },
-                _sum:  { quantity: true },
+            if (delta !== 0) {
+              movements.push({
+                organizationId: orgId,
+                sku:          effectiveSku,
+                productId:    product.id,
+                warehouseId,
+                movementType: MovementType.noon_sync,
+                quantity:     delta,
+                batchId,
+                reference:    `INV-SYNC-${row.snapshotAt?.slice(0, 10) || 'snapshot'}`,
+                notes:        `مزامنة مخزون: ${row.inventoryType || 'saleable'}`,
+                reasonCode:   row.reasonCode || null,
               });
-              const currentQty = Number(stockAgg._sum.quantity ?? 0);
-              const delta      = row.qty - currentQty;
-
-              if (delta !== 0) {
-                const snapshotRef = `INV-SYNC-${row.snapshotAt?.slice(0, 10) || 'snapshot'}`;
-                await tx.inventoryMovement.create({
-                  data: {
-                    organizationId: orgId,
-                    sku:          effectiveSku,
-                    productId:    product?.id ?? null,
-                    warehouseId,
-                    movementType: MovementType.noon_sync,
-                    quantity:     delta,
-                    batchId,
-                    reference:    snapshotRef,
-                    notes:        `مزامنة مخزون: ${row.inventoryType}`,
-                    reasonCode:   row.reasonCode || null,
-                  },
-                });
-                stockUpdated++;
-              } else {
-                rowsSkipped++;
-              }
-            } catch (err) {
-              this.logger.warn(`Skipped inventory row sku=${row.sku} wh=${row.warehouseCode}: ${(err as Error).message}`);
+              stockMap.set(skStr(effectiveSku, warehouseId), row.qty); // keep cache consistent
+              stockUpdated++;
+            } else {
               rowsSkipped++;
             }
+          } catch (err) {
+            this.logger.warn(`Skipped inventory row sku=${row.sku} wh=${row.warehouseCode}: ${(err as Error).message}`);
+            rowsSkipped++;
           }
+        }
 
-          await tx.importBatch.create({
-            data: {
-              organizationId: orgId,
-              batchId,
-              importType:    ImportType.full_inventory,
-              fileName:      file.originalname,
-              fileHash,
-              rowsImported,
-              rowsSkipped,
-              salesCount:    0,
-              returnsCount:  0,
-              feesCount:     0,
-              statementNr:   null,
-              statementDate: parsed.statementDate || null,
-              status:        'completed',
-            },
-          });
-        }, { timeout: 60_000, maxWait: 10_000 });
+        // ── Step 5: Batch-insert movements + create batch record ────────────────
+        if (movements.length > 0) {
+          await this.prisma.inventoryMovement.createMany({ data: movements });
+        }
+
+        await this.prisma.importBatch.create({
+          data: {
+            organizationId: orgId,
+            batchId,
+            importType:    ImportType.full_inventory,
+            fileName:      file.originalname,
+            fileHash,
+            rowsImported,
+            rowsSkipped,
+            salesCount:    0,
+            returnsCount:  0,
+            feesCount:     0,
+            statementNr:   null,
+            statementDate: parsed.statementDate || null,
+            status:        'completed',
+          },
+        });
+
+        console.log(JSON.stringify({
+          event:           'inventory_import_done',
+          rows:            parsed.inventoryRows.length,
+          rowsImported,
+          productsUpdated,
+          stockUpdated,
+          rowsSkipped,
+          movements:       movements.length,
+        }));
 
       } else {
         // ── OLD / SALES FORMAT ──────────────────────────────────────────────────

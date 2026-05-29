@@ -240,26 +240,47 @@ export const imports = {
       const url = importType
         ? `${BASE}/api/v1/imports/upload?importType=${encodeURIComponent(importType)}`
         : `${BASE}/api/v1/imports/upload`;
+
       const xhr = new XMLHttpRequest();
       xhr.open('POST', url);
+      xhr.timeout = 120_000; // 2 minutes — Vercel function max is 30s but give upload buffer
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
       xhr.upload.onprogress = e => {
         if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
       };
+
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try { resolve(JSON.parse(xhr.responseText)); }
-          catch { reject(new Error('Invalid response from server')); }
+          catch { reject(new Error('استجابة غير صالحة من الخادم')); }
         } else {
+          // Always try to extract the real backend error message
+          let msg = `خطأ HTTP ${xhr.status}`;
           try {
             const body = JSON.parse(xhr.responseText);
-            reject(new Error(extractMsg(body, `HTTP ${xhr.status}`)));
-          } catch {
-            reject(new Error(`HTTP ${xhr.status}`));
-          }
+            msg = extractMsg(body, msg);
+          } catch { /* keep default msg */ }
+          reject(new Error(msg));
         }
       };
-      xhr.onerror = () => reject(new Error('Upload failed'));
+
+      xhr.onerror = () => {
+        // Network-level failure (CORS, connection reset, Vercel timeout dropping connection).
+        // The server may have returned a body before the connection dropped — try to read it.
+        let msg = 'فشل الاتصال بالخادم — قد يكون الملف كبيراً جداً أو انتهت مهلة الخادم. أعد المحاولة.';
+        try {
+          const body = JSON.parse(xhr.responseText);
+          const serverMsg = extractMsg(body, '');
+          if (serverMsg) msg = serverMsg;
+        } catch { /* keep default msg */ }
+        reject(new Error(msg));
+      };
+
+      xhr.ontimeout = () => {
+        reject(new Error('انتهت مهلة رفع الملف — الملف كبير جداً أو الشبكة بطيئة. أعد المحاولة.'));
+      };
+
       xhr.send(fd);
     });
   },

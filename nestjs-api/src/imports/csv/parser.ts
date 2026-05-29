@@ -100,6 +100,14 @@ export function parseCsvBuffer(buffer: Buffer, hintType?: string): ParsedCsv {
   const records = normalizeRecords(rawRecords);
   const cols = new Set(Object.keys(records[0]));
 
+  // Structured log — visible in Vercel function logs for every import
+  console.log(JSON.stringify({
+    event:    'csv_detect',
+    hintType: hintType ?? 'auto',
+    rows:     records.length,
+    columns:  [...cols].slice(0, 25),
+  }));
+
   // ── Explicit hint: validate required columns then parse ──────────────────────
   if (hintType === 'full_inventory') {
     const missing = INVENTORY_REQUIRED.filter(c => !cols.has(c));
@@ -126,6 +134,8 @@ export function parseCsvBuffer(buffer: Buffer, hintType?: string): ParsedCsv {
   const isMonthly   = MONTHLY_DETECT.every(c => cols.has(c));
   const isWeekly    = WEEKLY_DETECT.every(c => cols.has(c));   // checked before OLD
   const isOld       = OLD_DETECT.every(c => cols.has(c));
+
+  console.log(JSON.stringify({ event: 'csv_autodetect', isInventory, isMonthly, isWeekly, isOld }));
 
   if (isInventory) return parseInventory(records);
   if (isMonthly)   return parseMonthly(records);
