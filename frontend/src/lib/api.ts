@@ -416,11 +416,41 @@ export const dashboard = {
 
 // ── Admin ──────────────────────────────────────────────────────────────────────
 
+export type AdminDashboard = {
+  kpis: {
+    monthlySales: number;
+    netProfit: number;
+    monthlyExpenses: number;
+    orderCount: number;
+    inventoryValue: number;
+    vatPayable: number;
+  };
+  health: {
+    failedImports: number;
+    productsMissingCost: number;
+    lowStock: number;
+    outOfStock: number;
+    draftJournals: number;
+    draftExpenses: number;
+  };
+  trend: Array<{ month: string; sales: number; expenses: number; profit: number }>;
+  expensesByCategory: Array<{ category: string; amount: number }>;
+  recentActivities: Array<{
+    id: number;
+    action: string;
+    entityType: string | null;
+    entityId: number | null;
+    createdAt: string;
+    user: { id: number; username: string; fullName: string | null } | null;
+  }>;
+};
+
 export const admin = {
-  performance: () => http<{ counts: Record<string, number> }>('/api/v1/admin/performance'),
-  auditLogs:   (params?: object) => http<unknown>(`/api/v1/admin/audit-logs?${qs(params)}`),
-  users:       () => http<unknown[]>('/api/v1/admin/users'),
-  updateUser:  (id: number, dto: object) =>
+  dashboard:    () => http<AdminDashboard>('/api/v1/admin/dashboard'),
+  performance:  () => http<{ counts: Record<string, number> }>('/api/v1/admin/performance'),
+  auditLogs:    (params?: object) => http<unknown>(`/api/v1/admin/audit-logs?${qs(params)}`),
+  users:        () => http<unknown[]>('/api/v1/admin/users'),
+  updateUser:   (id: number, dto: object) =>
     http<unknown>(`/api/v1/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(dto) }),
 };
 

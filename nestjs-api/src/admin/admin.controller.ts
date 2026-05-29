@@ -57,6 +57,12 @@ export class AdminController {
     return this.admin.updateUser(id, dto, user.orgId, user.sub);
   }
 
+  @Get('dashboard')
+  @ApiOperation({ summary: 'ERP control center — KPIs, system health, trend, and activity feed' })
+  getDashboard(@CurrentUser() user: JwtPayload) {
+    return this.admin.getDashboard(user.orgId);
+  }
+
   @Get('performance')
   @ApiOperation({ summary: 'Organization record counts summary' })
   getPerformance(@CurrentUser() user: JwtPayload) {
