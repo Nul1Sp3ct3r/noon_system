@@ -29,20 +29,21 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'المبيعات',
     icon: ShoppingCart,
     items: [
-      { href: '/orders',        label: 'الطلبات',   icon: ShoppingCart },
-      { href: '/invoices',      label: 'الفواتير',   icon: FileText     },
-      { href: '/settlements',   label: 'التسويات',  icon: CreditCard   },
-      { href: '/profitability', label: 'الربحية',   icon: TrendingUp   },
+      { href: '/orders',        label: 'الطلبات',  icon: ShoppingCart },
+      { href: '/invoices',      label: 'الفواتير', icon: FileText     },
+      { href: '/settlements',   label: 'التسويات', icon: CreditCard   },
+      { href: '/profitability', label: 'الربحية',  icon: TrendingUp   },
     ],
   },
   {
     id: 'inventory',
-    label: 'المخزون',
+    label: 'إدارة المخزون',
     icon: Warehouse,
     items: [
-      { href: '/products',  label: 'المنتجات',  icon: Package   },
-      { href: '/inventory', label: 'المخزون',   icon: Warehouse },
-      { href: '/import',    label: 'الاستيراد', icon: Upload    },
+      { href: '/products',            label: 'المنتجات',     icon: Package    },
+      { href: '/inventory',           label: 'المخزون',      icon: Warehouse  },
+      { href: '/inventory/movements', label: 'دفتر الحركات', icon: ListTree   },
+      { href: '/import',              label: 'الاستيراد',    icon: Upload     },
     ],
   },
   {
@@ -50,13 +51,20 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'المالية',
     icon: BookOpen,
     items: [
-      { href: '/expenses',                 label: 'المصروفات',                  icon: Receipt    },
-      { href: '/reports',                  label: 'التقارير',                   icon: BarChart2  },
-      { href: '/journal',                  label: 'القيود المحاسبية',           icon: BookOpen   },
-      { href: '/accounts',                 label: 'دليل الحسابات',              icon: ListTree   },
-      { href: '/accounting/trial-balance', label: 'ميزان المراجعة',             icon: Scale      },
-      { href: '/accounting/ledger',        label: 'دفتر الأستاذ',               icon: BookMarked },
-      { href: '/vat-center',               label: 'مركز ضريبة القيمة المضافة', icon: Calculator },
+      { href: '/expenses',   label: 'المصروفات',             icon: Receipt    },
+      { href: '/vat-center', label: 'ضريبة القيمة المضافة', icon: Calculator },
+      { href: '/reports',    label: 'التقارير المالية',      icon: BarChart2  },
+    ],
+  },
+  {
+    id: 'advanced',
+    label: 'المحاسبة المتقدمة',
+    icon: BookMarked,
+    items: [
+      { href: '/accounts',                 label: 'دليل الحسابات',    icon: ListTree   },
+      { href: '/journal',                  label: 'القيود المحاسبية', icon: BookOpen   },
+      { href: '/accounting/ledger',        label: 'دفتر الأستاذ',     icon: BookMarked },
+      { href: '/accounting/trial-balance', label: 'ميزان المراجعة',   icon: Scale      },
     ],
   },
   {
@@ -71,9 +79,11 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 // ─── Route-match helper ───────────────────────────────────────────────────────
+// Use href + '/' for prefix matching so that /inventory doesn't highlight
+// when on /inventory/movements (only the most-specific item matches).
 
 function isActive(pathname: string, href: string): boolean {
-  return pathname === href || (href !== '/' && pathname.startsWith(href));
+  return pathname === href || (href !== '/' && pathname.startsWith(href + '/'));
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
