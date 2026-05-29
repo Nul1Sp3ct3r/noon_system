@@ -6,6 +6,6 @@ export class AppController {
   @Get()
   @Public()
   root() {
-    return { status: 'ok', service: 'Noon Financial API', version: '1.0.0' };
+    return { status: 'ok', service: 'PreciseFlow API', version: '1.0.0' };
   }
 }

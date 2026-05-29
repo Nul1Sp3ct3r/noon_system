@@ -1,7 +1,7 @@
 {
   "name": "noon-api",
   "version": "0.1.0",
-  "description": "Noon Financial — NestJS REST API",
+  "description": "PreciseFlow — NestJS REST API",
   "private": true,
   "scripts": {
     "build": "nest build",

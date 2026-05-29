@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'نظام نون المالي',
-  description: 'نظام إدارة المبيعات والتقارير المالية لسوق نون',
+  title: 'PreciseFlow | التدفق الدقيق',
+  description: 'منصة إدارة مبيعات نون والتقارير المالية — PreciseFlow',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

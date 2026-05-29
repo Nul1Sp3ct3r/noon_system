@@ -48,8 +48,8 @@ async function bootstrap() {
   // Swagger (dev only)
   if (!isProd) {
     const doc = new DocumentBuilder()
-      .setTitle('Noon Financial API')
-      .setDescription('REST API for Noon marketplace financial management')
+      .setTitle('PreciseFlow API')
+      .setDescription('REST API for Noon marketplace financial management — PreciseFlow')
       .setVersion('1.0')
       .addBearerAuth()
       .build();

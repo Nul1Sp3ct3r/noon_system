@@ -34,9 +34,9 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-600 mb-4">
-            <span className="text-white text-2xl font-bold">ن</span>
+            <span className="text-white text-2xl font-bold">P</span>
           </div>
-          <h1 className="text-xl font-bold text-slate-900">نظام نون المالي</h1>
+          <h1 className="text-xl font-bold text-slate-900">PreciseFlow</h1>
           <p className="text-sm text-slate-500 mt-1">تسجيل الدخول إلى حسابك</p>
         </div>
 

@@ -136,11 +136,11 @@ export default function Sidebar() {
       {/* ── Brand ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 shrink-0">
         <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
-          <span className="text-white font-bold text-sm">ن</span>
+          <span className="text-white font-bold text-sm">P</span>
         </div>
         <div className="min-w-0">
-          <p className="text-white font-bold text-sm leading-tight">نظام نون</p>
-          <p className="text-slate-500 text-[10px] tracking-wider uppercase mt-0.5">Financial ERP</p>
+          <p className="text-white font-bold text-sm leading-tight">PreciseFlow</p>
+          <p className="text-slate-500 text-[10px] tracking-wider uppercase mt-0.5">التدفق الدقيق</p>
         </div>
       </div>
 

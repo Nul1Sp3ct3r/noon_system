@@ -1,4 +1,4 @@
-# Noon Financial — NestJS API
+# PreciseFlow — NestJS API
 
 REST API backend for Noon marketplace financial management.
 Runs alongside the existing Flask app during migration.
