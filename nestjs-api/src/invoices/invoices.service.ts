@@ -9,6 +9,7 @@ import { MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { RefSeqService } from '../common/services/ref-seq.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CreateInvoiceItemDto } from './dto/create-invoice-item.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
@@ -23,6 +24,7 @@ export class InvoicesService {
     private prisma: PrismaService,
     private audit: AuditLogsService,
     @Optional() private accounting: AccountingService,
+    @Optional() private refSeq: RefSeqService,
   ) {}
 
   private computeItemTotals(item: { quantity: number; unitPrice: string; vatRate?: string }) {
@@ -129,12 +131,16 @@ export class InvoicesService {
       totalAmount += parseFloat(c.lineTotal);
     }
 
+    // Auto-generate internal purchase invoice reference (distinct from supplier's invoiceNumber)
+    const internalRef = this.refSeq ? await this.refSeq.next(orgId, 'PINV') : undefined;
+
     const invoice = await this.prisma.$transaction(async tx => {
       const inv = await tx.invoice.create({
         data: {
           organizationId: orgId,
           supplierName: header.supplierName,
           invoiceNumber: header.invoiceNumber,
+          internalRef,
           invoiceDate: header.invoiceDate ? new Date(header.invoiceDate) : undefined,
           vatMode: header.vatMode,
           notes: header.notes,

@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma, MovementType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { RefSeqService } from '../common/services/ref-seq.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { CreateMovementDto } from './dto/create-movement.dto';
@@ -17,6 +18,7 @@ export class InventoryService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditLogsService,
+    @Optional() private refSeq: RefSeqService,
   ) {}
 
   // ─── Warehouses ───────────────────────────────────────────────────────────────
@@ -174,6 +176,11 @@ export class InventoryService {
       await this.findOneWarehouse(dto.warehouseId, orgId);
     }
 
+    // Auto-generate internal reference if not provided by caller
+    const reference = dto.reference || (
+      this.refSeq ? await this.refSeq.next(orgId, 'MOV') : undefined
+    );
+
     const movement = await this.prisma.inventoryMovement.create({
       data: {
         organizationId:   orgId,
@@ -182,7 +189,7 @@ export class InventoryService {
         warehouseId:      dto.warehouseId,
         movementType:     dto.movementType,
         quantity:         dto.quantity,
-        reference:        dto.reference,
+        reference,
         notes:            dto.notes,
         referenceType:    dto.referenceType,
         reasonCode:       dto.reasonCode,
@@ -439,7 +446,9 @@ export class InventoryService {
       return { adjusted: false, message: 'القيمة مطابقة للمخزون الحالي', currentQty, newQty: dto.newQty };
     }
 
-    const ref = `ADJ-${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36).toUpperCase()}`;
+    const ref = this.refSeq
+      ? await this.refSeq.next(orgId, 'ADJ')
+      : `ADJ-${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36).toUpperCase()}`;
 
     const movement = await this.prisma.inventoryMovement.create({
       data: {

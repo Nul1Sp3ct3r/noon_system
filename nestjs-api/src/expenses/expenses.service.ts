@@ -10,6 +10,7 @@ import { PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { RefSeqService } from '../common/services/ref-seq.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ListExpensesDto } from './dto/list-expenses.dto';
@@ -50,6 +51,7 @@ export class ExpensesService {
     private prisma: PrismaService,
     @Optional() private accounting: AccountingService,
     @Optional() private accountsSvc: AccountsService,
+    @Optional() private refSeq: RefSeqService,
   ) {}
 
   // ─── Categories ──────────────────────────────────────────────────────────────
@@ -202,6 +204,11 @@ export class ExpensesService {
     const vatAmount = dto.vatAmount ?? 0;
     const totalAmount = dto.totalAmount ?? dto.amountBeforeVat + vatAmount;
 
+    // Always auto-generate the internal expense reference
+    const referenceNumber = this.refSeq
+      ? await this.refSeq.next(orgId, 'EXP')
+      : `EXP-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+
     return STRIP_ATTACHMENT(
       await this.prisma.expense.create({
         data: {
@@ -214,7 +221,7 @@ export class ExpensesService {
           vatAmount,
           totalAmount,
           paymentMethod:   dto.paymentMethod ?? PaymentMethod.bank_transfer,
-          referenceNumber: dto.referenceNumber,
+          referenceNumber,
           notes:           dto.notes,
           vatTreatment:    dto.vatTreatment,
           costCenter:      dto.costCenter,

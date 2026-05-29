@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import * as Joi from 'joi';
 import { PrismaModule } from './prisma/prisma.module';
+import { RefSeqModule } from './common/ref-seq.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -52,6 +53,7 @@ import { AppController } from './app.controller';
       { name: 'auth',   ttl: 60_000, limit: 20 },
     ]),
     PrismaModule,
+    RefSeqModule,
     AuditLogsModule,
     AuthModule,
     OrganizationsModule,

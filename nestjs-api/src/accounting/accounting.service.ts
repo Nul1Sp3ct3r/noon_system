@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { RefSeqService } from '../common/services/ref-seq.service';
 
 // Well-known account codes used by auto-generation
 const AC = {
@@ -30,6 +31,7 @@ export class AccountingService {
   constructor(
     private prisma: PrismaService,
     private accountsSvc: AccountsService,
+    private refSeq: RefSeqService,
   ) {}
 
   // ─── Trial Balance ────────────────────────────────────────────────────────────
@@ -440,10 +442,6 @@ export class AccountingService {
   // ─── Helpers ──────────────────────────────────────────────────────────────────
 
   async nextJournalNumber(orgId: number): Promise<string> {
-    const year = new Date().getFullYear();
-    const count = await this.prisma.journalEntry.count({
-      where: { organizationId: orgId, journalNumber: { startsWith: `JE-${year}-` } },
-    });
-    return `JE-${year}-${String(count + 1).padStart(5, '0')}`;
+    return this.refSeq.next(orgId, 'JE');
   }
 }

@@ -187,6 +187,7 @@ model Invoice {
   organizationId Int       @map("organization_id")
   supplierName   String?   @map("supplier_name")
   invoiceNumber  String?   @map("invoice_number")
+  internalRef    String?   @map("internal_ref")
   invoiceDate    DateTime? @map("invoice_date")
   vatMode        VatMode   @default(inclusive) @map("vat_mode")
   subtotal       Decimal?  @db.Decimal(14, 2)
@@ -557,4 +558,17 @@ model Expense {
   @@index([status])
   @@index([categoryId])
   @@map("expenses")
+}
+
+// ─── Reference Sequences ──────────────────────────────────────────────────────
+
+model ReferenceSequence {
+  id      Int    @id @default(autoincrement())
+  orgId   Int    @map("org_id")
+  prefix  String
+  year    Int
+  lastSeq Int    @default(0) @map("last_seq")
+
+  @@unique([orgId, prefix, year])
+  @@map("reference_sequences")
 }

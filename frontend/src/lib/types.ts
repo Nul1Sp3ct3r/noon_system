@@ -58,6 +58,7 @@ export interface Invoice {
   id: number;
   supplierName: string | null;
   invoiceNumber: string | null;
+  internalRef: string | null;
   invoiceDate: string | null;
   vatMode: 'inclusive' | 'exclusive' | 'exempt';
   subtotal: string | null;
@@ -222,6 +223,7 @@ export interface InvoiceDetail extends Invoice {
   items: InvoiceItem[];
   warehouse: { id: number; name: string; code: string | null } | null;
   _count?: { items: number };
+  internalRef: string | null;
 }
 
 export interface Warehouse {
