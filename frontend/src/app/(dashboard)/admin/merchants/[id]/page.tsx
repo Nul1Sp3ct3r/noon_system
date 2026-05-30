@@ -87,11 +87,17 @@ function MerchantDetailContent() {
   const [saving, setSaving] = useState(false);
   const [editStatus, setEditStatus] = useState<MerchantStatus | ''>('');
 
+  // Guard: id must be a positive integer. Non-numeric ids (e.g. "new") must
+  // never reach the backend — ParseIntPipe would throw a 422 validation error.
+  const numericId = Number(id);
+  const idIsValid = Number.isInteger(numericId) && numericId > 0;
+
   async function load() {
+    if (!idIsValid) return;
     setLoading(true);
     setError('');
     try {
-      const m = await platformAdmin.getMerchant(Number(id));
+      const m = await platformAdmin.getMerchant(numericId);
       setData(m);
       setEditStatus(m.status);
     } catch (e) {
@@ -101,7 +107,13 @@ function MerchantDetailContent() {
     }
   }
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    if (!idIsValid) {
+      router.replace('/admin/merchants');
+      return;
+    }
+    load();
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleStatusChange(newStatus: MerchantStatus) {
     if (!data) return;
