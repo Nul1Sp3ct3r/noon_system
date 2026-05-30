@@ -221,7 +221,14 @@ export default function ImportPage() {
       setUploadResult(result);
       loadBatches();
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'فشل رفع الملف — أعد المحاولة');
+      const raw = err instanceof Error ? err.message : 'فشل رفع الملف — أعد المحاولة';
+      // Map backend permission errors to a user-friendly Arabic message
+      const isPermission = raw === 'Insufficient role' || raw.startsWith('HTTP 403') || raw.includes('403');
+      setUploadError(
+        isPermission
+          ? 'لا تملك صلاحية تنفيذ هذا الاستيراد. تواصل مع مدير النظام.'
+          : raw,
+      );
     } finally {
       setUploading(false);
       setProgress(0);

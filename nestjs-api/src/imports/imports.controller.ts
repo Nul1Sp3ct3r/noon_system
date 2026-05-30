@@ -25,7 +25,14 @@ export class ImportsController {
   constructor(private imports: ImportsService) {}
 
   @Post('upload')
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(
+    // Platform-level admins
+    Role.super_admin, Role.platform_admin, Role.admin,
+    // Merchant roles that can import data for their own org
+    Role.merchant_owner, Role.merchant_accountant,
+    Role.merchant_inventory, Role.merchant_data_entry,
+    // merchant_viewer is intentionally excluded — read-only role
+  )
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -63,7 +70,11 @@ export class ImportsController {
   }
 
   @Delete('batches/:batchId')
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(
+    Role.super_admin, Role.platform_admin, Role.admin,
+    Role.merchant_owner,
+    // Accountant/inventory/data-entry roles cannot delete batches (destructive)
+  )
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete an import batch and all linked orders, movements, and fees' })
   deleteBatch(@Param('batchId') batchId: string, @CurrentUser() user: JwtPayload) {
