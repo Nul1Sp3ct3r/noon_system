@@ -32,3 +32,7 @@ export function isAdmin(user: User | null): boolean {
 export function isSuperAdmin(user: User | null): boolean {
   return user?.role === 'super_admin';
 }
+
+export function isPlatformAdmin(user: User | null): boolean {
+  return user?.role === 'super_admin' || user?.role === 'platform_admin';
+}

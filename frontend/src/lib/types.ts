@@ -8,8 +8,104 @@ export interface User {
   id: number;
   username: string;
   fullName: string | null;
-  role: 'super_admin' | 'admin' | 'user';
+  role: 'super_admin' | 'admin' | 'user' | 'platform_admin';
   organizationId: number;
+}
+
+// ─── Platform / SaaS layer types ─────────────────────────────────────────────
+
+export type MerchantStatus        = 'trial' | 'active' | 'expired' | 'suspended' | 'cancelled';
+export type BillingCycle          = 'monthly' | 'yearly';
+export type SubscriptionStatus    = 'active' | 'expired' | 'cancelled' | 'paused' | 'trial';
+export type PlatformPaymentStatus = 'paid' | 'pending' | 'failed' | 'refunded';
+
+export interface Plan {
+  id:           number;
+  name:         string;
+  code:         string;
+  monthlyPrice: string;
+  yearlyPrice:  string;
+  features:     string[];
+  isActive:     boolean;
+  createdAt:    string;
+  updatedAt:    string;
+}
+
+export interface Merchant {
+  id:             number;
+  businessName:   string;
+  ownerName:      string | null;
+  email:          string | null;
+  phone:          string | null;
+  crNumber:       string | null;
+  vatNumber:      string | null;
+  status:         MerchantStatus;
+  organizationId: number | null;
+  notes:          string | null;
+  createdAt:      string;
+  updatedAt:      string;
+  lastActivityAt: string | null;
+  currentSubscription: MerchantSubscription | null;
+}
+
+export interface MerchantSubscription {
+  id:           number;
+  merchantId:   number;
+  planId:       number;
+  billingCycle: BillingCycle;
+  startDate:    string;
+  endDate:      string | null;
+  status:       SubscriptionStatus;
+  autoRenew:    boolean;
+  price:        string;
+  notes:        string | null;
+  createdAt:    string;
+  updatedAt:    string;
+  plan:         Pick<Plan, 'id' | 'name' | 'code'> | null;
+}
+
+export interface MerchantDetail extends Merchant {
+  subscriptions: MerchantSubscription[];
+  payments:      PlatformPayment[];
+  usage: {
+    products:  number;
+    orders:    number;
+    imports:   number;
+    users:     number;
+    lastLogin: string | null;
+  };
+  health: {
+    failedImports:        number;
+    missingCostProducts:  number;
+    lowStock:             number;
+  };
+}
+
+export interface PlatformPayment {
+  id:             number;
+  merchantId:     number;
+  subscriptionId: number | null;
+  amount:         string;
+  status:         PlatformPaymentStatus;
+  paymentMethod:  string | null;
+  invoiceNumber:  string | null;
+  notes:          string | null;
+  paidAt:         string | null;
+  createdAt:      string;
+  merchant:       Pick<Merchant, 'id' | 'businessName'> | null;
+  subscription:   { id: number; plan: Pick<Plan, 'name'> } | null;
+}
+
+export interface PlatformKpis {
+  totalMerchants:         number;
+  activeMerchants:        number;
+  trialMerchants:         number;
+  expiredSubscriptions:   number;
+  suspendedSubscriptions: number;
+  mrr:                    number;
+  arr:                    number;
+  monthlyRevenue:         number;
+  pendingPayments:        number;
 }
 
 export interface PaginatedResponse<T> {

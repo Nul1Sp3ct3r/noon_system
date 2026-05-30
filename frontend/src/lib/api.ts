@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, Plan, MerchantSubscription, PlatformPayment, PlatformKpis } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -550,6 +550,44 @@ export const expenses = {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   },
+};
+
+// ── Platform Admin ────────────────────────────────────────────────────────────
+
+export const platformAdmin = {
+  kpis: () =>
+    http<PlatformKpis>('/api/v1/admin/platform-kpis'),
+
+  // Merchants
+  listMerchants: (params?: { q?: string; status?: string; page?: number; limit?: number }) =>
+    http<PaginatedResponse<Merchant>>(`/api/v1/admin/merchants?${qs(params)}`),
+
+  createMerchant: (dto: object) =>
+    http<Merchant>('/api/v1/admin/merchants', { method: 'POST', body: JSON.stringify(dto) }),
+
+  getMerchant: (id: number) =>
+    http<MerchantDetail>(`/api/v1/admin/merchants/${id}`),
+
+  updateMerchant: (id: number, dto: object) =>
+    http<Merchant>(`/api/v1/admin/merchants/${id}`, { method: 'PATCH', body: JSON.stringify(dto) }),
+
+  // Plans
+  listPlans: () =>
+    http<Plan[]>('/api/v1/admin/plans'),
+
+  seedPlans: () =>
+    http<{ seeded: boolean; count?: number; message?: string }>('/api/v1/admin/plans/seed-defaults', { method: 'POST' }),
+
+  // Subscriptions
+  listSubscriptions: (merchantId?: number) =>
+    http<MerchantSubscription[]>(`/api/v1/admin/subscriptions${merchantId ? `?merchantId=${merchantId}` : ''}`),
+
+  updateSubscription: (id: number, dto: object) =>
+    http<MerchantSubscription>(`/api/v1/admin/subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify(dto) }),
+
+  // Payments
+  listPayments: (merchantId?: number) =>
+    http<PlatformPayment[]>(`/api/v1/admin/payments${merchantId ? `?merchantId=${merchantId}` : ''}`),
 };
 
 // ── util ───────────────────────────────────────────────────────────────────────

@@ -9,11 +9,11 @@ import {
   Warehouse, BarChart2, Calculator, TrendingUp,
   CreditCard, ShieldCheck, LogOut, Upload, BookOpen,
   ListTree, Scale, BookMarked, Lock, Receipt,
-  ChevronDown, Settings,
+  ChevronDown, Settings, Users, Layers, BadgeDollarSign, CreditCard as PayCard,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { auth } from '@/lib/api';
-import { clearTokens } from '@/lib/auth';
+import { clearTokens, getUser, isPlatformAdmin } from '@/lib/auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,7 +128,9 @@ export default function Sidebar() {
     router.push('/login');
   }
 
-  const dashActive = pathname === '/dashboard';
+  const user         = getUser();
+  const showPlatform = isPlatformAdmin(user);
+  const dashActive   = pathname === '/dashboard';
 
   return (
     <aside className="fixed inset-y-0 right-0 w-60 bg-sidebar flex flex-col z-30 select-none">
@@ -235,6 +237,38 @@ export default function Sidebar() {
         })}
 
       </nav>
+
+      {/* ── Platform Admin (super_admin / platform_admin only) ──────────────── */}
+      {showPlatform && (
+        <div className="px-2.5 pb-2 border-t border-white/10">
+          <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest px-3 py-2 mt-2">
+            إدارة المنصة
+          </p>
+          {[
+            { href: '/admin/merchants',    label: 'إدارة التجار',  icon: Users           },
+            { href: '/admin/plans',        label: 'الباقات',       icon: Layers          },
+            { href: '/admin/subscriptions',label: 'الاشتراكات',    icon: BadgeDollarSign },
+            { href: '/admin/payments',     label: 'المدفوعات',     icon: PayCard         },
+          ].map(({ href, label, icon: Icon }) => {
+            const active = pathname === href || pathname.startsWith(href + '/');
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={clsx(
+                  'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors mb-0.5',
+                  active
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'text-slate-500 hover:bg-white/10 hover:text-slate-300',
+                )}
+              >
+                <Icon size={13} className="shrink-0" />
+                <span className="truncate">{label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Logout ─────────────────────────────────────────────────────────── */}
       <div className="px-2.5 py-3 border-t border-white/10 shrink-0">

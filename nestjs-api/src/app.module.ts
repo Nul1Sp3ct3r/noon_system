@@ -26,6 +26,7 @@ import { JournalsModule } from './journals/journals.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -75,6 +76,7 @@ import { AppController } from './app.controller';
     AccountsModule,
     AccountingModule,
     ExpensesModule,
+    PlatformAdminModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

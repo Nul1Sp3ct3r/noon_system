@@ -20,7 +20,7 @@ export default function LoginPage() {
       const data = await auth.login(username, password);
       saveTokens(data.accessToken, data.refreshToken);
       saveUser(data.user);
-      router.push('/');
+      router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'فشل تسجيل الدخول');
     } finally {
