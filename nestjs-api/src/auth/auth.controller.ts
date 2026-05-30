@@ -16,6 +16,7 @@ import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import type { RefreshPayload } from './strategies/jwt-refresh.strategy';
 
 @ApiTags('auth')
@@ -53,5 +54,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Revoke refresh token and logout' })
   logout(@CurrentUser() user: JwtPayload, @Body('refreshToken') rawToken?: string) {
     return this.auth.logout(user.sub, rawToken);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Change password — forced or voluntary. Returns fresh tokens.' })
+  changePassword(@CurrentUser() user: JwtPayload, @Body() dto: ChangePasswordDto) {
+    return this.auth.changePassword(user.sub, dto);
   }
 }

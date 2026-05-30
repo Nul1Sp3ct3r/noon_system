@@ -4,12 +4,31 @@ export interface AuthTokens {
   user: User;
 }
 
+export type UserRole =
+  | 'super_admin' | 'admin' | 'user' | 'platform_admin'
+  | 'merchant_owner' | 'merchant_accountant' | 'merchant_inventory'
+  | 'merchant_data_entry' | 'merchant_viewer';
+
 export interface User {
   id: number;
   username: string;
   fullName: string | null;
-  role: 'super_admin' | 'admin' | 'user' | 'platform_admin';
+  role: UserRole;
   organizationId: number;
+  mustChangePassword?: boolean;
+}
+
+export interface MerchantUser {
+  id: number;
+  username: string;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  role: UserRole;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+  lastLogin: string | null;
 }
 
 // ─── Platform / SaaS layer types ─────────────────────────────────────────────

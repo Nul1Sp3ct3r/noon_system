@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, Plan, MerchantSubscription, PlatformPayment, PlatformKpis } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -76,6 +76,9 @@ export const auth = {
 
   logout: () =>
     http<void>('/api/v1/auth/logout', { method: 'POST' }).catch(() => undefined),
+
+  changePassword: (dto: { newPassword: string; confirmPassword: string; currentPassword?: string }) =>
+    http<AuthTokens>('/api/v1/auth/change-password', { method: 'POST', body: JSON.stringify(dto) }),
 };
 
 // ── Products ───────────────────────────────────────────────────────────────────
@@ -588,6 +591,20 @@ export const platformAdmin = {
   // Payments
   listPayments: (merchantId?: number) =>
     http<PlatformPayment[]>(`/api/v1/admin/payments${merchantId ? `?merchantId=${merchantId}` : ''}`),
+
+  // Merchant users
+  listMerchantUsers: (merchantId: number) =>
+    http<MerchantUser[]>(`/api/v1/admin/merchants/${merchantId}/users`),
+
+  createMerchantUser: (merchantId: number, dto: object) =>
+    http<MerchantUser>(`/api/v1/admin/merchants/${merchantId}/users`, {
+      method: 'POST', body: JSON.stringify(dto),
+    }),
+
+  updateMerchantUser: (merchantId: number, userId: number, dto: object) =>
+    http<MerchantUser>(`/api/v1/admin/merchants/${merchantId}/users/${userId}`, {
+      method: 'PATCH', body: JSON.stringify(dto),
+    }),
 };
 
 // ── util ───────────────────────────────────────────────────────────────────────

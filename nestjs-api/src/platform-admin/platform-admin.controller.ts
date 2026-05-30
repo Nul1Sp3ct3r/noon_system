@@ -10,6 +10,8 @@ import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { UpdateMerchantDto } from './dto/update-merchant.dto';
 import { ListMerchantsDto } from './dto/list-merchants.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { CreateMerchantUserDto } from './dto/create-merchant-user.dto';
+import { UpdateMerchantUserDto } from './dto/update-merchant-user.dto';
 
 // These routes are ONLY accessible by super_admin or platform_admin.
 // The RolesGuard (globally registered) enforces 403 for any other role.
@@ -55,6 +57,33 @@ export class PlatformAdminController {
     @Body() dto: UpdateMerchantDto,
   ) {
     return this.svc.updateMerchant(id, dto);
+  }
+
+  // ── Merchant users ─────────────────────────────────────────────────────────
+
+  @Get('merchants/:id/users')
+  @ApiOperation({ summary: 'List users in the merchant org' })
+  listMerchantUsers(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.listMerchantUsers(id);
+  }
+
+  @Post('merchants/:id/users')
+  @ApiOperation({ summary: 'Create a user for the merchant org (auto-creates org if needed)' })
+  createMerchantUser(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateMerchantUserDto,
+  ) {
+    return this.svc.createMerchantUser(id, dto);
+  }
+
+  @Patch('merchants/:id/users/:userId')
+  @ApiOperation({ summary: 'Update merchant user (role, isActive, password reset)' })
+  updateMerchantUser(
+    @Param('id', ParseIntPipe)     id: number,
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: UpdateMerchantUserDto,
+  ) {
+    return this.svc.updateMerchantUser(id, userId, dto);
   }
 
   // ── Plans ──────────────────────────────────────────────────────────────────

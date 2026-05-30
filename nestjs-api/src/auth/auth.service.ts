@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -13,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import type { JwtPayload } from '../common/decorators/current-user.decorator';
 
 @Injectable()
@@ -82,7 +84,7 @@ export class AuthService {
     });
 
     await this.audit.log({ action: 'login', userId: user.id, orgId: user.organizationId, ipAddress: ip });
-    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, user.organizationId);
+    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, user.organizationId, user.mustChangePassword);
   }
 
   // ─── Refresh ────────────────────────────────────────────────────────────────
@@ -99,7 +101,7 @@ export class AuthService {
     await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, user.organizationId);
+    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, user.organizationId, user.mustChangePassword);
   }
 
   // ─── Logout ─────────────────────────────────────────────────────────────────
@@ -124,7 +126,37 @@ export class AuthService {
 
   // ─── Internal ───────────────────────────────────────────────────────────────
 
-  private async issueTokens(userId: number, username: string, fullName: string | null, role: Role, orgId: number) {
+  // ─── Change password ───────────────────────────────────────────────────────
+
+  async changePassword(userId: number, dto: ChangePasswordDto) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('كلمة المرور الجديدة وتأكيدها غير متطابقتين');
+    }
+
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+
+    // If not a forced change, current password is mandatory
+    if (!user.mustChangePassword) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException('كلمة المرور الحالية مطلوبة');
+      }
+      const valid = await argon2.verify(user.passwordHash, dto.currentPassword);
+      if (!valid) throw new UnauthorizedException('كلمة المرور الحالية غير صحيحة');
+    }
+
+    const passwordHash = await argon2.hash(dto.newPassword);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, mustChangePassword: false },
+    });
+
+    await this.audit.log({ action: 'change_password', userId, orgId: user.organizationId });
+    return this.issueTokens(user.id, user.username, user.fullName ?? null, user.role, user.organizationId, false);
+  }
+
+  // ─── Internal ───────────────────────────────────────────────────────────────
+
+  private async issueTokens(userId: number, username: string, fullName: string | null, role: Role, orgId: number, mustChangePassword = false) {
     const payload: JwtPayload = { sub: userId, username, role, orgId };
 
     const accessToken = this.jwt.sign(payload, {
@@ -144,7 +176,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken: rawRefresh,
-      user: { id: userId, username, fullName, role, organizationId: orgId },
+      user: { id: userId, username, fullName, role, organizationId: orgId, mustChangePassword },
     };
   }
 

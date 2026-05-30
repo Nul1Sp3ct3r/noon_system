@@ -1,10 +1,29 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { BillingCycle, MerchantStatus, SubscriptionStatus } from '@prisma/client';
+import {
+  BadRequestException, ConflictException,
+  Injectable, NotFoundException,
+} from '@nestjs/common';
+import * as argon2 from 'argon2';
+import { BillingCycle, MerchantStatus, Role, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { UpdateMerchantDto } from './dto/update-merchant.dto';
 import { ListMerchantsDto } from './dto/list-merchants.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { CreateMerchantUserDto, MERCHANT_ROLES } from './dto/create-merchant-user.dto';
+import { UpdateMerchantUserDto } from './dto/update-merchant-user.dto';
+
+const MERCHANT_USER_SELECT = {
+  id: true,
+  username: true,
+  fullName: true,
+  email: true,
+  phone: true,
+  role: true,
+  isActive: true,
+  mustChangePassword: true,
+  createdAt: true,
+  lastLogin: true,
+} as const;
 
 const BASIC_FEATURES = [
   'استيراد أسبوعي وشهري',
@@ -294,6 +313,123 @@ export class PlatformAdminService {
         merchant:     { select: { id: true, businessName: true } },
         subscription: { select: { id: true, plan: { select: { name: true } } } },
       },
+    });
+  }
+
+  // ─── Merchant users ────────────────────────────────────────────────────────
+
+  private async resolveOrCreateOrg(merchant: { id: number; businessName: string; organizationId: number | null }) {
+    if (merchant.organizationId) {
+      return merchant.organizationId;
+    }
+
+    // Auto-create an org for this merchant on first user creation
+    const slug = merchant.businessName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+
+    const slugExists = await this.prisma.organization.findUnique({ where: { slug } });
+    const finalSlug = slugExists ? `${slug}-${Date.now()}` : slug;
+
+    const org = await this.prisma.organization.create({
+      data: {
+        name: merchant.businessName,
+        slug: finalSlug,
+        warehouses: { create: { name: 'المستودع الرئيسي', code: 'MAIN' } },
+      },
+    });
+
+    await this.prisma.merchant.update({
+      where: { id: merchant.id },
+      data: { organizationId: org.id },
+    });
+
+    return org.id;
+  }
+
+  async listMerchantUsers(merchantId: number) {
+    const merchant = await this.prisma.merchant.findUnique({ where: { id: merchantId } });
+    if (!merchant) throw new NotFoundException('Merchant not found');
+    if (!merchant.organizationId) return [];
+
+    return this.prisma.user.findMany({
+      where: { organizationId: merchant.organizationId },
+      select: MERCHANT_USER_SELECT,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createMerchantUser(merchantId: number, dto: CreateMerchantUserDto) {
+    const merchant = await this.prisma.merchant.findUnique({ where: { id: merchantId } });
+    if (!merchant) throw new NotFoundException('Merchant not found');
+
+    // Validate role is a merchant role
+    if (!(MERCHANT_ROLES as readonly Role[]).includes(dto.role)) {
+      throw new BadRequestException('الدور المحدد غير صالح لمستخدمي التجار');
+    }
+
+    const orgId = await this.resolveOrCreateOrg(merchant);
+
+    // Prevent duplicate username (globally unique)
+    const existingUsername = await this.prisma.user.findUnique({ where: { username: dto.username } });
+    if (existingUsername) throw new ConflictException('اسم المستخدم مستخدم بالفعل');
+
+    // Prevent duplicate email within org (if provided)
+    if (dto.email) {
+      const existingEmail = await this.prisma.user.findFirst({
+        where: { organizationId: orgId, email: dto.email },
+      });
+      if (existingEmail) throw new ConflictException('البريد الإلكتروني مستخدم بالفعل في هذه المنظمة');
+    }
+
+    const passwordHash = await argon2.hash(dto.password);
+
+    const user = await this.prisma.user.create({
+      data: {
+        organizationId:     orgId,
+        username:           dto.username,
+        passwordHash,
+        fullName:           dto.fullName ?? null,
+        email:              dto.email ?? null,
+        phone:              dto.phone ?? null,
+        role:               dto.role,
+        isActive:           true,
+        mustChangePassword: true,
+      },
+      select: MERCHANT_USER_SELECT,
+    });
+
+    return user;
+  }
+
+  async updateMerchantUser(merchantId: number, userId: number, dto: UpdateMerchantUserDto) {
+    const merchant = await this.prisma.merchant.findUnique({ where: { id: merchantId } });
+    if (!merchant) throw new NotFoundException('Merchant not found');
+    if (!merchant.organizationId) throw new BadRequestException('التاجر غير مرتبط بمنظمة');
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId: merchant.organizationId },
+    });
+    if (!user) throw new NotFoundException('User not found in this merchant organization');
+
+    const data: any = {};
+    if (dto.role !== undefined) {
+      if (!(MERCHANT_ROLES as readonly Role[]).includes(dto.role)) {
+        throw new BadRequestException('الدور المحدد غير صالح لمستخدمي التجار');
+      }
+      data.role = dto.role;
+    }
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    if (dto.newPassword) {
+      data.passwordHash       = await argon2.hash(dto.newPassword);
+      data.mustChangePassword = true;
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: MERCHANT_USER_SELECT,
     });
   }
 }

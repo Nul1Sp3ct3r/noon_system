@@ -15,6 +15,11 @@ enum Role {
   admin
   user
   platform_admin
+  merchant_owner
+  merchant_accountant
+  merchant_inventory
+  merchant_data_entry
+  merchant_viewer
 }
 
 enum MerchantStatus {
@@ -143,15 +148,18 @@ model Organization {
 // ─── Users & Auth ──────────────────────────────────────────────────────────────
 
 model User {
-  id             Int       @id @default(autoincrement())
-  organizationId Int       @map("organization_id")
-  username       String    @unique
-  passwordHash   String    @map("password_hash")
-  fullName       String?   @map("full_name")
-  role           Role      @default(user)
-  isActive       Boolean   @default(false) @map("is_active")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  lastLogin      DateTime? @map("last_login")
+  id                 Int       @id @default(autoincrement())
+  organizationId     Int       @map("organization_id")
+  username           String    @unique
+  passwordHash       String    @map("password_hash")
+  fullName           String?   @map("full_name")
+  email              String?
+  phone              String?
+  role               Role      @default(user)
+  isActive           Boolean   @default(false) @map("is_active")
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  lastLogin          DateTime? @map("last_login")
 
   organization     Organization   @relation(fields: [organizationId], references: [id])
   refreshTokens    RefreshToken[]
