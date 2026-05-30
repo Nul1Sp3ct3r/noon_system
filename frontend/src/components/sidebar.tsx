@@ -128,7 +128,7 @@ export default function Sidebar() {
     router.push('/login');
   }
 
-  const dashActive = pathname === '/';
+  const dashActive = pathname === '/dashboard';
 
   return (
     <aside className="fixed inset-y-0 right-0 w-60 bg-sidebar flex flex-col z-30 select-none">
@@ -149,7 +149,7 @@ export default function Sidebar() {
 
         {/* Dashboard — standalone link */}
         <Link
-          href="/"
+          href="/dashboard"
           className={clsx(
             'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
             dashActive
