@@ -101,6 +101,12 @@ export class ImportsService {
           this.prisma.warehouse.findFirst({ where: { organizationId: orgId, code: 'RETURNS' } }),
         ]);
 
+        // Run the row-processing transaction. importBatch.create is intentionally
+      // OUTSIDE this block — if any DB-level error inside the callback aborts the
+      // PostgreSQL session, subsequent tx.* calls also throw. Keeping importBatch.create
+      // here would make it part of the aborted session and turn a row-level error into
+      // an unhandled 500. Moving it outside lets us always record what was processed.
+      try {
         await this.prisma.$transaction(async tx => {
           for (const row of parsed.customerRows) {
             try {
@@ -113,9 +119,9 @@ export class ImportsService {
 
               if (existing) { rowsSkipped++; continue; }
 
-              const orderedDate    = row.docDate ? new Date(row.docDate) : undefined;
-              const deliveredDate  = itemStatus === 'delivered' ? row.docDate : null;
-              const returnedDate   = itemStatus === 'returned'  ? row.docDate : null;
+              const orderedDate   = row.docDate ? safeDate(row.docDate) : undefined;
+              const deliveredDate = itemStatus === 'delivered' ? row.docDate : null;
+              const returnedDate  = itemStatus === 'returned'  ? row.docDate : null;
 
               await tx.order.create({
                 data: {
@@ -147,7 +153,7 @@ export class ImportsService {
                     const stock = await tx.inventoryMovement.aggregate({
                       where: { organizationId: orgId, sku: row.sku, warehouseId: fbnWh.id, isVoid: false },
                       _sum:  { quantity: true },
-                    });
+                    }).catch(() => ({ _sum: { quantity: 0 } }));
                     const qty = stock._sum.quantity ?? 0;
                     if (qty - 1 < 0) warnings.push(`FBN stock negative after sale: SKU ${row.sku} (would be ${qty - 1})`);
                   }
@@ -165,15 +171,15 @@ export class ImportsService {
               }
 
               if (row.sku) {
-                const ep = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } });
-                if (!ep) {
+                const ep = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } }).catch(() => null);
+                if (ep === null) {
                   await tx.product.create({ data: { organizationId: orgId, sku: row.sku, partnerSku: row.partnerSku || null, nameEn: row.productTitleEn || null } }).catch(() => {});
-                } else if (!ep.partnerSku && row.partnerSku) {
-                  await tx.product.update({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } }, data: { partnerSku: row.partnerSku } });
+                } else if (ep && !ep.partnerSku && row.partnerSku) {
+                  await tx.product.update({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } }, data: { partnerSku: row.partnerSku } }).catch(() => {});
                 }
               }
             } catch (err) {
-              this.logger.warn(`Skipped customer row ${row.orderNr}/${row.itemNr}: ${(err as Error).message}`);
+              this.logger.warn(`Skipped monthly customer row ${row.orderNr}/${row.itemNr}: ${(err as Error).message}`);
               rowsSkipped++;
             }
           }
@@ -199,31 +205,39 @@ export class ImportsService {
               /* non-fatal */
             }
           }
-
-          await tx.importBatch.create({
-            data: {
-              organizationId: orgId,
-              batchId,
-              importType:    ImportType.monthly_statement,
-              fileName:      file.originalname,
-              fileHash,
-              rowsImported,
-              rowsSkipped,
-              salesCount,
-              returnsCount,
-              feesCount:     parsed.feeRows.length,
-              statementNr:   parsed.statementNr || null,
-              statementDate: parsed.statementDate || null,
-              status:        'completed',
-            },
-          });
         }, TX_OPTS);
+      } catch (txErr) {
+        // Transaction failed (e.g. PostgreSQL session aborted, timeout, connection error).
+        // Throw as BadRequestException so the client sees a 400 with context, not a 500.
+        const txMsg = (txErr as Error).message ?? 'Transaction failed';
+        throw new BadRequestException(
+          `فشلت معالجة الملف الشهري — ${txMsg.slice(0, 200)}`,
+        );
+      }
+
+      // importBatch record is created OUTSIDE the transaction so it always succeeds.
+      await this.prisma.importBatch.create({
+        data: {
+          organizationId: orgId,
+          batchId,
+          importType:    ImportType.monthly_statement,
+          fileName:      file.originalname,
+          fileHash,
+          rowsImported,
+          rowsSkipped,
+          salesCount,
+          returnsCount,
+          feesCount:     parsed.feeRows.length,
+          statementNr:   parsed.statementNr || null,
+          statementDate: parsed.statementDate || null,
+          status:        'completed',
+        },
+      });
 
       } else if (parsed.format === 'weekly_noon') {
         // ── WEEKLY NOON SALES FORMAT ────────────────────────────────────────────
-        // Same upsert logic as old format; weekly has richer fee breakdown columns
-        // that are not yet stored in separate DB fields — mapped to existing Order fields.
-        await this.prisma.$transaction(async tx => {
+        try {
+          await this.prisma.$transaction(async tx => {
           for (const row of parsed.weeklyRows) {
             try {
               const rNet = r4(row.netProceeds);
@@ -318,24 +332,32 @@ export class ImportsService {
             }
           }
 
-          await tx.importBatch.create({
-            data: {
-              organizationId: orgId,
-              batchId,
-              importType:    ImportType.weekly_noon,
-              fileName:      file.originalname,
-              fileHash,
-              rowsImported,
-              rowsSkipped,
-              salesCount,
-              returnsCount,
-              feesCount:     0,
-              statementNr:   parsed.statementNr  || null,
-              statementDate: parsed.statementDate || null,
-              status:        'completed',
-            },
-          });
+          // importBatch.create moved outside — see monthly comment above.
         }, TX_OPTS);
+        } catch (txErr) {
+          const txMsg = (txErr as Error).message ?? 'Transaction failed';
+          throw new BadRequestException(
+            `فشلت معالجة الملف الأسبوعي — ${txMsg.slice(0, 200)}`,
+          );
+        }
+
+        await this.prisma.importBatch.create({
+          data: {
+            organizationId: orgId,
+            batchId,
+            importType:    ImportType.weekly_noon,
+            fileName:      file.originalname,
+            fileHash,
+            rowsImported,
+            rowsSkipped,
+            salesCount,
+            returnsCount,
+            feesCount:     0,
+            statementNr:   parsed.statementNr  || null,
+            statementDate: parsed.statementDate || null,
+            status:        'completed',
+          },
+        });
 
       } else if (parsed.format === 'full_inventory') {
         // ── FULL INVENTORY SNAPSHOT FORMAT ─────────────────────────────────────
@@ -519,7 +541,8 @@ export class ImportsService {
 
       } else {
         // ── OLD / SALES FORMAT ──────────────────────────────────────────────────
-        await this.prisma.$transaction(async tx => {
+        try {
+          await this.prisma.$transaction(async tx => {
           for (const row of parsed.oldRows) {
             try {
               const rNet = r4(row.netProceeds);
@@ -613,27 +636,35 @@ export class ImportsService {
             }
           }
 
-          await tx.importBatch.create({
-            data: {
-              organizationId: orgId,
-              batchId,
-              importType:    ImportType.orders,
-              fileName:      file.originalname,
-              fileHash,
-              rowsImported,
-              rowsSkipped,
-              salesCount,
-              returnsCount,
-              feesCount:     0,
-              statementNr:   parsed.statementNr || null,
-              statementDate: parsed.statementDate || null,
-              status:        'completed',
-            },
-          });
+          // importBatch.create moved outside — see monthly comment above.
         }, TX_OPTS);
+        } catch (txErr) {
+          const txMsg = (txErr as Error).message ?? 'Transaction failed';
+          throw new BadRequestException(
+            `فشلت معالجة الملف — ${txMsg.slice(0, 200)}`,
+          );
+        }
+
+        await this.prisma.importBatch.create({
+          data: {
+            organizationId: orgId,
+            batchId,
+            importType:    ImportType.orders,
+            fileName:      file.originalname,
+            fileHash,
+            rowsImported,
+            rowsSkipped,
+            salesCount,
+            returnsCount,
+            feesCount:     0,
+            statementNr:   parsed.statementNr || null,
+            statementDate: parsed.statementDate || null,
+            status:        'completed',
+          },
+        });
       }
     } catch (err) {
-      // Log single-line JSON so Vercel runtime logs capture the full error without truncation
+      // Log full error so Vercel runtime logs capture it for debugging
       console.error(JSON.stringify({
         event:   'import_error',
         orgId,
@@ -642,7 +673,29 @@ export class ImportsService {
         message: (err as Error).message,
         stack:   (err as Error).stack,
       }));
-      throw err;
+
+      // Re-throw HttpExceptions (BadRequestException etc.) as-is — they become 400.
+      // Convert any other error to BadRequestException so the client gets a 400 with
+      // context instead of a generic 500 "Internal server error".
+      if (err instanceof BadRequestException) throw err;
+
+      const rawMsg = (err as Error)?.message ?? 'Unknown error';
+
+      // Specific Prisma / DB error messages mapped to Arabic
+      if (rawMsg.includes('Transaction already closed') || rawMsg.includes('P2028')) {
+        throw new BadRequestException('انتهت مهلة معالجة الملف — الملف كبير جداً. جرب تقسيمه.');
+      }
+      if (rawMsg.includes('Unique constraint') || rawMsg.includes('P2002')) {
+        throw new BadRequestException('يوجد تعارض في البيانات — قد يكون بعض السجلات موجوداً مسبقاً.');
+      }
+      if (rawMsg.includes('Foreign key') || rawMsg.includes('P2003')) {
+        throw new BadRequestException('خطأ في العلاقات — تعذر ربط السجلات بالمنظمة.');
+      }
+      if (rawMsg.includes('current transaction is aborted')) {
+        throw new BadRequestException('فشلت معالجة الملف — حدث خطأ في قاعدة البيانات. راجع سجلات الملف.');
+      }
+
+      throw new BadRequestException(`خطأ في معالجة الملف: ${rawMsg.slice(0, 250)}`);
     }
 
     await this.audit.log({

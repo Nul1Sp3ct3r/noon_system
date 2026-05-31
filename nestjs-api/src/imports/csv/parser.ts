@@ -48,6 +48,7 @@ const INVENTORY_DETECT = ['warehouse_code', 'inventory_type', 'inventory_snapsho
 const OLD_DETECT = ['net_proceeds', 'referral_fee', 'fbn_outbound_fee'];
 
 // Required columns — surfaced as readable errors if hint is provided but file is wrong
+const MONTHLY_REQUIRED   = ['transaction_type', 'document_type', 'source_doc_nr', 'source_doc_line_nr', 'price_including_vat_document_currency'];
 const WEEKLY_REQUIRED    = ['order_nr', 'item_nr', 'net_proceeds', 'total_payment', 'fee_name'];
 const INVENTORY_REQUIRED = ['warehouse_code', 'qty', 'inventory_type'];
 
@@ -138,7 +139,15 @@ export function parseCsvBuffer(buffer: Buffer, hintType?: string): ParsedCsv {
   console.log(JSON.stringify({ event: 'csv_autodetect', isInventory, isMonthly, isWeekly, isOld }));
 
   if (isInventory) return parseInventory(records);
-  if (isMonthly)   return parseMonthly(records);
+  if (isMonthly) {
+    const missing = MONTHLY_REQUIRED.filter(c => !cols.has(c));
+    if (missing.length) {
+      throw new BadRequestException(
+        `الأعمدة المطلوبة غير موجودة في الملف الشهري: ${missing.join(', ')}`,
+      );
+    }
+    return parseMonthly(records);
+  }
   if (isWeekly)    return parseWeekly(records);
   if (isOld)       return parseOld(records);
 
