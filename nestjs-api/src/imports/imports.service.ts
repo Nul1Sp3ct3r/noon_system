@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { ImportType, MovementType } from '@prisma/client';
+import { ImportType, MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AccountingService } from '../accounting/accounting.service';
@@ -96,143 +96,201 @@ export class ImportsService {
     try {
       if (parsed.format === 'monthly') {
         // ── MONTHLY FORMAT ─────────────────────────────────────────────────────
+        // Optimized: all reads outside transaction, bulk createMany inside.
+        // Reduces DB round trips from O(N) per row to O(1) total.
+
         const [fbnWh, retWh] = await Promise.all([
           this.prisma.warehouse.findFirst({ where: { organizationId: orgId, code: 'FBN' } }),
           this.prisma.warehouse.findFirst({ where: { organizationId: orgId, code: 'RETURNS' } }),
         ]);
 
-        // Run the row-processing transaction. importBatch.create is intentionally
-      // OUTSIDE this block — if any DB-level error inside the callback aborts the
-      // PostgreSQL session, subsequent tx.* calls also throw. Keeping importBatch.create
-      // here would make it part of the aborted session and turn a row-level error into
-      // an unhandled 500. Moving it outside lets us always record what was processed.
-      try {
-        await this.prisma.$transaction(async tx => {
-          for (const row of parsed.customerRows) {
-            try {
-              const itemStatus = row.docType === 'Invoice' ? 'delivered' : 'returned';
-
-              const existing = await tx.order.findFirst({
-                where: { organizationId: orgId, orderNr: row.orderNr, itemNr: row.itemNr, itemStatus },
-                select: { id: true },
-              });
-
-              if (existing) { rowsSkipped++; continue; }
-
-              const orderedDate   = row.docDate ? safeDate(row.docDate) : undefined;
-              const deliveredDate = itemStatus === 'delivered' ? row.docDate : null;
-              const returnedDate  = itemStatus === 'returned'  ? row.docDate : null;
-
-              await tx.order.create({
-                data: {
-                  organizationId: orgId,
-                  orderNr:        row.orderNr,
-                  itemNr:         row.itemNr,
-                  sku:            row.sku || null,
-                  partnerSku:     row.partnerSku || null,
-                  productTitleEn: row.productTitleEn || null,
-                  itemStatus,
-                  orderedDate,
-                  deliveredDate,
-                  returnedDate,
-                  netProceeds:    row.netProceeds.toFixed(2),
-                  referralFee:    '0.00',
-                  fbnOutboundFee: '0.00',
-                  totalPayment:   row.netProceeds.toFixed(2),
-                  importBatch:    batchId,
-                },
-              });
-
-              rowsImported++;
-
-              if (itemStatus === 'delivered') {
-                salesCount++;
-                totalSales += row.netProceeds;
-                if (row.sku && fbnWh) {
-                  if (warnings.length < 50) {
-                    const stock = await tx.inventoryMovement.aggregate({
-                      where: { organizationId: orgId, sku: row.sku, warehouseId: fbnWh.id, isVoid: false },
-                      _sum:  { quantity: true },
-                    }).catch(() => ({ _sum: { quantity: 0 } }));
-                    const qty = stock._sum.quantity ?? 0;
-                    if (qty - 1 < 0) warnings.push(`FBN stock negative after sale: SKU ${row.sku} (would be ${qty - 1})`);
-                  }
-                  await tx.inventoryMovement.create({
-                    data: { organizationId: orgId, sku: row.sku, warehouseId: fbnWh.id, movementType: MovementType.sale, quantity: -1, batchId, reference: row.orderNr },
-                  }).catch(() => {});
-                }
-              } else {
-                returnsCount++;
-                if (row.sku && retWh) {
-                  await tx.inventoryMovement.create({
-                    data: { organizationId: orgId, sku: row.sku, warehouseId: retWh.id, movementType: MovementType.noon_return, quantity: 1, batchId, reference: row.orderNr },
-                  }).catch(() => {});
-                }
-              }
-
-              if (row.sku) {
-                const ep = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } }).catch(() => null);
-                if (ep === null) {
-                  await tx.product.create({ data: { organizationId: orgId, sku: row.sku, partnerSku: row.partnerSku || null, nameEn: row.productTitleEn || null } }).catch(() => {});
-                } else if (ep && !ep.partnerSku && row.partnerSku) {
-                  await tx.product.update({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } }, data: { partnerSku: row.partnerSku } }).catch(() => {});
-                }
-              }
-            } catch (err) {
-              this.logger.warn(`Skipped monthly customer row ${row.orderNr}/${row.itemNr}: ${(err as Error).message}`);
-              rowsSkipped++;
-            }
-          }
-
-          for (const fee of parsed.feeRows) {
-            try {
-              await tx.statementFee.create({
-                data: {
-                  organizationId: orgId,
-                  statementNr:    fee.statementNr || null,
-                  statementDate:  fee.statementDate || null,
-                  feeType:        fee.feeType,
-                  description:    fee.description || null,
-                  exclVat:        fee.exclVat.toFixed(4),
-                  vatAmount:      fee.vatAmount.toFixed(4),
-                  inclVat:        fee.inclVat.toFixed(4),
-                  importBatch:    batchId,
-                },
-              });
-              totalFees += Math.abs(fee.exclVat);
-              feesVat   += Math.abs(fee.vatAmount);
-            } catch {
-              /* non-fatal */
-            }
-          }
-        }, TX_OPTS);
-      } catch (txErr) {
-        // Transaction failed (e.g. PostgreSQL session aborted, timeout, connection error).
-        // Throw as BadRequestException so the client sees a 400 with context, not a 500.
-        const txMsg = (txErr as Error).message ?? 'Transaction failed';
-        throw new BadRequestException(
-          `فشلت معالجة الملف الشهري — ${txMsg.slice(0, 200)}`,
+        // Pre-load existing orders for duplicate detection (one bulk query)
+        const uniqueOrderNrsM = [...new Set(parsed.customerRows.map(r => r.orderNr).filter(Boolean))];
+        const existingOrdersM = uniqueOrderNrsM.length
+          ? await this.prisma.order.findMany({
+              where:  { organizationId: orgId, orderNr: { in: uniqueOrderNrsM } },
+              select: { orderNr: true, itemNr: true, itemStatus: true },
+            })
+          : [];
+        const existingOrderSetM = new Set(
+          existingOrdersM.map(o => `${o.orderNr}|${o.itemNr ?? ''}|${o.itemStatus ?? ''}`),
         );
-      }
 
-      // importBatch record is created OUTSIDE the transaction so it always succeeds.
-      await this.prisma.importBatch.create({
-        data: {
-          organizationId: orgId,
-          batchId,
-          importType:    ImportType.monthly_statement,
-          fileName:      file.originalname,
-          fileHash,
-          rowsImported,
-          rowsSkipped,
-          salesCount,
-          returnsCount,
-          feesCount:     parsed.feeRows.length,
-          statementNr:   parsed.statementNr || null,
-          statementDate: parsed.statementDate || null,
-          status:        'completed',
-        },
-      });
+        // Pre-load existing products for these SKUs (one bulk query)
+        const uniqueSkusM = [...new Set(parsed.customerRows.map(r => r.sku).filter(Boolean))] as string[];
+        const existingProdsM = uniqueSkusM.length
+          ? await this.prisma.product.findMany({
+              where:  { organizationId: orgId, sku: { in: uniqueSkusM } },
+              select: { sku: true, partnerSku: true },
+            })
+          : [];
+        const prodSkuMapM = new Map(existingProdsM.map(p => [p.sku, p] as [string, { sku: string; partnerSku: string | null }]));
+
+        // Pre-load FBN stock for negative-stock warnings (one groupBy)
+        const fbnStockMap = new Map<string, number>();
+        if (fbnWh && uniqueSkusM.length > 0) {
+          const sg = await this.prisma.inventoryMovement.groupBy({
+            by:    ['sku'],
+            where: { organizationId: orgId, warehouseId: fbnWh.id, isVoid: false, sku: { in: uniqueSkusM } },
+            _sum:  { quantity: true },
+          });
+          for (const s of sg) fbnStockMap.set(s.sku, Number(s._sum.quantity ?? 0));
+        }
+
+        // Process all rows in memory — zero DB calls in this loop
+        const ordersToInsertM:    Prisma.OrderCreateManyInput[]             = [];
+        const movementsToInsertM: Prisma.InventoryMovementCreateManyInput[] = [];
+        const productsToInsertM:  Prisma.ProductCreateManyInput[]           = [];
+        const feesToInsertM:      Prisma.StatementFeeCreateManyInput[]      = [];
+        const productPartnerUpdatesM = new Map<string, string>(); // sku → partnerSku to back-fill
+        const newProdSkusM = new Set<string>();
+
+        for (const row of parsed.customerRows) {
+          try {
+            const itemStatus = row.docType === 'Invoice' ? 'delivered' : 'returned';
+            const key = `${row.orderNr}|${row.itemNr ?? ''}|${itemStatus}`;
+            if (existingOrderSetM.has(key)) { rowsSkipped++; continue; }
+
+            const orderedDate   = row.docDate ? safeDate(row.docDate) : undefined;
+            const deliveredDate = itemStatus === 'delivered' ? row.docDate : null;
+            const returnedDate  = itemStatus === 'returned'  ? row.docDate : null;
+
+            ordersToInsertM.push({
+              organizationId: orgId,
+              orderNr:        row.orderNr,
+              itemNr:         row.itemNr,
+              sku:            row.sku || null,
+              partnerSku:     row.partnerSku || null,
+              productTitleEn: row.productTitleEn || null,
+              itemStatus,
+              orderedDate,
+              deliveredDate,
+              returnedDate,
+              netProceeds:    row.netProceeds.toFixed(2),
+              referralFee:    '0.00',
+              fbnOutboundFee: '0.00',
+              totalPayment:   row.netProceeds.toFixed(2),
+              importBatch:    batchId,
+            });
+            rowsImported++;
+
+            if (itemStatus === 'delivered') {
+              salesCount++;
+              totalSales += row.netProceeds;
+              if (row.sku && fbnWh) {
+                const qty    = fbnStockMap.get(row.sku) ?? 0;
+                const newQty = qty - 1;
+                if (newQty < 0 && warnings.length < 50) {
+                  warnings.push(`FBN stock negative after sale: SKU ${row.sku} (would be ${newQty})`);
+                }
+                fbnStockMap.set(row.sku, newQty);
+                movementsToInsertM.push({
+                  organizationId: orgId, sku: row.sku, warehouseId: fbnWh.id,
+                  movementType: MovementType.sale, quantity: -1, batchId, reference: row.orderNr,
+                });
+              }
+            } else {
+              returnsCount++;
+              if (row.sku && retWh) {
+                movementsToInsertM.push({
+                  organizationId: orgId, sku: row.sku, warehouseId: retWh.id,
+                  movementType: MovementType.noon_return, quantity: 1, batchId, reference: row.orderNr,
+                });
+              }
+            }
+
+            if (row.sku) {
+              const ep = prodSkuMapM.get(row.sku);
+              if (!ep && !newProdSkusM.has(row.sku)) {
+                productsToInsertM.push({
+                  organizationId: orgId,
+                  sku:            row.sku,
+                  partnerSku:     row.partnerSku || null,
+                  nameEn:         row.productTitleEn || null,
+                });
+                newProdSkusM.add(row.sku);
+                prodSkuMapM.set(row.sku, { sku: row.sku, partnerSku: row.partnerSku || null });
+              } else if (ep && !ep.partnerSku && row.partnerSku && !productPartnerUpdatesM.has(row.sku)) {
+                productPartnerUpdatesM.set(row.sku, row.partnerSku);
+                ep.partnerSku = row.partnerSku; // prevent duplicate entries
+              }
+            }
+          } catch (err) {
+            this.logger.warn(`Skipped monthly customer row ${row.orderNr}/${row.itemNr}: ${(err as Error).message}`);
+            rowsSkipped++;
+          }
+        }
+
+        for (const fee of parsed.feeRows) {
+          feesToInsertM.push({
+            organizationId: orgId,
+            statementNr:    fee.statementNr || null,
+            statementDate:  fee.statementDate || null,
+            feeType:        fee.feeType,
+            description:    fee.description || null,
+            exclVat:        fee.exclVat.toFixed(4),
+            vatAmount:      fee.vatAmount.toFixed(4),
+            inclVat:        fee.inclVat.toFixed(4),
+            importBatch:    batchId,
+          });
+          totalFees += Math.abs(fee.exclVat);
+          feesVat   += Math.abs(fee.vatAmount);
+        }
+
+        // Write-only transaction — no reads inside, completes in milliseconds
+        try {
+          await this.prisma.$transaction(async tx => {
+            const CHUNK = 500;
+            for (let i = 0; i < ordersToInsertM.length; i += CHUNK) {
+              await tx.order.createMany({ data: ordersToInsertM.slice(i, i + CHUNK), skipDuplicates: true });
+            }
+            if (movementsToInsertM.length > 0) {
+              for (let i = 0; i < movementsToInsertM.length; i += CHUNK) {
+                await tx.inventoryMovement.createMany({ data: movementsToInsertM.slice(i, i + CHUNK) });
+              }
+            }
+            if (productsToInsertM.length > 0) {
+              await tx.product.createMany({ data: productsToInsertM, skipDuplicates: true });
+            }
+            if (feesToInsertM.length > 0) {
+              for (let i = 0; i < feesToInsertM.length; i += CHUNK) {
+                await tx.statementFee.createMany({ data: feesToInsertM.slice(i, i + CHUNK) });
+              }
+            }
+          }, { timeout: 60_000, maxWait: 10_000 });
+        } catch (txErr) {
+          const txMsg = (txErr as Error).message ?? 'Transaction failed';
+          if (txMsg.includes('Transaction already closed') || txMsg.includes('P2028') || txMsg.includes('expired')) {
+            throw new BadRequestException('فشلت معالجة الملف لأن حجم البيانات كبير. حاول تقسيم الملف أو أعد المحاولة.');
+          }
+          throw new BadRequestException(`فشلت معالجة الملف الشهري — ${txMsg.slice(0, 200)}`);
+        }
+
+        await this.prisma.importBatch.create({
+          data: {
+            organizationId: orgId,
+            batchId,
+            importType:    ImportType.monthly_statement,
+            fileName:      file.originalname,
+            fileHash,
+            rowsImported,
+            rowsSkipped,
+            salesCount,
+            returnsCount,
+            feesCount:     parsed.feeRows.length,
+            statementNr:   parsed.statementNr || null,
+            statementDate: parsed.statementDate || null,
+            status:        'completed',
+          },
+        });
+
+        // Back-fill partnerSku on existing products that lacked it
+        for (const [sku, partnerSku] of productPartnerUpdatesM) {
+          await this.prisma.product.updateMany({
+            where: { organizationId: orgId, sku, partnerSku: null },
+            data:  { partnerSku },
+          }).catch(() => {});
+        }
 
       } else if (parsed.format === 'weekly_noon') {
         // ── WEEKLY NOON SALES FORMAT ────────────────────────────────────────────
