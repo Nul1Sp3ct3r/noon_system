@@ -7,6 +7,23 @@ type Badge = 'profitable' | 'low_margin' | 'loss' | 'missing_cost' | 'no_fees_al
 const VAT_FACTOR = 15 / 115;
 const VAT_RATE   = 0.15;
 
+function classifyFeeDesc(desc: string): string {
+  const d = (desc ?? '').toLowerCase();
+  if (d.includes('referral'))                                             return 'referralFee';
+  if (d.includes('fbn outbound') || d.includes('fbn out'))               return 'fbnOutboundFee';
+  if (d.includes('storage'))                                              return 'storageFee';
+  if (d.includes('return administration') || d.includes('return admin')) return 'returnFee';
+  if (d.includes('damaged return') || d.includes('damaged item'))        return 'damageFee';
+  if (d.includes('rtv') || d.includes('removal'))                        return 'removalFee';
+  if (d.includes('compensation'))                                         return 'compensation';
+  return 'other';
+}
+
+function nextMonthStr(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
 @Injectable()
 export class ProfitabilityService {
   constructor(private prisma: PrismaService) {}
@@ -21,7 +38,15 @@ export class ProfitabilityService {
     }
     if (query.brand) where.brandEn = { contains: query.brand, mode: 'insensitive' };
 
-    const [orders, stmtFeeCount] = await Promise.all([
+    // Build statementFee date filter matching the order date range
+    const stmtFeeWhere: any = { organizationId: orgId };
+    if (query.startDate || query.endDate) {
+      const fromMonth = query.startDate ? query.startDate.slice(0, 7) : '2000-01';
+      const toMonth   = query.endDate   ? query.endDate.slice(0, 7)   : '2100-12';
+      stmtFeeWhere.statementDate = { gte: fromMonth, lt: nextMonthStr(toMonth) };
+    }
+
+    const [orders, stmtFeeCount, stmtFeeRows] = await Promise.all([
       this.prisma.order.findMany({
         where,
         select: {
@@ -30,6 +55,10 @@ export class ProfitabilityService {
         },
       }),
       this.prisma.statementFee.count({ where: { organizationId: orgId } }),
+      this.prisma.statementFee.findMany({
+        where: stmtFeeWhere,
+        select: { description: true, feeType: true, exclVat: true, vatAmount: true, inclVat: true },
+      }),
     ]);
     const hasStmtFees = stmtFeeCount > 0;
 
@@ -126,7 +155,35 @@ export class ProfitabilityService {
     }
     if (query.badge) filtered = filtered.filter(r => r.badge === query.badge);
 
-    return filtered.sort((a, b) => b.profitPerUnit - a.profitPerUnit);
+    // Build statement fees summary (statement-level, cannot be allocated per SKU)
+    const byCategory: Record<string, number> = {};
+    let totalExclVat = 0;
+    let totalVat     = 0;
+    let totalInclVat = 0;
+    const feeItems: { description: string; feeType: string; category: string; exclVat: number; vatAmount: number; inclVat: number }[] = [];
+
+    for (const f of stmtFeeRows) {
+      const cat    = classifyFeeDesc(f.description ?? '');
+      const excl   = Math.abs(Number(f.exclVat));
+      const vat    = Math.abs(Number(f.vatAmount));
+      const incl   = Math.abs(Number(f.inclVat));
+      byCategory[cat] = (byCategory[cat] ?? 0) + incl;
+      totalExclVat += excl;
+      totalVat     += vat;
+      totalInclVat += incl;
+      feeItems.push({ description: f.description ?? '', feeType: f.feeType, category: cat, exclVat: excl, vatAmount: vat, inclVat: incl });
+    }
+
+    return {
+      rows:          filtered.sort((a, b) => b.profitPerUnit - a.profitPerUnit),
+      statementFees: {
+        total:        Math.round(totalInclVat * 100) / 100,
+        totalExclVat: Math.round(totalExclVat * 100) / 100,
+        totalVat:     Math.round(totalVat     * 100) / 100,
+        byCategory,
+        rows:         feeItems,
+      },
+    };
   }
 
   private badge(profitPerUnit: number, hasCost: boolean, noFeesAllocated: boolean): Badge {

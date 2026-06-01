@@ -99,7 +99,7 @@ export class ExportsController {
     @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
-    const rows = await this.reports.getFees(user.orgId, query);
+    const { items: rows } = await this.reports.getFees(user.orgId, query);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('الرسوم');
     ws.views = [{ rightToLeft: true }];
@@ -153,7 +153,7 @@ export class ExportsController {
     @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
-    const rows = await this.profitability.getProfitability(user.orgId, query as any);
+    const { rows } = await this.profitability.getProfitability(user.orgId, query as any);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('الربحية');
     ws.views = [{ rightToLeft: true }];

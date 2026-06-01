@@ -3,10 +3,23 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, Download } from 'lucide-react';
 import { reports as api, downloadExport } from '@/lib/api';
-import type { PlRow, SalesRow, FeesRow } from '@/lib/types';
+import type { PlRow, SalesRow, FeesRow, StatementFeeSummary } from '@/lib/types';
 
 const YEAR = new Date().getFullYear();
 type Tab = 'pl' | 'sales' | 'fees';
+
+const FEE_CAT_LABELS: Record<string, string> = {
+  referralFee:    'عمولة نون',
+  fbnOutboundFee: 'رسوم FBN الصادرة',
+  storageFee:     'رسوم التخزين الشهري',
+  returnFee:      'رسوم إدارة المرتجعات',
+  damageFee:      'رسوم المرتجعات التالفة',
+  removalFee:     'رسوم إزالة RTV',
+  compensation:   'تعويض أضرار المخزون',
+  other:          'رسوم أخرى',
+};
+
+const EMPTY_STMT: StatementFeeSummary = { total: 0, totalExclVat: 0, totalVat: 0, byCategory: {}, rows: [] };
 
 export default function ReportsPage() {
   const [tab, setTab]   = useState<Tab>('pl');
@@ -17,6 +30,7 @@ export default function ReportsPage() {
   const [plRows, setPlRows]       = useState<PlRow[]>([]);
   const [salesRows, setSalesRows] = useState<SalesRow[]>([]);
   const [feesRows, setFeesRows]   = useState<FeesRow[]>([]);
+  const [stmtFees, setStmtFees]   = useState<StatementFeeSummary>(EMPTY_STMT);
   const [sortBy, setSortBy]       = useState('revenue');
   const [exporting, setExporting] = useState(false);
 
@@ -41,7 +55,7 @@ export default function ReportsPage() {
     const load =
       tab === 'pl'    ? () => api.pl(year).then(r => setPlRows(r)) :
       tab === 'sales' ? () => api.sales({ year, sortBy }).then(r => setSalesRows(r)) :
-                        () => api.fees({ year }).then(r => setFeesRows(r));
+                        () => api.fees({ year }).then(r => { setFeesRows(r.items); setStmtFees(r.statementFees ?? EMPTY_STMT); });
 
     load()
       .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل التقرير'))
@@ -62,6 +76,7 @@ export default function ReportsPage() {
     (a, r) => ({ units: a.units + r.units, referralFees: a.referralFees + r.referralFees, fbnFees: a.fbnFees + r.fbnFees, totalFees: a.totalFees + r.totalFees }),
     { units: 0, referralFees: 0, fbnFees: 0, totalFees: 0 },
   );
+  const grandTotalFees = feesTotals.totalFees + stmtFees.total;
 
   return (
     <div>
@@ -221,10 +236,10 @@ export default function ReportsPage() {
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'وحدات',          value: feesTotals.units.toLocaleString('ar-SA'),   color: 'text-slate-700' },
-              { label: 'عمولة نون',      value: `${fmt(feesTotals.referralFees)} ر.س`,       color: 'text-amber-600' },
-              { label: 'رسوم FBN',       value: `${fmt(feesTotals.fbnFees)} ر.س`,            color: 'text-amber-600' },
-              { label: 'إجمالي الرسوم',  value: `${fmt(feesTotals.totalFees)} ر.س`,          color: 'text-red-600' },
+              { label: 'وحدات',                  value: feesTotals.units.toLocaleString('ar-SA'),   color: 'text-slate-700' },
+              { label: 'عمولة + FBN (بالطلب)',   value: `${fmt(feesTotals.totalFees)} ر.س`,         color: 'text-amber-600' },
+              { label: 'رسوم الكشف الشهري',       value: `${fmt(stmtFees.total)} ر.س`,              color: 'text-amber-600' },
+              { label: 'إجمالي الرسوم',           value: `${fmt(grandTotalFees)} ر.س`,              color: 'text-red-600' },
             ].map(({ label, value, color }) => (
               <div key={label} className="card p-4">
                 <p className="text-xs text-slate-500 font-medium">{label}</p>
@@ -266,6 +281,56 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* ── رسوم نون من الملف الشهري ── */}
+          {!loading && stmtFees.total > 0 && (
+            <div className="card p-5 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="font-semibold text-slate-800">رسوم نون من الملف الشهري</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Statement Fee · Service Fee — على مستوى الكشف، لا تُخصَّص لـ SKU</p>
+                </div>
+                <div className="text-left">
+                  <p className="text-xs text-slate-400">الإجمالي شامل VAT</p>
+                  <p className="text-xl font-bold text-red-600">{fmt(stmtFees.total)} ر.س</p>
+                  <p className="text-xs text-slate-400 mt-0.5">بدون VAT: {fmt(stmtFees.totalExclVat)} · VAT: {fmt(stmtFees.totalVat)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-5">
+                {Object.entries(stmtFees.byCategory).map(([cat, amount]) => (
+                  <div key={cat} className="bg-amber-50 border border-amber-100 rounded-lg p-3">
+                    <p className="text-xs text-amber-700 font-medium">{FEE_CAT_LABELS[cat] ?? cat}</p>
+                    <p className="text-base font-bold text-amber-800 mt-1">{fmt(amount)} ر.س</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      {['نوع الرسوم', 'الوصف', 'الفئة', 'بدون VAT', 'VAT', 'شامل VAT'].map(h => (
+                        <th key={h} className="table-th text-xs">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stmtFees.rows.map((f, i) => (
+                      <tr key={i} className="hover:bg-slate-50">
+                        <td className="table-td text-xs text-slate-500">{f.feeType}</td>
+                        <td className="table-td text-xs">{f.description || '—'}</td>
+                        <td className="table-td text-xs text-amber-700">{FEE_CAT_LABELS[f.category] ?? f.category}</td>
+                        <td className="table-td text-xs tabular-nums">{fmt(f.exclVat)}</td>
+                        <td className="table-td text-xs tabular-nums text-slate-400">{fmt(f.vatAmount)}</td>
+                        <td className="table-td text-xs tabular-nums font-medium text-red-600">{fmt(f.inclVat)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

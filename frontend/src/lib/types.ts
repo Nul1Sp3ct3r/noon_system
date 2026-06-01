@@ -396,6 +396,33 @@ export interface FeesRow {
   feeRate: number;
 }
 
+export interface StatementFeeItem {
+  description: string;
+  feeType:     string;
+  category:    string;
+  exclVat:     number;
+  vatAmount:   number;
+  inclVat:     number;
+}
+
+export interface StatementFeeSummary {
+  total:        number;
+  totalExclVat: number;
+  totalVat:     number;
+  byCategory:   Record<string, number>;
+  rows:         StatementFeeItem[];
+}
+
+export interface FeesResponse {
+  items:         FeesRow[];
+  statementFees: StatementFeeSummary;
+}
+
+export interface ProfitabilityResponse {
+  rows:          ProfitabilityRow[];
+  statementFees: StatementFeeSummary;
+}
+
 export interface JournalLine {
   id: number;
   journalId: number;

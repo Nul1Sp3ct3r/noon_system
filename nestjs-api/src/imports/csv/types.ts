@@ -82,12 +82,13 @@ export interface InventoryRow {
 }
 
 export interface FeeRow {
-  feeType: string;
-  description: string;
-  exclVat: number;
-  vatAmount: number;
-  inclVat: number;
-  statementNr: string;
+  feeType:      string;
+  description:  string;
+  category:     string;  // referralFee|fbnOutboundFee|storageFee|returnFee|damageFee|removalFee|compensation|other
+  exclVat:      number;
+  vatAmount:    number;
+  inclVat:      number;
+  statementNr:  string;
   statementDate: string;
 }
 

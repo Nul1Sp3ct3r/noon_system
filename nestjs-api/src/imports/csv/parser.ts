@@ -52,6 +52,19 @@ const MONTHLY_REQUIRED   = ['transaction_type', 'document_type', 'source_doc_nr'
 const WEEKLY_REQUIRED    = ['order_nr', 'item_nr', 'net_proceeds', 'total_payment', 'fee_name'];
 const INVENTORY_REQUIRED = ['warehouse_code', 'qty', 'inventory_type'];
 
+// ── Fee category classifier ───────────────────────────────────────────────────
+export function classifyFeeDescription(desc: string): string {
+  const d = (desc ?? '').toLowerCase();
+  if (d.includes('referral'))                                                    return 'referralFee';
+  if (d.includes('fbn outbound') || d.includes('fbn out'))                      return 'fbnOutboundFee';
+  if (d.includes('storage'))                                                     return 'storageFee';
+  if (d.includes('return administration') || d.includes('return admin'))         return 'returnFee';
+  if (d.includes('damaged return') || d.includes('damaged item'))               return 'damageFee';
+  if (d.includes('rtv') || d.includes('removal'))                               return 'removalFee';
+  if (d.includes('compensation') || d.includes('damage compensation'))          return 'compensation';
+  return 'other';
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 
@@ -191,16 +204,20 @@ function parseMonthly(records: Record<string, unknown>[]): ParsedCsv {
     } else if (txType === 'Statement Fee' || txType === 'Service Fee') {
       const inclVat = toFloat(row['price_including_vat_document_currency']);
       const vat     = toFloat(row['vat_amount_document_currency']);
-      const excl    = parseFloat((inclVat - vat).toFixed(4));
+      // Read exclVat from its own column; fallback to inclVat - vat if column is absent or zero
+      const exclRaw = toFloat(row['price_excluding_vat_document_currency']);
+      const excl    = exclRaw !== 0 ? exclRaw : parseFloat((inclVat - vat).toFixed(4));
       const sNr     = sanitize(row['source_doc_nr']);
       const sDate   = sanitize(row['document_date']);
+      const desc    = sanitize(row['description']);
 
       if (!statementNr && sNr)     statementNr   = sNr;
       if (!statementDate && sDate) statementDate = sDate;
 
       feeRows.push({
         feeType:       txType,
-        description:   sanitize(row['description']),
+        description:   desc,
+        category:      classifyFeeDescription(desc),
         exclVat:       excl,
         vatAmount:     vat,
         inclVat,

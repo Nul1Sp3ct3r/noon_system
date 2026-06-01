@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, FeesResponse, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -202,7 +202,7 @@ export const reports = {
   sales:     (params?: { year?: number; brand?: string; sortBy?: string; status?: string }) =>
     http<SalesRow[]>(`/api/v1/reports/sales?${qs(params)}`),
   fees:      (params?: { year?: number; brand?: string }) =>
-    http<FeesRow[]>(`/api/v1/reports/fees?${qs(params)}`),
+    http<FeesResponse>(`/api/v1/reports/fees?${qs(params)}`),
   inventory: ()                => http<InventoryStock[]>('/api/v1/reports/inventory'),
   invoices:  (year?: number)   => http<unknown>(`/api/v1/reports/invoices?${qs({ year })}`),
 };
@@ -218,7 +218,7 @@ export const vatCenter = {
 
 export const profitability = {
   list: (params?: { startDate?: string; endDate?: string; brand?: string }) =>
-    http<ProfitabilityRow[]>(`/api/v1/profitability?${qs(params)}`),
+    http<ProfitabilityResponse>(`/api/v1/profitability?${qs(params)}`),
 };
 
 // ── Settlements ────────────────────────────────────────────────────────────────

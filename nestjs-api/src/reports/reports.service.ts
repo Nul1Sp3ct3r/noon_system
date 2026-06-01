@@ -4,6 +4,23 @@ import { SalesReportDto, FeesReportDto, ReportRangeDto } from './dto/report-quer
 
 const VAT_FACTOR = 15 / 115;
 
+function classifyFeeDesc(desc: string): string {
+  const d = (desc ?? '').toLowerCase();
+  if (d.includes('referral'))                                             return 'referralFee';
+  if (d.includes('fbn outbound') || d.includes('fbn out'))               return 'fbnOutboundFee';
+  if (d.includes('storage'))                                              return 'storageFee';
+  if (d.includes('return administration') || d.includes('return admin')) return 'returnFee';
+  if (d.includes('damaged return') || d.includes('damaged item'))        return 'damageFee';
+  if (d.includes('rtv') || d.includes('removal'))                        return 'removalFee';
+  if (d.includes('compensation'))                                         return 'compensation';
+  return 'other';
+}
+
+function nextMonthStr(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
@@ -189,26 +206,38 @@ export class ReportsService {
     return rows;
   }
 
-  // ── Fees per SKU ───────────────────────────────────────────────────────────
+  // ── Fees per SKU + statement fees breakdown ────────────────────────────────
 
   async getFees(orgId: number, query: FeesReportDto) {
     const { from, to } = this.resolveRange(query);
 
+    const fromMonth = from.toISOString().slice(0, 7);
+    const toMonth   = to.toISOString().slice(0, 7);
+
     const where: any = { organizationId: orgId, orderedDate: { gte: from, lt: to } };
     if (query.brand) where.brandEn = { contains: query.brand, mode: 'insensitive' };
 
-    const orders = await this.prisma.order.findMany({
-      where,
-      select: {
-        sku: true, brandEn: true, referralFee: true,
-        fbnOutboundFee: true, netProceeds: true, itemStatus: true,
-      },
-    });
+    const [orders, products, stmtFeeRows] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        select: {
+          sku: true, brandEn: true, referralFee: true,
+          fbnOutboundFee: true, netProceeds: true, itemStatus: true,
+        },
+      }),
+      this.prisma.product.findMany({
+        where: { organizationId: orgId },
+        select: { sku: true, nameEn: true, brand: true },
+      }),
+      this.prisma.statementFee.findMany({
+        where: {
+          organizationId: orgId,
+          statementDate: { gte: fromMonth, lt: nextMonthStr(toMonth) },
+        },
+        select: { description: true, feeType: true, exclVat: true, vatAmount: true, inclVat: true },
+      }),
+    ]);
 
-    const products = await this.prisma.product.findMany({
-      where: { organizationId: orgId },
-      select: { sku: true, nameEn: true, brand: true },
-    });
     const prodMap = new Map(products.map(p => [p.sku, p]));
 
     const feeMap = new Map<string, {
@@ -234,11 +263,41 @@ export class ReportsService {
       row.fbnFees      += Math.abs(Number(o.fbnOutboundFee ?? 0));
     }
 
-    return Array.from(feeMap.values()).map(r => {
+    const items = Array.from(feeMap.values()).map(r => {
       r.totalFees = r.referralFees + r.fbnFees;
       r.feeRate   = r.revenue > 0 ? (r.totalFees / r.revenue) * 100 : 0;
       return r;
     }).sort((a, b) => b.totalFees - a.totalFees);
+
+    // Statement fees breakdown by description category
+    const byCategory: Record<string, number> = {};
+    let totalExclVat = 0;
+    let totalVat     = 0;
+    let totalInclVat = 0;
+    const feeItems: { description: string; feeType: string; category: string; exclVat: number; vatAmount: number; inclVat: number }[] = [];
+
+    for (const f of stmtFeeRows) {
+      const cat    = classifyFeeDesc(f.description ?? '');
+      const excl   = Math.abs(Number(f.exclVat));
+      const vat    = Math.abs(Number(f.vatAmount));
+      const incl   = Math.abs(Number(f.inclVat));
+      byCategory[cat] = (byCategory[cat] ?? 0) + incl;
+      totalExclVat += excl;
+      totalVat     += vat;
+      totalInclVat += incl;
+      feeItems.push({ description: f.description ?? '', feeType: f.feeType, category: cat, exclVat: excl, vatAmount: vat, inclVat: incl });
+    }
+
+    return {
+      items,
+      statementFees: {
+        total:        Math.round(totalInclVat * 100) / 100,
+        totalExclVat: Math.round(totalExclVat * 100) / 100,
+        totalVat:     Math.round(totalVat     * 100) / 100,
+        byCategory,
+        rows:         feeItems,
+      },
+    };
   }
 
   // ── Inventory report ───────────────────────────────────────────────────────
@@ -306,7 +365,7 @@ export class ReportsService {
   // ── Dashboard data ─────────────────────────────────────────────────────────
 
   async getDashboardData(orgId: number) {
-    const [orderAgg, products, daily] = await Promise.all([
+    const [orderAgg, products, daily, stmtFeeAgg] = await Promise.all([
       this.prisma.order.aggregate({
         where: { organizationId: orgId },
         _sum: { netProceeds: true, referralFee: true, fbnOutboundFee: true, totalPayment: true },
@@ -326,6 +385,10 @@ export class ReportsService {
         GROUP BY to_char("ordered_date", 'YYYY-MM-DD')
         ORDER BY date
       `,
+      this.prisma.statementFee.aggregate({
+        where: { organizationId: orgId },
+        _sum:  { inclVat: true },
+      }),
     ]);
 
     const deliveredCount = await this.prisma.order.count({
@@ -335,9 +398,11 @@ export class ReportsService {
       where: { organizationId: orgId, itemStatus: { equals: 'returned', mode: 'insensitive' } },
     });
 
-    const revenue  = Number(orderAgg._sum.netProceeds ?? 0);
-    const fees     = Math.abs(Number(orderAgg._sum.referralFee ?? 0)) + Math.abs(Number(orderAgg._sum.fbnOutboundFee ?? 0));
-    const payout   = Number(orderAgg._sum.totalPayment ?? 0);
+    const revenue   = Number(orderAgg._sum.netProceeds ?? 0);
+    const orderFees = Math.abs(Number(orderAgg._sum.referralFee ?? 0)) + Math.abs(Number(orderAgg._sum.fbnOutboundFee ?? 0));
+    const stmtFees  = Math.abs(Number(stmtFeeAgg._sum.inclVat ?? 0));
+    const fees      = orderFees + stmtFees;
+    const payout    = Number(orderAgg._sum.totalPayment ?? 0);
 
     const prodMap = new Map(products.map(p => [p.sku, p]));
     let totalCogs = 0;
@@ -353,8 +418,8 @@ export class ReportsService {
       }
     }
 
-    const netProfit   = revenue - fees - totalCogs - totalExtra;
-    const marginPct   = revenue > 0 ? Math.round(netProfit / revenue * 10000) / 100 : null;
+    const netProfit = revenue - fees - totalCogs - totalExtra;
+    const marginPct = revenue > 0 ? Math.round(netProfit / revenue * 10000) / 100 : null;
 
     const topProductsRaw = await this.prisma.order.groupBy({
       by: ['sku'],
@@ -379,12 +444,14 @@ export class ReportsService {
 
     return {
       summary: {
-        revenue:        Math.round(revenue * 100) / 100,
-        payout:         Math.round(payout * 100) / 100,
-        fees:           Math.round(fees * 100) / 100,
+        revenue:        Math.round(revenue    * 100) / 100,
+        payout:         Math.round(payout     * 100) / 100,
+        fees:           Math.round(fees       * 100) / 100,
+        orderFees:      Math.round(orderFees  * 100) / 100,
+        stmtFees:       Math.round(stmtFees   * 100) / 100,
         deliveredCount,
         returnedCount,
-        netProfit:      Math.round(netProfit * 100) / 100,
+        netProfit:      Math.round(netProfit  * 100) / 100,
         marginPct,
       },
       dailyRevenue: daily.map(r => ({ date: r.date, revenue: Number(r.revenue) })),
