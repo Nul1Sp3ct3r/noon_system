@@ -396,6 +396,63 @@ export interface FeesRow {
   feeRate: number;
 }
 
+export interface ReconciliationRow {
+  label:        string;
+  labelAr:      string;
+  noonValue:    number | null;
+  pfValue:      number;
+  diff:         number | null;
+  isSeparator?: boolean;
+  isProfit?:    boolean;
+}
+
+export interface ReconciliationDiscrepancy {
+  field:              string;
+  noonValue:          number;
+  preciseflowValue:   number;
+  diff:               number;
+  note:               string;
+}
+
+export interface ReconciliationReport {
+  batchId:           string;
+  statementNr:       string | null;
+  statementDate:     string | null;
+  fileName:          string | null;
+  importType:        string;
+  importedAt:        string;
+
+  grossSales:        number;
+  returns:           number;
+  netSales:          number;
+  referralFee:       number;
+  fbnFee:            number;
+  returnFee:         number;
+  storageFee:        number;
+  damageFee:         number;
+  removalFee:        number;
+  compensation:      number;
+  otherFees:         number;
+  totalFees:         number;
+  totalFeesExclVat:  number;
+  totalFeesVat:      number;
+  noonNetProceeds:   number;
+  cogs:              number;
+  finalProfit:       number;
+
+  deliveredCount:    number;
+  returnedCount:     number;
+  totalOrders:       number;
+  feeRowCount:       number;
+
+  feesByCategory:    Record<string, number>;
+  feeLines:          StatementFeeItem[];
+
+  reconciliationRows: ReconciliationRow[];
+  discrepancies:     ReconciliationDiscrepancy[];
+  hasDiscrepancy:    boolean;
+}
+
 export interface StatementFeeItem {
   description: string;
   feeType:     string;

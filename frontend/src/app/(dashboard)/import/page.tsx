@@ -4,11 +4,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Upload, AlertCircle, CheckCircle2, Trash2, RefreshCw,
   AlertTriangle, ShoppingCart, Calendar, Package,
-  ChevronDown, ChevronUp, Clock,
+  ChevronDown, ChevronUp, Clock, BarChart2, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { imports as api } from '@/lib/api';
-import type { ImportBatch, ImportResult } from '@/lib/types';
+import type { ImportBatch, ImportResult, ReconciliationReport } from '@/lib/types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -147,9 +147,14 @@ export default function ImportPage() {
   const [progress, setProgress]         = useState(0);
   const [uploadResult, setUploadResult] = useState<ImportResult | null>(null);
   const [uploadError, setUploadError]   = useState('');
-  const [deletingId, setDeletingId]     = useState<string | null>(null);
-  const [showAllCols, setShowAllCols]   = useState(false);
+  const [deletingId, setDeletingId]         = useState<string | null>(null);
+  const [showAllCols, setShowAllCols]       = useState(false);
   const [uploadDuration, setUploadDuration] = useState<number | null>(null);
+
+  // Reconciliation modal
+  const [recon, setRecon]               = useState<ReconciliationReport | null>(null);
+  const [reconLoading, setReconLoading] = useState(false);
+  const [reconError, setReconError]     = useState('');
 
   // File mismatch detection
   const [pendingFile, setPendingFile]   = useState<File | null>(null);
@@ -301,6 +306,20 @@ export default function ImportPage() {
     }
   }
 
+  async function openReconciliation(batchId: string) {
+    setRecon(null);
+    setReconError('');
+    setReconLoading(true);
+    try {
+      const r = await api.reconciliation(batchId);
+      setRecon(r);
+    } catch (err) {
+      setReconError(err instanceof Error ? err.message : 'فشل تحميل تقرير المطابقة');
+    } finally {
+      setReconLoading(false);
+    }
+  }
+
   // Stage label from upload progress
   const stageIdx  = Math.min(Math.floor(progress / 20), UPLOAD_STAGES.length - 1);
   const stageLabel = progress >= 100 ? 'جارٍ المعالجة النهائية...' : UPLOAD_STAGES[stageIdx];
@@ -311,6 +330,7 @@ export default function ImportPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <div className="space-y-4" dir="rtl">
 
       {/* Header */}
@@ -669,14 +689,23 @@ export default function ImportPage() {
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <button
-                      onClick={() => deleteBatch(b.batchId)}
-                      disabled={deletingId === b.batchId}
-                      className="p-1.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-                      title="حذف الدفعة"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openReconciliation(b.batchId)}
+                        className="p-1.5 rounded text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                        title="تقرير المطابقة"
+                      >
+                        <BarChart2 size={12} />
+                      </button>
+                      <button
+                        onClick={() => deleteBatch(b.batchId)}
+                        disabled={deletingId === b.batchId}
+                        className="p-1.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                        title="حذف الدفعة"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -702,6 +731,167 @@ export default function ImportPage() {
       </div>
 
     </div>
+    {/* ── Reconciliation modal ──────────────────────────────────────────────── */}
+    {(recon || reconLoading || reconError) && (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center pt-6 pb-6 px-4 overflow-y-auto" dir="rtl">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">
+
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-slate-900 text-base">تقرير المطابقة مع نون</h2>
+              {recon && (
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {recon.fileName ?? recon.batchId}
+                  {recon.statementNr ? ` · ${recon.statementNr}` : ''}
+                  {recon.statementDate ? ` · ${recon.statementDate}` : ''}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => { setRecon(null); setReconError(''); }}
+              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="p-6">
+            {reconLoading && (
+              <div className="flex items-center justify-center py-16">
+                <RefreshCw size={20} className="animate-spin text-slate-300 mr-2" />
+                <span className="text-slate-400 text-sm">جارٍ تحميل التقرير…</span>
+              </div>
+            )}
+
+            {reconError && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+                <AlertCircle size={14} className="shrink-0" />
+                {reconError}
+              </div>
+            )}
+
+            {recon && (
+              <>
+                {/* Discrepancy alert */}
+                {recon.hasDiscrepancy && (
+                  <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                    <div className="flex items-center gap-2 text-amber-700 font-semibold text-sm mb-2">
+                      <AlertTriangle size={14} />
+                      تم اكتشاف {recon.discrepancies.length} تباين
+                    </div>
+                    {recon.discrepancies.map((d, i) => (
+                      <div key={i} className="text-xs text-amber-700 mt-1">
+                        <span className="font-mono bg-amber-100 px-1 rounded">{d.field}</span>
+                        {' '}نون: {d.noonValue.toFixed(2)} · PreciseFlow: {d.preciseflowValue.toFixed(2)} · فارق: {d.diff.toFixed(2)}
+                        {d.note && <span className="block text-amber-600 mt-0.5">{d.note}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Summary stats */}
+                <div className="grid grid-cols-3 gap-3 mb-5">
+                  {[
+                    { label: 'طلبات تسليم',    value: recon.deliveredCount.toLocaleString('ar-SA') },
+                    { label: 'مرتجعات',         value: recon.returnedCount.toLocaleString('ar-SA') },
+                    { label: 'سطور رسوم نون',   value: recon.feeRowCount.toLocaleString('ar-SA') },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-slate-50 rounded-lg p-3 text-center">
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="font-bold text-slate-800 mt-0.5">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Reconciliation table */}
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500">البند</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500">قيمة نون</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500">قيمة PreciseFlow</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500">الفارق</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {recon.reconciliationRows.map((row, i) => {
+                        if (row.isSeparator) return <tr key={i}><td colSpan={4} className="py-1 bg-slate-50" /></tr>;
+                        const diff = row.diff ?? null;
+                        const hasDiff = diff !== null && Math.abs(diff) >= 0.01;
+                        return (
+                          <tr key={i} className={`${row.isProfit ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}>
+                            <td className="px-4 py-2.5">
+                              <p className={`text-xs font-medium ${row.isProfit ? 'text-emerald-800 font-bold' : 'text-slate-700'}`}>
+                                {row.labelAr}
+                              </p>
+                              <p className="text-[10px] text-slate-400 font-mono">{row.label}</p>
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-xs text-slate-600">
+                              {row.noonValue !== null ? `${row.noonValue.toFixed(2)} ر.س` : '—'}
+                            </td>
+                            <td className={`px-4 py-2.5 text-right tabular-nums text-xs font-medium ${
+                              row.isProfit
+                                ? row.pfValue >= 0 ? 'text-emerald-700' : 'text-red-600'
+                                : 'text-slate-800'
+                            }`}>
+                              {row.pfValue.toFixed(2)} ر.س
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-xs">
+                              {diff === null ? '—' : hasDiff
+                                ? <span className="text-red-600 font-semibold">{diff > 0 ? '+' : ''}{diff.toFixed(2)}</span>
+                                : <span className="text-emerald-500">✓</span>
+                              }
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Fee detail lines */}
+                {recon.feeLines.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">تفاصيل رسوم الكشف</h3>
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                          <tr>
+                            {['نوع الرسوم', 'الوصف', 'بدون VAT', 'VAT', 'شامل VAT'].map(h => (
+                              <th key={h} className="px-3 py-2 text-right font-semibold text-slate-500">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {recon.feeLines.map((f, i) => (
+                            <tr key={i} className="hover:bg-slate-50">
+                              <td className="px-3 py-2 text-slate-500">{f.feeType}</td>
+                              <td className="px-3 py-2">{f.description || '—'}</td>
+                              <td className="px-3 py-2 tabular-nums">{f.exclVat.toFixed(4)}</td>
+                              <td className="px-3 py-2 tabular-nums text-slate-400">{f.vatAmount.toFixed(4)}</td>
+                              <td className="px-3 py-2 tabular-nums font-medium text-amber-700">{f.inclVat.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                          <tr className="bg-slate-50 font-semibold">
+                            <td colSpan={2} className="px-3 py-2 text-slate-700">الإجمالي</td>
+                            <td className="px-3 py-2 tabular-nums">{recon.totalFeesExclVat.toFixed(4)}</td>
+                            <td className="px-3 py-2 tabular-nums text-slate-400">{recon.totalFeesVat.toFixed(4)}</td>
+                            <td className="px-3 py-2 tabular-nums text-red-600">{recon.totalFees.toFixed(2)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

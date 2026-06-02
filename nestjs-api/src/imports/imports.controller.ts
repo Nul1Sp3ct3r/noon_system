@@ -69,6 +69,12 @@ export class ImportsController {
     );
   }
 
+  @Get('batches/:batchId/reconciliation')
+  @ApiOperation({ summary: 'Reconciliation report for a single import batch — Noon values vs PreciseFlow calculation' })
+  getReconciliation(@Param('batchId') batchId: string, @CurrentUser() user: JwtPayload) {
+    return this.imports.getReconciliation(batchId, user.orgId);
+  }
+
   @Delete('batches/:batchId')
   @Roles(
     Role.super_admin, Role.platform_admin, Role.admin,

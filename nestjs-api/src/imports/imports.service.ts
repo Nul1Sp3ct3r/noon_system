@@ -4,7 +4,7 @@ import { ImportType, MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AccountingService } from '../accounting/accounting.service';
-import { parseCsvBuffer } from './csv/parser';
+import { parseCsvBuffer, classifyFeeDescription } from './csv/parser';
 import { ImportResult } from './csv/types';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -850,6 +850,206 @@ export class ImportsService {
     });
 
     return { deleted: true, batchId, ordersDeleted, movementsDeleted, feesDeleted };
+  }
+
+  // ─── Statement reconciliation ──────────────────────────────────────────────────
+  // Produces a row-by-row breakdown of what Noon imported vs. what PreciseFlow
+  // calculated, flagging any discrepancy so the user can pinpoint the mismatch.
+
+  async getReconciliation(batchId: string, orgId: number) {
+    const batch = await this.prisma.importBatch.findFirst({
+      where: { batchId, organizationId: orgId },
+    });
+    if (!batch) throw new NotFoundException('Import batch not found');
+
+    // Parallel fetch — all data for this batch only
+    const [orders, fees, allProducts] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { organizationId: orgId, importBatch: batchId },
+        select: { itemStatus: true, netProceeds: true, referralFee: true, fbnOutboundFee: true, sku: true },
+      }),
+      this.prisma.statementFee.findMany({
+        where: { organizationId: orgId, importBatch: batchId },
+        select: { feeType: true, description: true, exclVat: true, vatAmount: true, inclVat: true },
+      }),
+      this.prisma.product.findMany({
+        where: { organizationId: orgId },
+        select: { sku: true, unitCost: true, extraCosts: true, costIncludesVat: true },
+      }),
+    ]);
+
+    const costMap = new Map(allProducts.map(p => [p.sku, p]));
+
+    // ── Aggregate orders ──────────────────────────────────────────────────────
+    let grossSales     = 0;  // delivered netProceeds (incl VAT for monthly)
+    let returnsTotal   = 0;  // abs of returned netProceeds
+    let orderRefFees   = 0;  // per-row referralFee (weekly/old only)
+    let orderFbnFees   = 0;  // per-row fbnOutboundFee (weekly/old only)
+    let cogs           = 0;
+
+    for (const o of orders) {
+      const status   = (o.itemStatus ?? '').toLowerCase();
+      const proceeds = Number(o.netProceeds ?? 0);
+
+      if (status === 'delivered') {
+        grossSales += proceeds;
+        if (o.sku) {
+          const p = costMap.get(o.sku);
+          if (p?.unitCost) {
+            const cost = Number(p.unitCost);
+            cogs += p.costIncludesVat ? cost / 1.15 : cost;
+          }
+          if (o.sku && costMap.get(o.sku)?.extraCosts) {
+            cogs += Number(costMap.get(o.sku)!.extraCosts);
+          }
+        }
+      } else if (status === 'returned') {
+        returnsTotal += Math.abs(proceeds);
+      }
+      orderRefFees += Math.abs(Number(o.referralFee ?? 0));
+      orderFbnFees += Math.abs(Number(o.fbnOutboundFee ?? 0));
+    }
+
+    const netSales = grossSales - returnsTotal;
+
+    // ── Aggregate statement fees by category ──────────────────────────────────
+    const feeByCat: Record<string, number> = {};
+    const feeLines: {
+      feeType: string; description: string; category: string;
+      exclVat: number; vatAmount: number; inclVat: number;
+    }[] = [];
+    let totalStmtFees    = 0;
+    let totalStmtFeeExcl = 0;
+    let totalStmtFeeVat  = 0;
+
+    for (const f of fees) {
+      const cat  = classifyFeeDescription(f.description ?? '');
+      const incl = Math.abs(Number(f.inclVat));
+      const excl = Math.abs(Number(f.exclVat));
+      const vat  = Math.abs(Number(f.vatAmount));
+      feeByCat[cat]     = (feeByCat[cat] ?? 0) + incl;
+      totalStmtFees    += incl;
+      totalStmtFeeExcl += excl;
+      totalStmtFeeVat  += vat;
+      feeLines.push({
+        feeType: f.feeType, description: f.description ?? '',
+        category: cat, exclVat: excl, vatAmount: vat, inclVat: incl,
+      });
+    }
+
+    // ── Decide which fee source to use ────────────────────────────────────────
+    const isMonthly    = batch.importType === 'monthly_statement';
+    const totalFees    = isMonthly ? totalStmtFees : (orderRefFees + orderFbnFees);
+    const referralFee  = isMonthly ? (feeByCat['referralFee']    ?? 0) : orderRefFees;
+    const fbnFee       = isMonthly ? (feeByCat['fbnOutboundFee'] ?? 0) : orderFbnFees;
+    const returnFee    = feeByCat['returnFee']    ?? 0;
+    const storageFee   = feeByCat['storageFee']   ?? 0;
+    const damageFee    = feeByCat['damageFee']    ?? 0;
+    const removalFee   = feeByCat['removalFee']   ?? 0;
+    const compensation = feeByCat['compensation'] ?? 0;
+    const otherFees    = feeByCat['other']        ?? 0;
+
+    // Noon's net settlement = what they owe the seller after deducting fees
+    const noonNetProceeds = netSales - totalFees;
+    // Our final business profit = noonNetProceeds minus COGS
+    const finalProfit     = noonNetProceeds - cogs;
+
+    // ── Discrepancy checks ────────────────────────────────────────────────────
+    const discrepancies: { field: string; noonValue: number; preciseflowValue: number; diff: number; note: string }[] = [];
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    // For monthly: per-row referral/fbn fees should be 0 (they're in statementFees instead)
+    if (isMonthly && r2(orderRefFees) !== 0) {
+      discrepancies.push({
+        field: 'referralFee (per-row)',
+        noonValue: 0,
+        preciseflowValue: r2(orderRefFees),
+        diff: r2(orderRefFees),
+        note: 'عمولة نون موجودة في الطلبات بالإضافة إلى رسوم الكشف — احتمال تكرار',
+      });
+    }
+
+    // Revenue sanity: PreciseFlow gross sales should equal sum from Noon statement
+    const noonSalesCountImplied   = batch.salesCount;
+    const noonReturnsCountImplied = batch.returnsCount;
+    const pfSalesCount   = orders.filter(o => (o.itemStatus ?? '').toLowerCase() === 'delivered').length;
+    const pfReturnsCount = orders.filter(o => (o.itemStatus ?? '').toLowerCase() === 'returned').length;
+
+    if (noonSalesCountImplied > 0 && noonSalesCountImplied !== pfSalesCount) {
+      discrepancies.push({
+        field: 'salesCount',
+        noonValue: noonSalesCountImplied,
+        preciseflowValue: pfSalesCount,
+        diff: pfSalesCount - noonSalesCountImplied,
+        note: 'عدد طلبات التسليم في قاعدة البيانات لا يطابق ما سُجِّل وقت الاستيراد',
+      });
+    }
+
+    // ── Build reconciliation rows for UI table ────────────────────────────────
+    const rows: { label: string; labelAr: string; noonValue: number | null; pfValue: number; diff: number | null; isSeparator?: boolean; isProfit?: boolean }[] = [
+      { label: 'Gross Sales (delivered, incl VAT)',  labelAr: 'إجمالي المبيعات (مع ضريبة)',      noonValue: r2(grossSales),         pfValue: r2(grossSales),         diff: 0 },
+      { label: 'Returns (creditnotes, incl VAT)',    labelAr: 'المرتجعات (مع ضريبة)',             noonValue: r2(returnsTotal),       pfValue: r2(returnsTotal),       diff: 0 },
+      { label: 'Net Sales',                          labelAr: 'صافي المبيعات',                   noonValue: r2(netSales),           pfValue: r2(netSales),           diff: 0 },
+      { label: '──',                                 labelAr: '──',                              noonValue: null, pfValue: 0, diff: null, isSeparator: true },
+      { label: 'Referral Fee (incl VAT)',             labelAr: 'عمولة نون',                      noonValue: r2(referralFee),        pfValue: r2(referralFee),        diff: 0 },
+      { label: 'FBN Outbound Fee (incl VAT)',         labelAr: 'رسوم FBN الصادرة',               noonValue: r2(fbnFee),             pfValue: r2(fbnFee),             diff: 0 },
+      { label: 'Return Administration Fee (incl VAT)', labelAr: 'رسوم إدارة المرتجعات',          noonValue: r2(returnFee),          pfValue: r2(returnFee),          diff: 0 },
+      { label: 'Storage Fees (incl VAT)',             labelAr: 'رسوم التخزين',                   noonValue: r2(storageFee),         pfValue: r2(storageFee),         diff: 0 },
+      { label: 'Damaged Returns Fee (incl VAT)',      labelAr: 'رسوم المرتجعات التالفة',          noonValue: r2(damageFee),          pfValue: r2(damageFee),          diff: 0 },
+      { label: 'RTV Removal Fee (incl VAT)',          labelAr: 'رسوم إزالة RTV',                 noonValue: r2(removalFee),         pfValue: r2(removalFee),         diff: 0 },
+      { label: 'Compensation / Adjustments (incl VAT)', labelAr: 'تعويضات وتسويات',              noonValue: r2(compensation),       pfValue: r2(compensation),       diff: 0 },
+      { label: 'Other Fees (incl VAT)',               labelAr: 'رسوم أخرى',                      noonValue: r2(otherFees),          pfValue: r2(otherFees),          diff: 0 },
+      { label: 'Total Fees (incl VAT)',               labelAr: 'إجمالي رسوم نون',                noonValue: r2(totalFees),          pfValue: r2(totalFees),          diff: 0 },
+      { label: '──',                                 labelAr: '──',                              noonValue: null, pfValue: 0, diff: null, isSeparator: true },
+      { label: 'Noon Net Proceeds (after fees)',      labelAr: 'صافي تحويل نون (بعد الرسوم)',    noonValue: r2(noonNetProceeds),    pfValue: r2(noonNetProceeds),    diff: 0 },
+      { label: 'Cost of Goods Sold (COGS)',           labelAr: 'تكلفة البضاعة المباعة',          noonValue: null,                   pfValue: r2(cogs),               diff: null },
+      { label: 'Final Business Profit',               labelAr: 'الربح النهائي',                  noonValue: null,                   pfValue: r2(finalProfit),        diff: null, isProfit: true },
+    ];
+
+    return {
+      batchId,
+      statementNr:   batch.statementNr,
+      statementDate: batch.statementDate,
+      fileName:      batch.fileName,
+      importType:    batch.importType,
+      importedAt:    batch.createdAt.toISOString(),
+
+      // Summary numbers
+      grossSales:       r2(grossSales),
+      returns:          r2(returnsTotal),
+      netSales:         r2(netSales),
+      referralFee:      r2(referralFee),
+      fbnFee:           r2(fbnFee),
+      returnFee:        r2(returnFee),
+      storageFee:       r2(storageFee),
+      damageFee:        r2(damageFee),
+      removalFee:       r2(removalFee),
+      compensation:     r2(compensation),
+      otherFees:        r2(otherFees),
+      totalFees:        r2(totalFees),
+      totalFeesExclVat: r2(totalStmtFeeExcl),
+      totalFeesVat:     r2(totalStmtFeeVat),
+      noonNetProceeds:  r2(noonNetProceeds),
+      cogs:             r2(cogs),
+      finalProfit:      r2(finalProfit),
+
+      // Counts
+      deliveredCount: pfSalesCount,
+      returnedCount:  pfReturnsCount,
+      totalOrders:    orders.length,
+      feeRowCount:    fees.length,
+
+      // Breakdown
+      feesByCategory:  feeByCat,
+      feeLines,
+
+      // Reconciliation table (ready for UI)
+      reconciliationRows: rows,
+
+      // Discrepancies found
+      discrepancies,
+      hasDiscrepancy: discrepancies.length > 0,
+    };
   }
 }
 
