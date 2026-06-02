@@ -91,8 +91,10 @@ export class ReportsService {
       if (!months[m]) months[m] = this.emptyPlRow(m);
 
       months[m].revenue     += Number(o.netProceeds ?? 0);
-      months[m].referralFees += Math.abs(Number(o.referralFee ?? 0));
-      months[m].fbnFees      += Math.abs(Number(o.fbnOutboundFee ?? 0));
+      // Accumulate signed values — credits on returns are positive and reduce the sum.
+      // Convert to positive costs after the loop via Math.abs(signedSum).
+      months[m].referralFees += Number(o.referralFee    ?? 0);
+      months[m].fbnFees      += Number(o.fbnOutboundFee ?? 0);
 
       if (o.sku) {
         const p = costMap.get(o.sku);
@@ -121,9 +123,12 @@ export class ReportsService {
 
     const rows = Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
     for (const r of rows) {
-      r.totalFees   = r.referralFees + r.fbnFees + r.stmtFees;
-      r.grossProfit = r.revenue - r.totalFees;
-      r.netProfit   = r.grossProfit - r.cogs - r.extra;
+      // abs of signed sums = net fees paid (credits reduce charges)
+      r.referralFees = Math.abs(r.referralFees);
+      r.fbnFees      = Math.abs(r.fbnFees);
+      r.totalFees    = r.referralFees + r.fbnFees + r.stmtFees;
+      r.grossProfit  = r.revenue - r.totalFees;
+      r.netProfit    = r.grossProfit - r.cogs - r.extra;
     }
     return rows;
   }
@@ -165,6 +170,7 @@ export class ReportsService {
       sku: string; brand: string; name: string;
       units: number; returns: number;
       revenue: number; fees: number; cogs: number; extra: number; profit: number;
+      feesSigned: number;
     }>();
 
     for (const o of orders) {
@@ -175,6 +181,7 @@ export class ReportsService {
         skuMap.set(sku, {
           sku, brand: o.brandEn ?? p?.brand ?? '', name: p?.nameEn ?? '',
           units: 0, returns: 0, revenue: 0, fees: 0, cogs: 0, extra: 0, profit: 0,
+          feesSigned: 0,
         });
       }
       const row = skuMap.get(sku)!;
@@ -190,12 +197,15 @@ export class ReportsService {
       } else if (status === 'returned') {
         row.returns += 1;
       }
-      row.fees += Math.abs(Number(o.referralFee ?? 0)) + Math.abs(Number(o.fbnOutboundFee ?? 0));
+      row.feesSigned += Number(o.referralFee ?? 0) + Number(o.fbnOutboundFee ?? 0);
     }
 
-    const rows = Array.from(skuMap.values()).map(r => ({
-      ...r, profit: r.revenue - r.fees - r.cogs - r.extra,
-    }));
+    const rows = Array.from(skuMap.values()).map(r => {
+      const fees = Math.abs(r.feesSigned);
+      return { sku: r.sku, brand: r.brand, name: r.name, units: r.units, returns: r.returns,
+               revenue: r.revenue, fees, cogs: r.cogs, extra: r.extra,
+               profit: r.revenue - fees - r.cogs - r.extra };
+    });
 
     const sortBy = query.sortBy ?? 'revenue';
     rows.sort((a, b) => {
@@ -259,13 +269,16 @@ export class ReportsService {
       const row = feeMap.get(sku)!;
       if (status === 'delivered') { row.units++; row.revenue += Number(o.netProceeds ?? 0); }
       if (status === 'returned')  row.returns++;
-      row.referralFees += Math.abs(Number(o.referralFee ?? 0));
-      row.fbnFees      += Math.abs(Number(o.fbnOutboundFee ?? 0));
+      // Accumulate signed — credits on returns naturally reduce the total
+      row.referralFees += Number(o.referralFee    ?? 0);
+      row.fbnFees      += Number(o.fbnOutboundFee ?? 0);
     }
 
     const items = Array.from(feeMap.values()).map(r => {
-      r.totalFees = r.referralFees + r.fbnFees;
-      r.feeRate   = r.revenue > 0 ? (r.totalFees / r.revenue) * 100 : 0;
+      r.referralFees = Math.abs(r.referralFees);  // abs of signed sum
+      r.fbnFees      = Math.abs(r.fbnFees);
+      r.totalFees    = r.referralFees + r.fbnFees;
+      r.feeRate      = r.revenue > 0 ? (r.totalFees / r.revenue) * 100 : 0;
       return r;
     }).sort((a, b) => b.totalFees - a.totalFees);
 

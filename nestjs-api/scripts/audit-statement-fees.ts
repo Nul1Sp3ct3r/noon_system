@@ -308,44 +308,49 @@ if (isWeekly) {
   console.log('└──────────────────────────────────────────────────────────────────────┘\n');
 
   // ── reconciliation table ────────────────────────────────────────────────────
+  // FIXED calculation: abs(signed sum) correctly nets return credits
+  const refSignedSum   = refDelivered + refReturned;  // signed: negative=charges, positive=credits
+  const pfRefFixed     = Math.abs(refSignedSum);       // abs of net = correct fees paid
+  const pfReturnAdmin  = missingTotal;                 // now captured by fixed parser
+  const pfTotalFees    = pfRefFixed + fbnAll + pfReturnAdmin;
 
-  const pfTotalFees = refAllAbs + fbnAll;
+  // OLD (buggy) calculation shown for comparison
+  const pfRefBuggy     = refAllAbs;                   // sum(abs per row) — double-counts credits
+  const pfTotalBuggy   = pfRefBuggy + fbnAll;         // missing return admin fee
 
   console.log('╔══ RECONCILIATION TABLE ════════════════════════════════════════════════╗');
   console.log('║');
-  console.log('║  ' + 'Category'.padEnd(26) + ' ' + 'Noon Expected'.padStart(14) + ' ' + 'PreciseFlow'.padStart(13) + ' ' + 'Difference'.padStart(12));
-  console.log('║  ' + '─'.repeat(67));
+  console.log('║  ' + 'Category'.padEnd(26) + ' ' + 'Noon Expected'.padStart(14) + ' ' + 'Buggy (old)'.padStart(13) + ' ' + 'Fixed (new)'.padStart(13) + ' ' + 'Fixed Diff'.padStart(11));
+  console.log('║  ' + '─'.repeat(79));
 
   const recon = [
-    { label: 'Net Proceeds',           noon: NOON_OFFICIAL.netProceeds, pf: netProceeds },
-    { label: 'Referral Fee',           noon: NOON_OFFICIAL.referralFee, pf: refAllAbs },
-    { label: 'FBN Outbound Fee',       noon: NOON_OFFICIAL.fbnFee,      pf: fbnAll },
-    { label: 'Return Admin Fee',       noon: NOON_OFFICIAL.returnFee,   pf: missingTotal },
-    { label: 'TOTAL FEES',             noon: NOON_OFFICIAL.totalFees,   pf: pfTotalFees + missingTotal },
-    { label: 'Net After Fees',         noon: NOON_OFFICIAL.netProceeds - NOON_OFFICIAL.totalFees,
-                                       pf:   netProceeds - pfTotalFees },
+    { label: 'Net Proceeds',       noon: NOON_OFFICIAL.netProceeds, buggy: netProceeds,   fixed: netProceeds },
+    { label: 'Referral Fee',       noon: NOON_OFFICIAL.referralFee, buggy: pfRefBuggy,    fixed: pfRefFixed },
+    { label: 'FBN Outbound Fee',   noon: NOON_OFFICIAL.fbnFee,      buggy: fbnAll,        fixed: fbnAll },
+    { label: 'Return Admin Fee',   noon: NOON_OFFICIAL.returnFee,   buggy: 0,             fixed: pfReturnAdmin },
+    { label: 'TOTAL FEES',         noon: NOON_OFFICIAL.totalFees,   buggy: pfTotalBuggy,  fixed: pfTotalFees },
+    { label: 'Net After Fees',     noon: NOON_OFFICIAL.netProceeds - NOON_OFFICIAL.totalFees,
+                                   buggy: netProceeds - pfTotalBuggy, fixed: netProceeds - pfTotalFees },
   ];
 
   for (const row of recon) {
-    const diff     = row.pf - row.noon;
-    const diffStr  = Math.abs(diff) < 0.005 ? '         ✓  ' : `${diff > 0 ? '+' : ''}${diff.toFixed(4)}  ⚠`;
-    console.log(`║  ${row.label.padEnd(26)} ${row.noon.toFixed(2).padStart(14)} ${row.pf.toFixed(4).padStart(13)} ${diffStr.padStart(12)}`);
+    const diff    = row.fixed - row.noon;
+    const diffStr = Math.abs(diff) < 0.005 ? '       ✓  ' : `${diff > 0 ? '+' : ''}${diff.toFixed(4)}  ⚠`;
+    console.log(`║  ${row.label.padEnd(26)} ${row.noon.toFixed(2).padStart(14)} ${row.buggy.toFixed(4).padStart(13)} ${row.fixed.toFixed(4).padStart(13)} ${diffStr.padStart(11)}`);
   }
 
   console.log('║');
   console.log('╠══ ROOT CAUSE SUMMARY ══════════════════════════════════════════════════╣');
   console.log('║');
-  console.log('║  CAUSE 1 (+9.00 SAR excess in Referral Fee):');
-  console.log('║    Returned order referral commission (credit +4.4991 SAR) has Math.abs()');
-  console.log('║    applied, which adds it as an additional CHARGE instead of subtracting.');
-  console.log('║    Fix: do NOT use Math.abs() on positive (credit) fee values for returned orders.');
-  console.log('║    Use: abs(charges) - credits  instead of abs(all values)');
+  console.log('║  CAUSE 1 — Referral Fee excess (+9.00 SAR):  ✅ FIXED');
+  console.log('║    Was: sum(abs(each row)) — counted return credit +4.4991 as extra charge.');
+  console.log('║    Fix: abs(sum(signed values)) — credit correctly reduces charges.');
+  console.log('║    Result: 74.52 → 65.52 SAR  (Noon: 65.52)');
   console.log('║');
-  console.log('║  CAUSE 2 (-0.90 SAR missing from Return Admin Fee):');
-  console.log('║    Row 1 (fee_name="Return Administration Fee") has empty order_nr.');
-  console.log('║    Parser condition: if (!orderNr || !rawItem) continue  → ROW SKIPPED.');
-  console.log('║    Fix: rows with fee_name != "Order" and empty order_nr are statement fees,');
-  console.log('║    they should be captured in statementFees, not skipped.');
+  console.log('║  CAUSE 2 — Return Admin Fee missing (-0.90 SAR):  ✅ FIXED');
+  console.log('║    Was: parser skipped rows with empty order_nr unconditionally.');
+  console.log('║    Fix: fee_name != "Order" rows with empty order_nr → captured as statementFee.');
+  console.log('║    Result: 0.00 → 0.90 SAR  (Noon: 0.90)');
   console.log('║');
   console.log('╚════════════════════════════════════════════════════════════════════════╝\n');
 

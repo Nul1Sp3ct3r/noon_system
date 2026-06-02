@@ -399,6 +399,27 @@ export class ImportsService {
           );
         }
 
+        // Persist statement-level fee rows (e.g. "Return Administration Fee" with no order_nr)
+        if (parsed.feeRows.length > 0) {
+          await this.prisma.statementFee.createMany({
+            data: parsed.feeRows.map(fee => ({
+              organizationId: orgId,
+              statementNr:    fee.statementNr   || null,
+              statementDate:  fee.statementDate || null,
+              feeType:        fee.feeType,
+              description:    fee.description   || null,
+              exclVat:        fee.exclVat.toFixed(4),
+              vatAmount:      fee.vatAmount.toFixed(4),
+              inclVat:        fee.inclVat.toFixed(4),
+              importBatch:    batchId,
+            })),
+          });
+          for (const fee of parsed.feeRows) {
+            totalFees += fee.inclVat;
+            feesVat   += fee.vatAmount;
+          }
+        }
+
         await this.prisma.importBatch.create({
           data: {
             organizationId: orgId,
@@ -410,7 +431,7 @@ export class ImportsService {
             rowsSkipped,
             salesCount,
             returnsCount,
-            feesCount:     0,
+            feesCount:     parsed.feeRows.length,
             statementNr:   parsed.statementNr  || null,
             statementDate: parsed.statementDate || null,
             status:        'completed',
@@ -881,11 +902,11 @@ export class ImportsService {
     const costMap = new Map(allProducts.map(p => [p.sku, p]));
 
     // ── Aggregate orders ──────────────────────────────────────────────────────
-    let grossSales     = 0;  // delivered netProceeds (incl VAT for monthly)
-    let returnsTotal   = 0;  // abs of returned netProceeds
-    let orderRefFees   = 0;  // per-row referralFee (weekly/old only)
-    let orderFbnFees   = 0;  // per-row fbnOutboundFee (weekly/old only)
-    let cogs           = 0;
+    let grossSales          = 0;  // delivered netProceeds (incl VAT for monthly)
+    let returnsTotal        = 0;  // abs of returned netProceeds
+    let referralFeesSigned  = 0;  // signed sum: negative=charges, positive=credits
+    let fbnFeesSigned       = 0;  // signed sum
+    let cogs                = 0;
 
     for (const o of orders) {
       const status   = (o.itemStatus ?? '').toLowerCase();
@@ -906,9 +927,14 @@ export class ImportsService {
       } else if (status === 'returned') {
         returnsTotal += Math.abs(proceeds);
       }
-      orderRefFees += Math.abs(Number(o.referralFee ?? 0));
-      orderFbnFees += Math.abs(Number(o.fbnOutboundFee ?? 0));
+      // Accumulate signed — credits (positive on returns) naturally reduce the sum
+      referralFeesSigned += Number(o.referralFee    ?? 0);
+      fbnFeesSigned      += Number(o.fbnOutboundFee ?? 0);
     }
+
+    // abs of signed sum = net fees paid (charges minus any credits)
+    const orderRefFees = Math.abs(referralFeesSigned);
+    const orderFbnFees = Math.abs(fbnFeesSigned);
 
     const netSales = grossSales - returnsTotal;
 

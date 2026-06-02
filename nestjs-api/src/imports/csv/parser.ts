@@ -272,6 +272,7 @@ function parseOld(records: Record<string, unknown>[]): ParsedCsv {
 // Maps the exact snake_case headers from ملف_المبيعات_الاسبوعي.csv
 function parseWeekly(records: Record<string, unknown>[]): ParsedCsv {
   const weeklyRows: WeeklyRow[] = [];
+  const feeRows: FeeRow[] = [];
 
   let statementNr   = sanitize(records[0]?.['statement_nr']);
   let statementDate = sanitize(records[0]?.['statement_date']);
@@ -279,11 +280,36 @@ function parseWeekly(records: Record<string, unknown>[]): ParsedCsv {
   for (const row of records) {
     const orderNr = sanitize(row['order_nr']);
     const rawItem = sanitize(row['item_nr']);
-    // Rows without order/item identifiers are skipped gracefully
-    if (!orderNr || !rawItem) continue;
+    const feeName = sanitize(row['fee_name'] ?? '');
 
     if (!statementNr   && row['statement_nr'])   statementNr   = sanitize(row['statement_nr']);
     if (!statementDate && row['statement_date']) statementDate = sanitize(row['statement_date']);
+
+    // Fee-only rows: no order/item id AND fee_name is something other than "Order"
+    // e.g. "Return Administration Fee" with other_amounts=-0.90 and empty order_nr
+    if ((!orderNr || !rawItem) && feeName && feeName.toLowerCase() !== 'order') {
+      const other      = toFloat(row['other_amounts']);
+      const refFee     = toFloat(row['referral_fee']);
+      const fbnFee     = toFloat(row['fbn_outbound_fee']);
+      const rawAmount  = other !== 0 ? other : refFee !== 0 ? refFee : fbnFee;
+      const inclVat    = Math.abs(rawAmount);
+      if (inclVat > 0) {
+        feeRows.push({
+          feeType:      'Statement Fee',
+          description:  feeName,
+          category:     classifyFeeDescription(feeName),
+          exclVat:      inclVat,   // VAT breakdown not available in weekly CSV
+          vatAmount:    0,
+          inclVat,
+          statementNr,
+          statementDate,
+        });
+      }
+      continue;
+    }
+
+    // Rows without order/item identifiers are skipped
+    if (!orderNr || !rawItem) continue;
 
     weeklyRows.push({
       orderNr,
@@ -317,7 +343,7 @@ function parseWeekly(records: Record<string, unknown>[]): ParsedCsv {
     oldRows: [],
     weeklyRows,
     inventoryRows: [],
-    feeRows: [],
+    feeRows,
     statementNr,
     statementDate,
   };

@@ -83,6 +83,11 @@ export class ProfitabilityService {
       badge: Badge;
     }>();
 
+    // Signed fee accumulator per SKU — sum first, abs at the end.
+    // Charges are negative in the DB (Noon convention); credits on returns are positive.
+    // abs(signedSum) = net fees paid, correctly netting out return credits.
+    const feesSignedMap = new Map<string, number>();
+
     for (const o of orders) {
       const sku    = o.sku ?? 'unknown';
       const status = (o.itemStatus ?? '').toLowerCase();
@@ -108,7 +113,14 @@ export class ProfitabilityService {
       } else if (status === 'returned') {
         row.returns += 1;
       }
-      row.fees += Math.abs(Number(o.referralFee ?? 0)) + Math.abs(Number(o.fbnOutboundFee ?? 0));
+      feesSignedMap.set(sku, (feesSignedMap.get(sku) ?? 0) +
+        Number(o.referralFee ?? 0) + Number(o.fbnOutboundFee ?? 0));
+    }
+
+    // Convert signed sums to positive fees (abs of net)
+    for (const [sku, signedSum] of feesSignedMap) {
+      const row = skuMap.get(sku);
+      if (row) row.fees = Math.abs(signedSum);
     }
 
     // Also ensure products with no orders appear in results with badge = missing_cost
