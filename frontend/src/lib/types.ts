@@ -451,6 +451,10 @@ export interface ReconciliationReport {
   reconciliationRows: ReconciliationRow[];
   discrepancies:     ReconciliationDiscrepancy[];
   hasDiscrepancy:    boolean;
+
+  displayedFeeSum:     number;
+  feeCheckDelta:       number;
+  hasFeeCheckWarning:  boolean;
 }
 
 export interface StatementFeeItem {

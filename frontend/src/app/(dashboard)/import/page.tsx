@@ -773,6 +773,21 @@ export default function ImportPage() {
 
             {recon && (
               <>
+                {/* Fee total integrity check */}
+                {recon.hasFeeCheckWarning && (
+                  <div className="mb-3 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-xs text-red-700">
+                    <div className="flex items-center gap-2 font-semibold mb-1">
+                      <AlertCircle size={13} />
+                      تحذير: مجموع الرسوم المعروضة لا يساوي إجمالي الرسوم
+                    </div>
+                    <div>
+                      مجموع الفئات: {recon.displayedFeeSum.toFixed(2)} ·
+                      إجمالي الرسوم: {recon.totalFees.toFixed(2)} ·
+                      الفرق: {recon.feeCheckDelta.toFixed(4)}
+                    </div>
+                  </div>
+                )}
+
                 {/* Discrepancy alert */}
                 {recon.hasDiscrepancy && (
                   <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">

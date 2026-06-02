@@ -965,7 +965,10 @@ export class ImportsService {
 
     // ── Decide which fee source to use ────────────────────────────────────────
     const isMonthly    = batch.importType === 'monthly_statement';
-    const totalFees    = isMonthly ? totalStmtFees : (orderRefFees + orderFbnFees);
+    // For monthly: order-level ref/fbn = 0, all fees in statementFees.
+    // For weekly:  order-level ref/fbn from orders, statement fees (e.g. Return Admin) in statementFees.
+    // Always sum BOTH so no statement-level fee is excluded from totalFees.
+    const totalFees    = orderRefFees + orderFbnFees + totalStmtFees;
     const referralFee  = isMonthly ? (feeByCat['referralFee']    ?? 0) : orderRefFees;
     const fbnFee       = isMonthly ? (feeByCat['fbnOutboundFee'] ?? 0) : orderFbnFees;
     const returnFee    = feeByCat['returnFee']    ?? 0;
@@ -974,6 +977,16 @@ export class ImportsService {
     const removalFee   = feeByCat['removalFee']   ?? 0;
     const compensation = feeByCat['compensation'] ?? 0;
     const otherFees    = feeByCat['other']        ?? 0;
+
+    // Safety: sum of all displayed fee categories must equal totalFees
+    const displayedFeeSum = referralFee + fbnFee + returnFee + storageFee + damageFee + removalFee + compensation + otherFees;
+    const feeCheckDelta   = Math.round(Math.abs(displayedFeeSum - totalFees) * 10000) / 10000;
+    if (feeCheckDelta > 0.01) {
+      this.logger.warn(
+        `Reconciliation fee total mismatch for batch ${batchId}: ` +
+        `displayedSum=${displayedFeeSum.toFixed(4)} totalFees=${totalFees.toFixed(4)} delta=${feeCheckDelta.toFixed(4)}`
+      );
+    }
 
     // Noon's net settlement = what they owe the seller after deducting fees
     const noonNetProceeds = netSales - totalFees;
@@ -1074,7 +1087,12 @@ export class ImportsService {
 
       // Discrepancies found
       discrepancies,
-      hasDiscrepancy: discrepancies.length > 0,
+      hasDiscrepancy:       discrepancies.length > 0,
+
+      // Safety check: sum of all displayed fee categories must equal totalFees
+      displayedFeeSum:      r2(displayedFeeSum),
+      feeCheckDelta,
+      hasFeeCheckWarning:   feeCheckDelta > 0.01,
     };
   }
 }
