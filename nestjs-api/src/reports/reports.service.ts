@@ -95,9 +95,13 @@ export class ReportsService {
       const m = getMonth(o.orderedDate);
       if (!months[m]) months[m] = this.emptyPlRow(m);
 
-      // netProceeds: positive for delivered, negative for returned (creditnote sign)
-      // summing both gives Net Sales = Gross Sales − Returns
-      months[m].revenue      += Number(o.netProceeds    ?? 0);
+      // Returned orders have positive netProceeds — must subtract, not add.
+      // Net Sales = Gross Sales (delivered) − Returns (abs of returned proceeds).
+      if (status === 'delivered') {
+        months[m].revenue += Number(o.netProceeds ?? 0);
+      } else {
+        months[m].revenue -= Math.abs(Number(o.netProceeds ?? 0));
+      }
       months[m].referralFees += Number(o.referralFee    ?? 0);
       months[m].fbnFees      += Number(o.fbnOutboundFee ?? 0);
 
@@ -208,8 +212,7 @@ export class ReportsService {
         if (p?.extraCosts) row.extra += Number(p.extraCosts);
       } else if (status === 'returned') {
         row.returns += 1;
-        // netProceeds for returned orders is negative (creditnote) — adds to revenue naturally
-        row.revenue += Number(o.netProceeds ?? 0);
+        row.revenue -= Math.abs(Number(o.netProceeds ?? 0));
       }
       row.feesSigned += Number(o.referralFee ?? 0) + Number(o.fbnOutboundFee ?? 0);
     }
@@ -392,19 +395,14 @@ export class ReportsService {
   // ── Dashboard data ─────────────────────────────────────────────────────────
 
   async getDashboardData(orgId: number) {
-    const [orderAgg, products, daily, stmtFeeAgg, orgSettings] = await Promise.all([
-      // Sum delivered + returned; returned netProceeds are negative (creditnotes),
-      // so the total gives Net Sales = Gross Sales − Returns automatically.
+    const [deliveredAgg, returnedAgg, products, daily, stmtFeeAgg, orgSettings] = await Promise.all([
       this.prisma.order.aggregate({
-        where: {
-          organizationId: orgId,
-          OR: [
-            { itemStatus: { equals: 'delivered', mode: 'insensitive' } },
-            { itemStatus: { equals: 'returned',  mode: 'insensitive' } },
-          ],
-        },
+        where: { organizationId: orgId, itemStatus: { equals: 'delivered', mode: 'insensitive' } },
         _sum: { netProceeds: true, referralFee: true, fbnOutboundFee: true, totalPayment: true },
-        _count: { id: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { organizationId: orgId, itemStatus: { equals: 'returned', mode: 'insensitive' } },
+        _sum: { netProceeds: true },
       }),
       this.prisma.product.findMany({
         where: { organizationId: orgId },
@@ -414,8 +412,9 @@ export class ReportsService {
         SELECT
           to_char("ordered_date", 'YYYY-MM-DD') AS date,
           COALESCE(SUM(
-            CASE WHEN LOWER("item_status") IN ('delivered', 'returned')
-                 THEN "net_proceeds"::numeric ELSE 0 END
+            CASE WHEN LOWER("item_status") = 'delivered' THEN "net_proceeds"::numeric
+                 WHEN LOWER("item_status") = 'returned'  THEN -ABS("net_proceeds"::numeric)
+                 ELSE 0 END
           ), 0) AS revenue
         FROM orders
         WHERE organization_id = ${orgId}
@@ -440,14 +439,16 @@ export class ReportsService {
       where: { organizationId: orgId, itemStatus: { equals: 'returned', mode: 'insensitive' } },
     });
 
-    const revenue        = Number(orderAgg._sum.netProceeds ?? 0);
-    const orderFees      = Math.abs(Number(orderAgg._sum.referralFee ?? 0)) + Math.abs(Number(orderAgg._sum.fbnOutboundFee ?? 0));
+    const grossSales     = Number(deliveredAgg._sum.netProceeds ?? 0);
+    const returnsTotal   = Math.abs(Number(returnedAgg._sum.netProceeds ?? 0));
+    const revenue        = grossSales - returnsTotal;
+    const orderFees      = Math.abs(Number(deliveredAgg._sum.referralFee ?? 0)) + Math.abs(Number(deliveredAgg._sum.fbnOutboundFee ?? 0));
     const stmtFees       = Math.abs(Number(stmtFeeAgg._sum.inclVat   ?? 0));
     const stmtFeesExcl   = Math.abs(Number(stmtFeeAgg._sum.exclVat   ?? 0));
     const stmtFeesVat    = Math.abs(Number(stmtFeeAgg._sum.vatAmount  ?? 0));
     const fees           = orderFees + stmtFees;
     const feesBeforeVat  = orderFees + stmtFeesExcl;
-    const payout         = Number(orderAgg._sum.totalPayment ?? 0);
+    const payout         = Number(deliveredAgg._sum.totalPayment ?? 0) - returnsTotal;
 
     const prodMap = new Map(products.map(p => [p.sku, p]));
     let totalCogs = 0;

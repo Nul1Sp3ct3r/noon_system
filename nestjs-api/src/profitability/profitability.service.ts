@@ -112,8 +112,7 @@ export class ProfitabilityService {
         if (p?.extraCosts) row.extra += Number(p.extraCosts);
       } else if (status === 'returned') {
         row.returns += 1;
-        // netProceeds for returned orders is negative (creditnote) — subtracts from gross sales
-        row.revenue += Number(o.netProceeds ?? 0);
+        row.revenue -= Math.abs(Number(o.netProceeds ?? 0));
       }
       feesSignedMap.set(sku, (feesSignedMap.get(sku) ?? 0) +
         Number(o.referralFee ?? 0) + Number(o.fbnOutboundFee ?? 0));
