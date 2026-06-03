@@ -39,14 +39,26 @@ export class ProductsController {
   }
 
   @Post()
-  @Roles(Role.admin, Role.super_admin)
+  // All active merchant roles can create products in their own org.
+  // Cross-org access is blocked by service.create() via orgId scoping.
+  @Roles(
+    Role.admin, Role.super_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+    Role.merchant_inventory, Role.merchant_data_entry,
+  )
   @ApiOperation({ summary: 'Create product' })
   create(@Body() dto: CreateProductDto, @CurrentUser() user: JwtPayload) {
     return this.products.create(dto, user.orgId, user.sub);
   }
 
   @Patch(':id')
-  @Roles(Role.admin, Role.super_admin)
+  // All active merchant roles can edit their own org's products.
+  // Ownership is enforced by service.update() → findOne(id, orgId).
+  @Roles(
+    Role.admin, Role.super_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+    Role.merchant_inventory, Role.merchant_data_entry,
+  )
   @ApiOperation({ summary: 'Update product' })
   update(
     @Param('id', ParseIntPipe) id: number,
@@ -57,7 +69,8 @@ export class ProductsController {
   }
 
   @Delete(':id')
-  @Roles(Role.admin, Role.super_admin)
+  // Delete is destructive — restricted to admins and merchant owners.
+  @Roles(Role.admin, Role.super_admin, Role.merchant_owner)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete product' })
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
