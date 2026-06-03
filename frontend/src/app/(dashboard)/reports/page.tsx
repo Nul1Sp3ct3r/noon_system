@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { AlertCircle, Download } from 'lucide-react';
-import { reports as api, downloadExport } from '@/lib/api';
-import type { PlRow, SalesRow, FeesRow, StatementFeeSummary } from '@/lib/types';
+import { reports as api, downloadExport, orgSettings } from '@/lib/api';
+import type { PlRow, SalesRow, FeesRow, StatementFeeSummary, CompanySettings } from '@/lib/types';
 
 const YEAR = new Date().getFullYear();
 type Tab = 'pl' | 'sales' | 'fees';
@@ -33,6 +33,11 @@ export default function ReportsPage() {
   const [stmtFees, setStmtFees]   = useState<StatementFeeSummary>(EMPTY_STMT);
   const [sortBy, setSortBy]       = useState('revenue');
   const [exporting, setExporting] = useState(false);
+  const [settings, setSettings]   = useState<CompanySettings>({ vatRegistered: false, vatNumber: null, profitMode: 'expense' });
+
+  useEffect(() => {
+    orgSettings.get().then(setSettings).catch(() => {});
+  }, []);
 
   async function handleExport() {
     setExporting(true);
@@ -63,8 +68,16 @@ export default function ReportsPage() {
   }, [tab, year, sortBy]);
 
   const plTotals = plRows.reduce(
-    (a, r) => ({ revenue: a.revenue + r.revenue, totalFees: a.totalFees + r.totalFees, cogs: a.cogs + r.cogs, netProfit: a.netProfit + r.netProfit }),
-    { revenue: 0, totalFees: 0, cogs: 0, netProfit: 0 },
+    (a, r) => ({
+      revenue: a.revenue + r.revenue,
+      totalFees: a.totalFees + r.totalFees,
+      feesBeforeVat: a.feesBeforeVat + r.feesBeforeVat,
+      vatOnFees: a.vatOnFees + r.vatOnFees,
+      cogs: a.cogs + r.cogs,
+      netProfit: a.netProfit + r.netProfit,
+      operationalProfit: a.operationalProfit + r.operationalProfit,
+    }),
+    { revenue: 0, totalFees: 0, feesBeforeVat: 0, vatOnFees: 0, cogs: 0, netProfit: 0, operationalProfit: 0 },
   );
 
   const salesTotals = salesRows.reduce(
@@ -126,44 +139,108 @@ export default function ReportsPage() {
       {/* P&L Tab */}
       {tab === 'pl' && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {[
-              { label: 'الإيرادات',    value: plTotals.revenue,    color: 'text-emerald-600' },
-              { label: 'الرسوم',       value: plTotals.totalFees,  color: 'text-amber-600' },
-              { label: 'تكلفة البضاعة', value: plTotals.cogs,      color: 'text-orange-600' },
-              { label: 'صافي الربح',   value: plTotals.netProfit,  color: plTotals.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="card p-4">
-                <p className="text-xs text-slate-500 font-medium">{label}</p>
-                <p className={`text-xl font-bold mt-1 ${color}`}>{fmt(value)} ر.س</p>
+          {/* KPI cards — layout changes based on VAT registration */}
+          {!settings.vatRegistered ? (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              {[
+                { label: 'الإيرادات',     value: plTotals.revenue,   color: 'text-emerald-600' },
+                { label: 'الرسوم',        value: plTotals.totalFees, color: 'text-amber-600' },
+                { label: 'تكلفة البضاعة', value: plTotals.cogs,      color: 'text-orange-600' },
+                {
+                  label: 'صافي الربح',
+                  value: plTotals.netProfit,
+                  color: plTotals.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600',
+                  note: 'يشمل ضريبة رسوم نون',
+                },
+              ].map(({ label, value, color, note }) => (
+                <div key={label} className="card p-4">
+                  <p className="text-xs text-slate-500 font-medium">{label}</p>
+                  <p className={`text-xl font-bold mt-1 ${color}`}>{fmt(value)} ر.س</p>
+                  {note && <p className="text-[10px] text-slate-400 mt-1">{note}</p>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+              <div className="card p-4">
+                <p className="text-xs text-slate-500 font-medium">الإيرادات</p>
+                <p className="text-xl font-bold mt-1 text-emerald-600">{fmt(plTotals.revenue)} ر.س</p>
               </div>
-            ))}
-          </div>
+              <div className="card p-4">
+                <p className="text-xs text-slate-500 font-medium">الرسوم قبل الضريبة</p>
+                <p className="text-xl font-bold mt-1 text-amber-600">{fmt(plTotals.feesBeforeVat)} ر.س</p>
+                <p className="text-[10px] text-slate-400 mt-1">ضريبة الرسوم: {fmt(plTotals.vatOnFees)} ر.س</p>
+              </div>
+              <div className="card p-4">
+                <p className="text-xs text-slate-500 font-medium">تكلفة البضاعة</p>
+                <p className="text-xl font-bold mt-1 text-orange-600">{fmt(plTotals.cogs)} ر.س</p>
+              </div>
+              <div className="card p-4 border-2 border-blue-200 bg-blue-50">
+                <p className="text-xs text-blue-600 font-medium">الربح التشغيلي</p>
+                <p className={`text-xl font-bold mt-1 ${plTotals.operationalProfit >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                  {fmt(plTotals.operationalProfit)} ر.س
+                </p>
+              </div>
+              <div className="card p-4 border-2 border-emerald-200 bg-emerald-50">
+                <p className="text-xs text-emerald-600 font-medium">ضريبة قابلة للاسترداد</p>
+                <p className="text-xl font-bold mt-1 text-emerald-700">{fmt(plTotals.vatOnFees)} ر.س</p>
+              </div>
+              <div className="card p-4">
+                <p className="text-xs text-slate-500 font-medium">الربح بعد احتساب الضريبة كمصروف</p>
+                <p className={`text-xl font-bold mt-1 ${plTotals.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {fmt(plTotals.netProfit)} ر.س
+                </p>
+              </div>
+            </div>
+          )}
+
 
           <div className="card overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr>
-                  {['الشهر', 'الإيرادات', 'الرسوم', 'تكلفة البضاعة', 'مجمل الربح', 'صافي الربح'].map(h => (
-                    <th key={h} className="table-th">{h}</th>
-                  ))}
+                  {settings.vatRegistered ? (
+                    ['الشهر', 'الإيرادات', 'الرسوم قبل VAT', 'VAT الرسوم', 'تكلفة البضاعة', 'الربح التشغيلي', 'الربح (الضريبة كمصروف)'].map(h => (
+                      <th key={h} className="table-th">{h}</th>
+                    ))
+                  ) : (
+                    ['الشهر', 'الإيرادات', 'الرسوم', 'تكلفة البضاعة', 'مجمل الربح', 'صافي الربح'].map(h => (
+                      <th key={h} className="table-th">{h}</th>
+                    ))
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={6} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
+                  <tr><td colSpan={settings.vatRegistered ? 7 : 6} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
                 ) : plRows.length === 0 ? (
-                  <tr><td colSpan={6} className="table-td text-center py-10 text-slate-400">لا توجد بيانات لهذه السنة</td></tr>
+                  <tr><td colSpan={settings.vatRegistered ? 7 : 6} className="table-td text-center py-10 text-slate-400">لا توجد بيانات لهذه السنة</td></tr>
                 ) : plRows.map(r => (
                   <tr key={r.month} className="hover:bg-slate-50">
                     <td className="table-td font-medium">{r.month}</td>
                     <td className="table-td text-emerald-600">{fmt(r.revenue)}</td>
-                    <td className="table-td text-amber-600">{fmt(r.totalFees)}</td>
-                    <td className="table-td text-orange-600">{fmt(r.cogs)}</td>
-                    <td className="table-td">{fmt(r.grossProfit)}</td>
-                    <td className={`table-td font-semibold ${r.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {fmt(r.netProfit)}
-                    </td>
+                    {settings.vatRegistered ? (
+                      <>
+                        <td className="table-td text-amber-600">{fmt(r.feesBeforeVat)}</td>
+                        <td className="table-td text-slate-500">{fmt(r.vatOnFees)}</td>
+                        <td className="table-td text-orange-600">{fmt(r.cogs)}</td>
+                        <td className={`table-td font-semibold ${r.operationalProfit >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                          {fmt(r.operationalProfit)}
+                        </td>
+                        <td className={`table-td font-semibold ${r.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {fmt(r.netProfit)}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="table-td text-amber-600">{fmt(r.totalFees)}</td>
+                        <td className="table-td text-orange-600">{fmt(r.cogs)}</td>
+                        <td className="table-td">{fmt(r.grossProfit)}</td>
+                        <td className={`table-td font-semibold ${r.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {fmt(r.netProfit)}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -72,6 +72,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'الإعدادات',
     icon: Settings,
     items: [
+      { href: '/settings',           label: 'إعدادات الشركة',    icon: Settings    },
       { href: '/admin',              label: 'الإدارة',            icon: ShieldCheck },
       { href: '/accounting/periods', label: 'الفترات المحاسبية', icon: Lock        },
     ],

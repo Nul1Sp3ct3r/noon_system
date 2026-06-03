@@ -44,7 +44,7 @@ export class ReportsService {
       }),
       this.prisma.statementFee.findMany({
         where: { organizationId: orgId, statementDate: { gte: from.toISOString().slice(0, 7), lte: to.toISOString().slice(0, 7) } },
-        select: { exclVat: true, vatAmount: true, statementDate: true },
+        select: { exclVat: true, vatAmount: true, inclVat: true, statementDate: true },
       }),
       this.prisma.invoiceItem.findMany({
         where: {
@@ -73,12 +73,17 @@ export class ReportsService {
       referralFees: number;
       fbnFees: number;
       stmtFees: number;
+      stmtFeesExclVat: number;
+      stmtFeesVat: number;
       totalFees: number;
+      feesBeforeVat: number;
+      vatOnFees: number;
       cogs: number;
       extra: number;
       supplierVat: number;
       grossProfit: number;
       netProfit: number;
+      operationalProfit: number;
     }> = {};
 
     const getMonth = (d: Date | null) => d ? d.toISOString().slice(0, 7) : 'unknown';
@@ -112,7 +117,9 @@ export class ReportsService {
     for (const f of fees) {
       const m = (f.statementDate ?? '').slice(0, 7);
       if (!months[m]) months[m] = this.emptyPlRow(m);
-      months[m].stmtFees += Math.abs(Number(f.exclVat));
+      months[m].stmtFeesExclVat += Math.abs(Number(f.exclVat));
+      months[m].stmtFeesVat     += Math.abs(Number(f.vatAmount));
+      months[m].stmtFees        += Math.abs(Number(f.inclVat));
     }
 
     for (const item of invoiceItems) {
@@ -123,20 +130,25 @@ export class ReportsService {
 
     const rows = Object.values(months).sort((a, b) => a.month.localeCompare(b.month));
     for (const r of rows) {
-      // abs of signed sums = net fees paid (credits reduce charges)
-      r.referralFees = Math.abs(r.referralFees);
-      r.fbnFees      = Math.abs(r.fbnFees);
-      r.totalFees    = r.referralFees + r.fbnFees + r.stmtFees;
-      r.grossProfit  = r.revenue - r.totalFees;
-      r.netProfit    = r.grossProfit - r.cogs - r.extra;
+      r.referralFees     = Math.abs(r.referralFees);
+      r.fbnFees          = Math.abs(r.fbnFees);
+      r.totalFees        = r.referralFees + r.fbnFees + r.stmtFees;
+      r.feesBeforeVat    = r.referralFees + r.fbnFees + r.stmtFeesExclVat;
+      r.vatOnFees        = r.stmtFeesVat;
+      r.grossProfit      = r.revenue - r.totalFees;
+      r.netProfit        = r.grossProfit - r.cogs - r.extra;
+      r.operationalProfit = r.revenue - r.feesBeforeVat - r.cogs - r.extra;
     }
     return rows;
   }
 
   private emptyPlRow(month: string) {
     return {
-      month, revenue: 0, referralFees: 0, fbnFees: 0, stmtFees: 0,
-      totalFees: 0, cogs: 0, extra: 0, supplierVat: 0, grossProfit: 0, netProfit: 0,
+      month, revenue: 0, referralFees: 0, fbnFees: 0,
+      stmtFees: 0, stmtFeesExclVat: 0, stmtFeesVat: 0,
+      totalFees: 0, feesBeforeVat: 0, vatOnFees: 0,
+      cogs: 0, extra: 0, supplierVat: 0,
+      grossProfit: 0, netProfit: 0, operationalProfit: 0,
     };
   }
 
@@ -378,7 +390,7 @@ export class ReportsService {
   // ── Dashboard data ─────────────────────────────────────────────────────────
 
   async getDashboardData(orgId: number) {
-    const [orderAgg, products, daily, stmtFeeAgg] = await Promise.all([
+    const [orderAgg, products, daily, stmtFeeAgg, orgSettings] = await Promise.all([
       this.prisma.order.aggregate({
         where: { organizationId: orgId },
         _sum: { netProceeds: true, referralFee: true, fbnOutboundFee: true, totalPayment: true },
@@ -400,7 +412,11 @@ export class ReportsService {
       `,
       this.prisma.statementFee.aggregate({
         where: { organizationId: orgId },
-        _sum:  { inclVat: true },
+        _sum:  { inclVat: true, exclVat: true, vatAmount: true },
+      }),
+      this.prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { vatRegistered: true, profitMode: true },
       }),
     ]);
 
@@ -411,11 +427,14 @@ export class ReportsService {
       where: { organizationId: orgId, itemStatus: { equals: 'returned', mode: 'insensitive' } },
     });
 
-    const revenue   = Number(orderAgg._sum.netProceeds ?? 0);
-    const orderFees = Math.abs(Number(orderAgg._sum.referralFee ?? 0)) + Math.abs(Number(orderAgg._sum.fbnOutboundFee ?? 0));
-    const stmtFees  = Math.abs(Number(stmtFeeAgg._sum.inclVat ?? 0));
-    const fees      = orderFees + stmtFees;
-    const payout    = Number(orderAgg._sum.totalPayment ?? 0);
+    const revenue        = Number(orderAgg._sum.netProceeds ?? 0);
+    const orderFees      = Math.abs(Number(orderAgg._sum.referralFee ?? 0)) + Math.abs(Number(orderAgg._sum.fbnOutboundFee ?? 0));
+    const stmtFees       = Math.abs(Number(stmtFeeAgg._sum.inclVat   ?? 0));
+    const stmtFeesExcl   = Math.abs(Number(stmtFeeAgg._sum.exclVat   ?? 0));
+    const stmtFeesVat    = Math.abs(Number(stmtFeeAgg._sum.vatAmount  ?? 0));
+    const fees           = orderFees + stmtFees;
+    const feesBeforeVat  = orderFees + stmtFeesExcl;
+    const payout         = Number(orderAgg._sum.totalPayment ?? 0);
 
     const prodMap = new Map(products.map(p => [p.sku, p]));
     let totalCogs = 0;
@@ -431,8 +450,12 @@ export class ReportsService {
       }
     }
 
-    const netProfit = revenue - fees - totalCogs - totalExtra;
-    const marginPct = revenue > 0 ? Math.round(netProfit / revenue * 10000) / 100 : null;
+    const netProfit         = revenue - fees           - totalCogs - totalExtra;
+    const operationalProfit = revenue - feesBeforeVat  - totalCogs - totalExtra;
+    const vatRegistered     = orgSettings?.vatRegistered ?? false;
+    const profitMode        = orgSettings?.profitMode ?? 'expense';
+    const mainProfit        = vatRegistered && profitMode === 'recoverable' ? operationalProfit : netProfit;
+    const marginPct         = revenue > 0 ? Math.round(mainProfit / revenue * 10000) / 100 : null;
 
     const topProductsRaw = await this.prisma.order.groupBy({
       by: ['sku'],
@@ -457,15 +480,20 @@ export class ReportsService {
 
     return {
       summary: {
-        revenue:        Math.round(revenue    * 100) / 100,
-        payout:         Math.round(payout     * 100) / 100,
-        fees:           Math.round(fees       * 100) / 100,
-        orderFees:      Math.round(orderFees  * 100) / 100,
-        stmtFees:       Math.round(stmtFees   * 100) / 100,
+        revenue:            Math.round(revenue            * 100) / 100,
+        payout:             Math.round(payout             * 100) / 100,
+        fees:               Math.round(fees               * 100) / 100,
+        orderFees:          Math.round(orderFees          * 100) / 100,
+        stmtFees:           Math.round(stmtFees           * 100) / 100,
+        feesBeforeVat:      Math.round(feesBeforeVat      * 100) / 100,
+        vatOnFees:          Math.round(stmtFeesVat        * 100) / 100,
         deliveredCount,
         returnedCount,
-        netProfit:      Math.round(netProfit  * 100) / 100,
+        netProfit:          Math.round(netProfit          * 100) / 100,
+        operationalProfit:  Math.round(operationalProfit  * 100) / 100,
         marginPct,
+        vatRegistered,
+        profitMode,
       },
       dailyRevenue: daily.map(r => ({ date: r.date, revenue: Number(r.revenue) })),
       topProducts,

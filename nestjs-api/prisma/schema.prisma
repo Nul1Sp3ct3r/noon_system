@@ -117,12 +117,15 @@ enum PaymentMethod {
 // ─── Organizations ─────────────────────────────────────────────────────────────
 
 model Organization {
-  id        Int      @id @default(autoincrement())
-  name      String
-  slug      String   @unique
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            Int      @id @default(autoincrement())
+  name          String
+  slug          String   @unique
+  isActive      Boolean  @default(true)  @map("is_active")
+  vatRegistered Boolean  @default(false) @map("vat_registered")
+  vatNumber     String?  @map("vat_number")
+  profitMode    String   @default("expense") @map("profit_mode")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   users               User[]
   refreshTokens       RefreshToken[]

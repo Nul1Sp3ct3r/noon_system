@@ -35,7 +35,12 @@ export default function DashboardPage() {
   useEffect(() => { load(); }, []);
 
   const s = data?.summary;
-  const profitable = s && s.netProfit >= 0;
+  const vatRegistered  = s?.vatRegistered  ?? false;
+  const profitMode     = s?.profitMode     ?? 'expense';
+  const mainProfit     = vatRegistered && profitMode === 'recoverable'
+    ? (s?.operationalProfit ?? 0)
+    : (s?.netProfit ?? 0);
+  const profitable = mainProfit >= 0;
 
   const pieData = data ? [
     { name: 'مسلّم', value: data.orderStatus?.delivered ?? s?.deliveredCount ?? 0 },
@@ -64,43 +69,53 @@ export default function DashboardPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          {
-            label: 'إجمالي الإيرادات',
-            value: loading ? '—' : `${fmt(s?.revenue ?? 0)} ر.س`,
-            sub: 'صافي العائد للطلبات المسلّمة',
-            color: 'blue',
-          },
-          {
-            label: 'صافي الربح',
-            value: loading ? '—' : `${fmt(s?.netProfit ?? 0)} ر.س`,
-            sub: s?.marginPct != null ? `هامش ${s.marginPct.toFixed(2)}%` : '—',
-            color: profitable ? 'green' : 'red',
-          },
-          {
-            label: 'طلبات مسلّمة',
-            value: loading ? '—' : (s?.deliveredCount ?? 0).toLocaleString('ar-SA'),
-            sub: `مرتجعات: ${(s?.returnedCount ?? 0).toLocaleString('ar-SA')}`,
-            color: 'amber',
-          },
-          {
-            label: 'إجمالي الرسوم',
-            value: loading ? '—' : `${fmt(s?.fees ?? 0)} ر.س`,
-            sub: `صافي الدفعة: ${fmt(s?.payout ?? 0)} ر.س`,
-            color: 'rose',
-          },
-        ].map(({ label, value, sub, color }) => (
-          <div key={label} className="card p-5">
-            <p className="text-xs text-slate-500 mb-1">{label}</p>
-            <p className={`text-xl font-bold mb-1 ${
-              color === 'blue' ? 'text-blue-700' :
-              color === 'green' ? 'text-emerald-700' :
-              color === 'red' ? 'text-red-700' :
-              color === 'amber' ? 'text-amber-700' : 'text-rose-700'
-            }`}>{value}</p>
-            <p className="text-xs text-slate-400">{sub}</p>
+        <div className="card p-5">
+          <p className="text-xs text-slate-500 mb-1">إجمالي الإيرادات</p>
+          <p className="text-xl font-bold mb-1 text-blue-700">{loading ? '—' : `${fmt(s?.revenue ?? 0)} ر.س`}</p>
+          <p className="text-xs text-slate-400">صافي العائد للطلبات المسلّمة</p>
+        </div>
+
+        <div className="card p-5">
+          <div className="flex items-start justify-between mb-1">
+            <p className="text-xs text-slate-500">
+              {vatRegistered && profitMode === 'recoverable' ? 'الربح التشغيلي' : 'صافي الربح'}
+            </p>
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+              vatRegistered
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-slate-100 text-slate-500'
+            }`}>
+              {vatRegistered ? 'مسجل VAT ✓' : 'غير مسجل VAT'}
+            </span>
           </div>
-        ))}
+          <p className={`text-xl font-bold mb-1 ${profitable ? 'text-emerald-700' : 'text-red-700'}`}>
+            {loading ? '—' : `${fmt(mainProfit)} ر.س`}
+          </p>
+          <p className="text-xs text-slate-400">
+            {s?.marginPct != null ? `هامش ${s.marginPct.toFixed(2)}%` : '—'}
+          </p>
+          {vatRegistered && profitMode === 'recoverable' && !loading && (
+            <p className="text-[10px] text-emerald-600 mt-1">
+              ضريبة مستردة: {fmt(s?.vatOnFees ?? 0)} ر.س
+            </p>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <p className="text-xs text-slate-500 mb-1">طلبات مسلّمة</p>
+          <p className="text-xl font-bold mb-1 text-amber-700">
+            {loading ? '—' : (s?.deliveredCount ?? 0).toLocaleString('ar-SA')}
+          </p>
+          <p className="text-xs text-slate-400">مرتجعات: {(s?.returnedCount ?? 0).toLocaleString('ar-SA')}</p>
+        </div>
+
+        <div className="card p-5">
+          <p className="text-xs text-slate-500 mb-1">إجمالي الرسوم</p>
+          <p className="text-xl font-bold mb-1 text-rose-700">
+            {loading ? '—' : `${fmt(s?.fees ?? 0)} ر.س`}
+          </p>
+          <p className="text-xs text-slate-400">صافي الدفعة: {fmt(s?.payout ?? 0)} ر.س</p>
+        </div>
       </div>
 
       {/* Charts Row */}

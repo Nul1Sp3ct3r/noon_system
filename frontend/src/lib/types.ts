@@ -243,10 +243,21 @@ export interface PlRow {
   referralFees: number;
   fbnFees: number;
   stmtFees: number;
+  stmtFeesExclVat: number;
+  stmtFeesVat: number;
   totalFees: number;
+  feesBeforeVat: number;
+  vatOnFees: number;
   cogs: number;
   grossProfit: number;
   netProfit: number;
+  operationalProfit: number;
+}
+
+export interface CompanySettings {
+  vatRegistered: boolean;
+  vatNumber: string | null;
+  profitMode: 'expense' | 'recoverable';
 }
 
 export interface VatRow {

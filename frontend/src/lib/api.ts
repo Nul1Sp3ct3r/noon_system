@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings } from './types';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -405,14 +405,27 @@ export const calculator = {
     }),
 };
 
+// ── Organizations / Settings ──────────────────────────────────────────────────
+
+export const orgSettings = {
+  get: () => http<CompanySettings>('/api/v1/organizations/settings'),
+  update: (dto: Partial<CompanySettings>) =>
+    http<CompanySettings>('/api/v1/organizations/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+};
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export const dashboard = {
   getData: () => http<{
     summary: {
       revenue: number; payout: number; fees: number;
+      feesBeforeVat: number; vatOnFees: number;
       deliveredCount: number; returnedCount: number;
-      netProfit: number; marginPct: number | null;
+      netProfit: number; operationalProfit: number; marginPct: number | null;
+      vatRegistered: boolean; profitMode: string;
     };
     dailyRevenue: { date: string; revenue: number }[];
     topProducts: { sku: string | null; name: string | null; revenue: number }[];
