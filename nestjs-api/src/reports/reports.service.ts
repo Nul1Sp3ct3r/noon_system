@@ -90,18 +90,18 @@ export class ReportsService {
 
     for (const o of orders) {
       const status = (o.itemStatus ?? '').toLowerCase();
-      if (status !== 'delivered') continue;
+      if (status !== 'delivered' && status !== 'returned') continue;
 
       const m = getMonth(o.orderedDate);
       if (!months[m]) months[m] = this.emptyPlRow(m);
 
-      months[m].revenue     += Number(o.netProceeds ?? 0);
-      // Accumulate signed values — credits on returns are positive and reduce the sum.
-      // Convert to positive costs after the loop via Math.abs(signedSum).
+      // netProceeds: positive for delivered, negative for returned (creditnote sign)
+      // summing both gives Net Sales = Gross Sales − Returns
+      months[m].revenue      += Number(o.netProceeds    ?? 0);
       months[m].referralFees += Number(o.referralFee    ?? 0);
       months[m].fbnFees      += Number(o.fbnOutboundFee ?? 0);
 
-      if (o.sku) {
+      if (status === 'delivered' && o.sku) {
         const p = costMap.get(o.sku);
         if (p?.unitCost) {
           const cost = Number(p.unitCost);
@@ -208,6 +208,8 @@ export class ReportsService {
         if (p?.extraCosts) row.extra += Number(p.extraCosts);
       } else if (status === 'returned') {
         row.returns += 1;
+        // netProceeds for returned orders is negative (creditnote) — adds to revenue naturally
+        row.revenue += Number(o.netProceeds ?? 0);
       }
       row.feesSigned += Number(o.referralFee ?? 0) + Number(o.fbnOutboundFee ?? 0);
     }
@@ -391,8 +393,16 @@ export class ReportsService {
 
   async getDashboardData(orgId: number) {
     const [orderAgg, products, daily, stmtFeeAgg, orgSettings] = await Promise.all([
+      // Sum delivered + returned; returned netProceeds are negative (creditnotes),
+      // so the total gives Net Sales = Gross Sales − Returns automatically.
       this.prisma.order.aggregate({
-        where: { organizationId: orgId },
+        where: {
+          organizationId: orgId,
+          OR: [
+            { itemStatus: { equals: 'delivered', mode: 'insensitive' } },
+            { itemStatus: { equals: 'returned',  mode: 'insensitive' } },
+          ],
+        },
         _sum: { netProceeds: true, referralFee: true, fbnOutboundFee: true, totalPayment: true },
         _count: { id: true },
       }),
@@ -403,7 +413,10 @@ export class ReportsService {
       this.prisma.$queryRaw<{ date: string; revenue: number }[]>`
         SELECT
           to_char("ordered_date", 'YYYY-MM-DD') AS date,
-          COALESCE(SUM(CASE WHEN LOWER("item_status") = 'delivered' THEN "net_proceeds"::numeric ELSE 0 END), 0) AS revenue
+          COALESCE(SUM(
+            CASE WHEN LOWER("item_status") IN ('delivered', 'returned')
+                 THEN "net_proceeds"::numeric ELSE 0 END
+          ), 0) AS revenue
         FROM orders
         WHERE organization_id = ${orgId}
           AND "ordered_date" IS NOT NULL
