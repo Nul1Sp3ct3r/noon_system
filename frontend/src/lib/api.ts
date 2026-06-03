@@ -1,5 +1,6 @@
 import Cookies from 'js-cookie';
 import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings } from './types';
+import { translateError } from './errors';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 
@@ -19,14 +20,19 @@ function extractMsg(body: unknown, fallback: string): string {
 
 async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = Cookies.get('token');
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch {
+    throw new Error('تعذر الاتصال بالخادم');
+  }
 
   if (res.status === 401) {
     const refreshed = await tryRefresh();
@@ -34,12 +40,13 @@ async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
     Cookies.remove('token');
     Cookies.remove('refreshToken');
     if (typeof window !== 'undefined') window.location.href = '/login';
-    throw new Error('Session expired');
+    throw new Error('انتهت صلاحية تسجيل الدخول، يرجى تسجيل الدخول مرة أخرى');
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(extractMsg(body, `HTTP ${res.status}`));
+    const raw = extractMsg(body, `HTTP ${res.status}`);
+    throw new Error(translateError(raw));
   }
 
   // 204 no content

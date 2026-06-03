@@ -36,3 +36,19 @@ export function isSuperAdmin(user: User | null): boolean {
 export function isPlatformAdmin(user: User | null): boolean {
   return user?.role === 'super_admin' || user?.role === 'platform_admin';
 }
+
+export function canEditCosts(user: User | null): boolean {
+  return ['super_admin', 'admin', 'merchant_owner', 'merchant_accountant'].includes(user?.role ?? '');
+}
+
+export function canManageUsers(user: User | null): boolean {
+  return ['super_admin', 'admin', 'merchant_owner'].includes(user?.role ?? '');
+}
+
+export function canImport(user: User | null): boolean {
+  return ['super_admin', 'admin', 'merchant_owner', 'merchant_data_entry'].includes(user?.role ?? '');
+}
+
+export function canDelete(user: User | null): boolean {
+  return ['super_admin', 'admin', 'merchant_owner'].includes(user?.role ?? '');
+}

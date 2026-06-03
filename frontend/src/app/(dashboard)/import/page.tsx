@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { imports as api } from '@/lib/api';
+import { translateError } from '@/lib/errors';
 import type { ImportBatch, ImportResult, ReconciliationReport } from '@/lib/types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -300,7 +301,7 @@ export default function ImportPage() {
       await api.deleteBatch(batchId);
       loadBatches();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'فشل الحذف');
+      setListError(translateError(err, 'فشل حذف دفعة الاستيراد'));
     } finally {
       setDeletingId(null);
     }

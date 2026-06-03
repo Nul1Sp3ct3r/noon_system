@@ -38,3 +38,9 @@
     @apply px-4 py-3 text-sm text-slate-700 border-t border-slate-100;
   }
 }
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up { animation: slide-up 0.2s ease-out; }

@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Search, AlertCircle, Plus, X, Download } from 'lucide-react';
+import { Search, AlertCircle, Plus, X, Download, Lock } from 'lucide-react';
 import { products as api, downloadExport } from '@/lib/api';
+import { getUser, canEditCosts } from '@/lib/auth';
+import { translateError, MSG } from '@/lib/errors';
+import { useToast } from '@/lib/toast-context';
 import type { Product } from '@/lib/types';
 
 interface ProductForm {
@@ -24,6 +27,10 @@ const emptyForm = (): ProductForm => ({
 });
 
 export default function ProductsPage() {
+  const { toast } = useToast();
+  const user = getUser();
+  const canCost = canEditCosts(user);
+
   const [items, setItems]     = useState<Product[]>([]);
   const [total, setTotal]     = useState(0);
   const [page, setPage]       = useState(1);
@@ -51,7 +58,7 @@ export default function ProductsPage() {
       setItems(res.items);
       setTotal(res.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'فشل تحميل المنتجات');
+      setError(translateError(err, MSG.LOAD_FAIL));
     } finally {
       setLoading(false);
     }
@@ -107,9 +114,10 @@ export default function ProductsPage() {
         await api.create(dto);
       }
       setShowModal(false);
+      toast(MSG.SAVE_OK, 'success');
       load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'فشل الحفظ');
+      setFormError(translateError(err, MSG.SAVE_FAIL));
     } finally {
       setSaving(false);
     }
@@ -258,24 +266,33 @@ export default function ProductsPage() {
                   <label className="block text-xs font-medium text-slate-600 mb-1">الفئة</label>
                   <input className="input" value={form.family} onChange={set('family')} placeholder="Electronics" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">سعر التكلفة (ر.س)</label>
-                  <input className="input" type="number" min="0" step="0.01" value={form.unitCost} onChange={set('unitCost')} placeholder="99.99" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">تكاليف إضافية/وحدة (ر.س)</label>
-                  <input className="input" type="number" min="0" step="0.01" value={form.extraCosts} onChange={set('extraCosts')} placeholder="5.00" />
-                </div>
-                <div className="flex items-center gap-2 pt-4 col-span-2">
-                  <input
-                    type="checkbox"
-                    id="costIncludesVat"
-                    checked={form.costIncludesVat}
-                    onChange={set('costIncludesVat')}
-                    className="w-4 h-4 rounded accent-brand-600"
-                  />
-                  <label htmlFor="costIncludesVat" className="text-sm text-slate-600">التكلفة تشمل ض.ق.م</label>
-                </div>
+                {canCost ? (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">سعر التكلفة (ر.س)</label>
+                      <input className="input" type="number" min="0" step="0.01" value={form.unitCost} onChange={set('unitCost')} placeholder="99.99" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">تكاليف إضافية/وحدة (ر.س)</label>
+                      <input className="input" type="number" min="0" step="0.01" value={form.extraCosts} onChange={set('extraCosts')} placeholder="5.00" />
+                    </div>
+                    <div className="flex items-center gap-2 pt-4 col-span-2">
+                      <input
+                        type="checkbox"
+                        id="costIncludesVat"
+                        checked={form.costIncludesVat}
+                        onChange={set('costIncludesVat')}
+                        className="w-4 h-4 rounded accent-brand-600"
+                      />
+                      <label htmlFor="costIncludesVat" className="text-sm text-slate-600">التكلفة تشمل ض.ق.م</label>
+                    </div>
+                  </>
+                ) : (
+                  <div className="col-span-2 rounded-lg bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
+                    <Lock size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-700 leading-relaxed whitespace-pre-line">{MSG.NO_PERM_COST}</p>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-slate-600 mb-1">ملاحظات</label>
                   <input className="input text-xs" value={form.notes} onChange={set('notes')} placeholder="ملاحظات خاصة بهذا المنتج" />
