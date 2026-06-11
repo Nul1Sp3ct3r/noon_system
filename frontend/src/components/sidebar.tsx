@@ -10,6 +10,7 @@ import {
   CreditCard, ShieldCheck, LogOut, Upload, BookOpen,
   ListTree, Scale, BookMarked, Lock, Receipt,
   ChevronDown, Settings, Users, Layers, BadgeDollarSign, CreditCard as PayCard,
+  Folders,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { auth } from '@/lib/api';
@@ -40,10 +41,11 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'إدارة المخزون',
     icon: Warehouse,
     items: [
-      { href: '/products',            label: 'المنتجات',     icon: Package    },
-      { href: '/inventory',           label: 'المخزون',      icon: Warehouse  },
-      { href: '/inventory/movements', label: 'دفتر الحركات', icon: ListTree   },
-      { href: '/import',              label: 'الاستيراد',    icon: Upload     },
+      { href: '/products',            label: 'المنتجات',         icon: Package   },
+      { href: '/product-families',    label: 'مجموعات المنتجات', icon: Folders   },
+      { href: '/inventory',           label: 'المخزون',           icon: Warehouse },
+      { href: '/inventory/movements', label: 'دفتر الحركات',      icon: ListTree  },
+      { href: '/import',              label: 'الاستيراد',         icon: Upload    },
     ],
   },
   {

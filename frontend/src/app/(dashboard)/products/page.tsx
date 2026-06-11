@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Search, AlertCircle, Plus, X, Download, Lock } from 'lucide-react';
-import { products as api, downloadExport } from '@/lib/api';
-import { getUser, canEditCosts } from '@/lib/auth';
+import { useRouter } from 'next/navigation';
+import { Search, AlertCircle, Plus, X, Download, Lock, Folders, Link, Unlink } from 'lucide-react';
+import { products as api, productFamilies as familiesApi, downloadExport } from '@/lib/api';
+import { getUser, canEditCosts, canManageFamilies } from '@/lib/auth';
 import { translateError, MSG } from '@/lib/errors';
 import { useToast } from '@/lib/toast-context';
-import type { Product } from '@/lib/types';
+import type { Product, ProductFamily } from '@/lib/types';
 
 interface ProductForm {
   sku: string;
@@ -27,9 +28,11 @@ const emptyForm = (): ProductForm => ({
 });
 
 export default function ProductsPage() {
+  const router    = useRouter();
   const { toast } = useToast();
   const user = getUser();
-  const canCost = canEditCosts(user);
+  const canCost        = canEditCosts(user);
+  const canFamilies    = canManageFamilies(user);
 
   const [items, setItems]     = useState<Product[]>([]);
   const [total, setTotal]     = useState(0);
@@ -44,6 +47,13 @@ export default function ProductsPage() {
   const [form, setForm]             = useState<ProductForm>(emptyForm());
   const [saving, setSaving]         = useState(false);
   const [formError, setFormError]   = useState('');
+
+  // Family section state
+  const [productFamily, setProductFamily] = useState<{ familyId: number; familyName: string } | null>(null);
+  const [familyLoading, setFamilyLoading] = useState(false);
+  const [allFamilies, setAllFamilies]     = useState<ProductFamily[]>([]);
+  const [showFamilySelector, setShowFamilySelector] = useState(false);
+  const [linkingFamily, setLinkingFamily] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => { setQ(inputQ); setPage(1); }, 300);
@@ -66,15 +76,69 @@ export default function ProductsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  async function loadProductFamily(productId: number) {
+    setFamilyLoading(true);
+    setProductFamily(null);
+    try {
+      const data = await familiesApi.byProduct(productId);
+      setProductFamily(data);
+    } catch {
+      /* ignore */
+    } finally {
+      setFamilyLoading(false);
+    }
+  }
+
+  async function loadAllFamilies() {
+    try {
+      const data = await familiesApi.list();
+      setAllFamilies(data);
+    } catch { /* ignore */ }
+  }
+
+  async function linkToFamily(familyId: number) {
+    if (!editId) return;
+    setLinkingFamily(true);
+    try {
+      await familiesApi.addProducts(familyId, [editId]);
+      toast('تم ربط المنتج بالمجموعة', 'success');
+      loadProductFamily(editId);
+      setShowFamilySelector(false);
+    } catch (err) {
+      toast(translateError(err, 'فشل الربط'), 'error');
+    } finally {
+      setLinkingFamily(false);
+    }
+  }
+
+  async function unlinkFromFamily() {
+    if (!editId || !productFamily) return;
+    setLinkingFamily(true);
+    try {
+      await familiesApi.removeProduct(productFamily.familyId, editId);
+      toast('تم إزالة المنتج من المجموعة', 'success');
+      setProductFamily(null);
+    } catch (err) {
+      toast(translateError(err, 'فشل الإزالة'), 'error');
+    } finally {
+      setLinkingFamily(false);
+    }
+  }
+
   function openCreate() {
     setEditId(null);
     setForm(emptyForm());
     setFormError('');
+    setProductFamily(null);
+    setShowFamilySelector(false);
     setShowModal(true);
   }
 
   function openEdit(p: Product) {
     setEditId(p.id);
+    setShowFamilySelector(false);
+    loadProductFamily(p.id);
+    loadAllFamilies();
     setForm({
       sku: p.sku,
       partnerSku: p.partnerSku ?? '',
@@ -298,6 +362,93 @@ export default function ProductsPage() {
                   <input className="input text-xs" value={form.notes} onChange={set('notes')} placeholder="ملاحظات خاصة بهذا المنتج" />
                 </div>
               </div>
+
+              {/* Family section — only shown when editing an existing product */}
+              {editId !== null && (
+                <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Folders size={14} className="text-brand-600 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-700">المجموعة</span>
+                  </div>
+
+                  {familyLoading ? (
+                    <p className="text-xs text-slate-400">جارٍ التحميل…</p>
+                  ) : productFamily ? (
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/product-families/${productFamily.familyId}`)}
+                        className="text-sm font-medium text-brand-700 hover:underline"
+                      >
+                        {productFamily.familyName}
+                      </button>
+                      {canFamilies && (
+                        <button
+                          type="button"
+                          onClick={unlinkFromFamily}
+                          disabled={linkingFamily}
+                          className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700"
+                        >
+                          <Unlink size={12} />
+                          إزالة من المجموعة
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      {canFamilies && !showFamilySelector && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setShowFamilySelector(true)}
+                            className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium"
+                          >
+                            <Link size={12} />
+                            ربط بمجموعة
+                          </button>
+                          <span className="text-slate-300 text-xs">·</span>
+                          <button
+                            type="button"
+                            onClick={() => { setShowModal(false); router.push('/product-families'); }}
+                            className="text-xs text-slate-500 hover:text-slate-700"
+                          >
+                            إنشاء مجموعة جديدة
+                          </button>
+                        </>
+                      )}
+                      {!canFamilies && (
+                        <span className="text-xs text-slate-400">لا توجد مجموعة</span>
+                      )}
+                    </div>
+                  )}
+
+                  {showFamilySelector && canFamilies && (
+                    <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                      {allFamilies.length === 0 ? (
+                        <p className="text-xs text-slate-400">لا توجد مجموعات — أنشئ مجموعة أولاً</p>
+                      ) : allFamilies.map(f => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => linkToFamily(f.id)}
+                          disabled={linkingFamily}
+                          className="w-full text-right text-xs px-2 py-1.5 rounded hover:bg-brand-50 text-slate-700 hover:text-brand-700 transition-colors disabled:opacity-50"
+                        >
+                          {f.name}
+                          <span className="text-slate-400 mr-1">({f.productCount} منتج)</span>
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setShowFamilySelector(false)}
+                        className="text-xs text-slate-400 hover:text-slate-600 mt-1"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">

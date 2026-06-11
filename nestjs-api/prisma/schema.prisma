@@ -131,6 +131,7 @@ model Organization {
   users                   User[]
   refreshTokens           RefreshToken[]
   products                Product[]
+  productFamilies         ProductFamily[]
   invoices                Invoice[]
   warehouses              Warehouse[]
   movements               InventoryMovement[]
@@ -216,6 +217,7 @@ model Product {
   organization Organization        @relation(fields: [organizationId], references: [id])
   invoiceItems InvoiceItem[]
   movements    InventoryMovement[]
+  familyItems  ProductFamilyItem[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -223,6 +225,41 @@ model Product {
   @@index([partnerSku])
   @@index([barcode])
   @@map("products")
+}
+
+// ─── Product Families ─────────────────────────────────────────────────────────
+
+model ProductFamily {
+  id              Int      @id @default(autoincrement())
+  organizationId  Int      @map("organization_id")
+  name            String
+  description     String?
+  baseCost        Decimal? @map("base_cost") @db.Decimal(12, 4)
+  costIncludesVat Boolean  @default(false) @map("cost_includes_vat")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  items        ProductFamilyItem[]
+
+  @@index([organizationId])
+  @@map("product_families")
+}
+
+model ProductFamilyItem {
+  id        Int      @id @default(autoincrement())
+  familyId  Int      @map("family_id")
+  productId Int      @map("product_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  family  ProductFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, productId])
+  @@index([familyId])
+  @@index([productId])
+  @@map("product_family_items")
 }
 
 // ─── Invoices ──────────────────────────────────────────────────────────────────

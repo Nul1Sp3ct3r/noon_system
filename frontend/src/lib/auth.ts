@@ -52,3 +52,11 @@ export function canImport(user: User | null): boolean {
 export function canDelete(user: User | null): boolean {
   return ['super_admin', 'admin', 'merchant_owner'].includes(user?.role ?? '');
 }
+
+export function canManageFamilies(user: User | null): boolean {
+  return ['super_admin', 'admin', 'merchant_owner', 'merchant_accountant'].includes(user?.role ?? '');
+}
+
+export function canDeleteFamily(user: User | null): boolean {
+  return ['super_admin', 'admin', 'merchant_owner'].includes(user?.role ?? '');
+}

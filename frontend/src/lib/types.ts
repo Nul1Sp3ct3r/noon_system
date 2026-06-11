@@ -762,6 +762,51 @@ export interface Expense {
   createdBy: { id: number; fullName: string | null; username: string } | null;
 }
 
+// ─── Product Families ─────────────────────────────────────────────────────────
+
+export interface ProductFamily {
+  id:              number;
+  name:            string;
+  description:     string | null;
+  baseCost:        string | null;
+  costIncludesVat: boolean;
+  notes:           string | null;
+  productCount:    number;
+  units:           number;
+  revenue:         number;
+  fees:            number;
+  cogs:            number;
+  profit:          number;
+  inventory:       number;
+  createdAt:       string;
+  updatedAt:       string;
+}
+
+export interface ProductFamilySkuRow {
+  productId: number;
+  sku:       string;
+  nameAr:    string | null;
+  nameEn:    string | null;
+  brand:     string | null;
+  unitCost:  string | null;
+  units:     number;
+  revenue:   number;
+  fees:      number;
+  cogs:      number;
+  profit:    number;
+  stock:     number;
+}
+
+export interface ProductFamilyDetail extends ProductFamily {
+  items: ProductFamilySkuRow[];
+}
+
+export interface FamilySuggestion {
+  suggestedName: string;
+  confidence:    number;
+  products: Array<{ id: number; sku: string; nameEn: string | null; nameAr: string | null; brand: string | null }>;
+}
+
 export interface ExpenseStats {
   totalExpenses: number;
   totalVat: number;
