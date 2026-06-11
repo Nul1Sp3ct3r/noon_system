@@ -515,6 +515,104 @@ export interface ProfitabilityResponse {
   statementFees: StatementFeeSummary;
 }
 
+// ─── Noon Statements ─────────────────────────────────────────────────────────
+
+export interface StatementRow {
+  id:                              number;
+  referenceNr:                     string;
+  statementDate:                   string | null;
+  importBatchId:                   string;
+  fileName:                        string | null;
+  importType:                      string | null;
+  importedAt:                      string | null;
+  netProceeds:                     number;
+  feesInclVat:                     number;
+  feesExclVat:                     number;
+  statementVat:                    number;
+  statementTotal:                  number;
+  netAfterVat:                     number;
+  tvTotal:                         number;
+  difference:                      number;
+  status:                          'matched' | 'rounding' | 'review';
+  vatEstimated:                    boolean;
+  orderRowsCount:                  number;
+  orderUpdateRowsCount:            number;
+  ignoredPaymentRowsCount:         number;
+  ignoredBalanceTransferRowsCount: number;
+  cogs:                            number | null;
+  operationalProfit:               number | null;
+  profitAfterVat:                  number | null;
+  activeProfit:                    number | null;
+  vatRegistered:                   boolean;
+}
+
+export interface StatementKpis {
+  totalStatements:   number;
+  matchedStatements: number;
+  reviewStatements:  number;
+  totalNetProceeds:  number;
+  totalFees:         number;
+  totalVat:          number;
+  totalProfit:       number;
+  vatRegistered:     boolean;
+}
+
+export interface StatementOrderRow {
+  orderNr:       string;
+  itemNr:        string | null;
+  sku:           string | null;
+  partnerSku:    string | null;
+  productTitle:  string | null;
+  itemStatus:    string | null;
+  netProceeds:   number;
+  fees:          number;
+  cogs:          number | null;
+  profit:        number | null;
+  orderedDate:   string | null;
+  deliveredDate: string | null;
+  returnedDate:  string | null;
+}
+
+export interface StatementDetail {
+  referenceNr:      string;
+  statementDate:    string | null;
+  status:           string;
+  vatEstimated:     boolean;
+  importBatchId:    string;
+  fileName:         string | null;
+  importedAt:       string | null;
+  importType:       string | null;
+  batchStatus:      string | null;
+  rowsImported:     number;
+  netProceeds:      number;
+  feesExclVat:      number;
+  feesInclVat:      number;
+  statementVat:     number;
+  statementTotal:   number;
+  netAfterVat:      number;
+  tvTotal:          number;
+  difference:       number;
+  orderRowsCount:                  number;
+  orderUpdateRowsCount:            number;
+  ignoredPaymentRowsCount:         number;
+  ignoredBalanceTransferRowsCount: number;
+  vatRegistered:     boolean;
+  profitMode:        string;
+  totalCogs:         number;
+  hasCogs:           boolean;
+  operationalProfit: number | null;
+  profitAfterVat:    number | null;
+  activeProfit:      number | null;
+  vatOnSales:        number;
+  inputVat:          number;
+  netVatLiability:   number;
+  feeByCat:          Record<string, number>;
+  feeLines:          Array<{ feeType: string; description: string | null; exclVat: number; vatAmount: number; inclVat: number }>;
+  hasFeeDetail:      boolean;
+  orderRows:         StatementOrderRow[];
+  updateRows:        StatementOrderRow[];
+}
+
 export interface JournalLine {
   id: number;
   journalId: number;

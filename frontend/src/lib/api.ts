@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail } from './types';
 import { translateError } from './errors';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
@@ -308,6 +308,21 @@ export const imports = {
     http<{ batchId: string; fileName: string | null; importedAt: string; statements: NoonStatementSummary[] }>(
       `/api/v1/imports/batches/${batchId}/statements`,
     ),
+};
+
+// ── Statements ────────────────────────────────────────────────────────────────
+
+export const statements = {
+  kpis: () =>
+    http<StatementKpis>('/api/v1/statements/kpis'),
+
+  list: (filters?: { startDate?: string; endDate?: string; status?: string; search?: string }) =>
+    http<{ statements: StatementRow[]; vatRegistered: boolean }>(
+      `/api/v1/statements?${qs(filters)}`,
+    ),
+
+  detail: (referenceNr: string) =>
+    http<StatementDetail>(`/api/v1/statements/${encodeURIComponent(referenceNr)}`),
 };
 
 // ── Exports (inventory-stock is a direct endpoint, not generic /exports/:type) ─

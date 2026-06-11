@@ -51,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'المالية',
     icon: BookOpen,
     items: [
+      { href: '/statements', label: 'كشوفات نون',            icon: FileText   },
       { href: '/expenses',   label: 'المصروفات',             icon: Receipt    },
       { href: '/vat-center', label: 'ضريبة القيمة المضافة', icon: Calculator },
       { href: '/reports',    label: 'التقارير المالية',      icon: BarChart2  },

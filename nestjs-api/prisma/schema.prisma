@@ -354,6 +354,7 @@ model Order {
   deliveredDate  String?   @map("delivered_date")
   returnedDate   String?   @map("returned_date")
   importBatch    String?   @map("import_batch")
+  statementRef   String?   @map("statement_ref")
   createdAt      DateTime  @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
@@ -364,6 +365,7 @@ model Order {
   @@index([sku])
   @@index([partnerSku])
   @@index([importBatch])
+  @@index([statementRef])
   @@index([orderedDate])
   @@map("orders")
 }

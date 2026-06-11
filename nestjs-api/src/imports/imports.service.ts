@@ -671,6 +671,7 @@ export class ImportsService {
               fbnOutboundFee: '0.00',
               totalPayment:   row.total.toFixed(2),
               importBatch:    batchId,
+              statementRef:   summary.referenceNr,
             });
             rowsImported++;
 
