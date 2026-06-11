@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AccountingService } from '../accounting/accounting.service';
 import { parseCsvBuffer, classifyFeeDescription } from './csv/parser';
-import { ImportResult } from './csv/types';
+import { ImportResult, NoonStatementSummaryData } from './csv/types';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -618,6 +618,154 @@ export class ImportsService {
           movements:       movements.length,
         }));
 
+      } else if (parsed.format === 'transaction_view') {
+        // ── NOON TRANSACTION VIEW FORMAT ────────────────────────────────────────
+        // Groups by Reference Nr (PS-*), calculates per-statement summaries,
+        // stores order rows + summary records. Payments/transfers are ignored.
+
+        const { statementSummaries } = parsed;
+
+        // Pre-load existing orders for duplicate detection across all statements
+        const allOrderNrs = [...new Set(
+          parsed.transactionViewRows
+            .filter(r => r.transactionType === 'order' || r.transactionType === 'order_update')
+            .map(r => r.orderNr)
+            .filter(Boolean),
+        )];
+
+        const existingOrders = allOrderNrs.length
+          ? await this.prisma.order.findMany({
+              where:  { organizationId: orgId, orderNr: { in: allOrderNrs } },
+              select: { orderNr: true, itemNr: true, itemStatus: true },
+            })
+          : [];
+        const existingOrderSet = new Set(
+          existingOrders.map(o => `${o.orderNr}|${o.itemNr ?? ''}|${o.itemStatus ?? ''}`),
+        );
+
+        const ordersToInsert: Prisma.OrderCreateManyInput[] = [];
+
+        for (const summary of statementSummaries) {
+          for (const row of summary.orderRows) {
+            const itemStatus = row.transactionType === 'order_update'
+              ? 'order_update'
+              : (row.netProceeds > 0 ? 'delivered' : row.netProceeds < 0 ? 'returned' : 'fee_only');
+
+            const key = `${row.orderNr}|${row.itemNr}|${itemStatus}`;
+            if (existingOrderSet.has(key)) { rowsSkipped++; continue; }
+            existingOrderSet.add(key);
+
+            ordersToInsert.push({
+              organizationId: orgId,
+              orderNr:        row.orderNr || 'UNKNOWN',
+              itemNr:         row.itemNr  || null,
+              sku:            row.sku     || null,
+              partnerSku:     row.partnerSku || null,
+              productTitleEn: row.title   || null,
+              itemStatus,
+              orderedDate:    row.orderDate ? safeDate(row.orderDate) : undefined,
+              deliveredDate:  itemStatus === 'delivered' ? row.transactionDate : null,
+              returnedDate:   itemStatus === 'returned'  ? row.transactionDate : null,
+              netProceeds:    row.netProceeds.toFixed(2),
+              referralFee:    '0.00',
+              fbnOutboundFee: '0.00',
+              totalPayment:   row.total.toFixed(2),
+              importBatch:    batchId,
+            });
+            rowsImported++;
+
+            if (itemStatus === 'delivered') { salesCount++; totalSales += row.netProceeds; }
+            else if (itemStatus === 'returned') returnsCount++;
+          }
+        }
+
+        // Bulk-insert orders
+        const CHUNK = 500;
+        if (ordersToInsert.length > 0) {
+          for (let i = 0; i < ordersToInsert.length; i += CHUNK) {
+            await this.prisma.order.createMany({
+              data: ordersToInsert.slice(i, i + CHUNK),
+              skipDuplicates: true,
+            });
+          }
+        }
+
+        // Upsert per-statement summaries (idempotent by org + referenceNr)
+        for (const s of statementSummaries) {
+          await this.prisma.noonStatementSummary.upsert({
+            where: { organizationId_referenceNr: { organizationId: orgId, referenceNr: s.referenceNr } },
+            create: {
+              organizationId:                  orgId,
+              importBatchId:                   batchId,
+              referenceNr:                     s.referenceNr,
+              statementDate:                   s.statementDate || null,
+              netProceeds:                     s.netProceeds.toFixed(2),
+              feesInclVat:                     s.feesInclVat.toFixed(2),
+              feesExclVat:                     s.feesExclVat.toFixed(2),
+              statementVat:                    s.statementVat.toFixed(2),
+              statementTotal:                  s.statementTotal.toFixed(2),
+              netAfterVat:                     s.netAfterVat.toFixed(2),
+              tvTotal:                         s.tvTotal.toFixed(2),
+              difference:                      s.difference.toFixed(2),
+              status:                          s.status,
+              vatEstimated:                    s.vatEstimated,
+              orderRowsCount:                  s.orderRowsCount,
+              orderUpdateRowsCount:            s.orderUpdateRowsCount,
+              ignoredPaymentRowsCount:         s.ignoredPaymentRowsCount,
+              ignoredBalanceTransferRowsCount: s.ignoredBalanceTransferRowsCount,
+            },
+            update: {
+              importBatchId:                   batchId,
+              statementDate:                   s.statementDate || null,
+              netProceeds:                     s.netProceeds.toFixed(2),
+              feesInclVat:                     s.feesInclVat.toFixed(2),
+              feesExclVat:                     s.feesExclVat.toFixed(2),
+              statementVat:                    s.statementVat.toFixed(2),
+              statementTotal:                  s.statementTotal.toFixed(2),
+              netAfterVat:                     s.netAfterVat.toFixed(2),
+              tvTotal:                         s.tvTotal.toFixed(2),
+              difference:                      s.difference.toFixed(2),
+              status:                          s.status,
+              vatEstimated:                    s.vatEstimated,
+              orderRowsCount:                  s.orderRowsCount,
+              orderUpdateRowsCount:            s.orderUpdateRowsCount,
+              ignoredPaymentRowsCount:         s.ignoredPaymentRowsCount,
+              ignoredBalanceTransferRowsCount: s.ignoredBalanceTransferRowsCount,
+            },
+          });
+        }
+
+        // Count ignored rows for reporting
+        let ignoredPayments   = 0;
+        let ignoredTransfers  = 0;
+        for (const s of statementSummaries) {
+          ignoredPayments  += s.ignoredPaymentRowsCount;
+          ignoredTransfers += s.ignoredBalanceTransferRowsCount;
+        }
+        if (ignoredPayments + ignoredTransfers > 0) {
+          warnings.push(
+            `تم تجاهل ${ignoredPayments} دفعة بنكية و${ignoredTransfers} تحويل رصيد — لا تُحتسب في الأرباح`,
+          );
+        }
+
+        await this.prisma.importBatch.create({
+          data: {
+            organizationId: orgId,
+            batchId,
+            importType:    ImportType.transaction_view,
+            fileName:      file.originalname,
+            fileHash,
+            rowsImported,
+            rowsSkipped,
+            salesCount,
+            returnsCount,
+            feesCount:     statementSummaries.length,
+            statementNr:   parsed.statementNr  || null,
+            statementDate: parsed.statementDate || null,
+            status:        'completed',
+          },
+        });
+
       } else {
         // ── OLD / SALES FORMAT ──────────────────────────────────────────────────
         try {
@@ -793,7 +941,7 @@ export class ImportsService {
       );
     }
 
-    return {
+    const result: ImportResult = {
       batchId,
       format:          parsed.format,
       rowsImported,
@@ -801,7 +949,9 @@ export class ImportsService {
       rowsUpdated,
       salesCount,
       returnsCount,
-      feesCount:       parsed.feeRows.length,
+      feesCount:       parsed.format === 'transaction_view'
+                         ? parsed.statementSummaries.length
+                         : parsed.feeRows.length,
       totalSales:      Math.round(totalSales * 100) / 100,
       totalFees:       Math.round(totalFees  * 100) / 100,
       feesVat:         Math.round(feesVat    * 100) / 100,
@@ -809,6 +959,15 @@ export class ImportsService {
       stockUpdated,
       warnings,
     };
+
+    if (parsed.format === 'transaction_view') {
+      result.statementSummaries = parsed.statementSummaries.map(s => ({
+        ...s,
+        orderRows: [],  // strip raw rows from API response (too large)
+      }));
+    }
+
+    return result;
   }
 
   // ─── List batches ─────────────────────────────────────────────────────────────
@@ -856,6 +1015,7 @@ export class ImportsService {
         tx.order.deleteMany({ where: { organizationId: orgId, importBatch: batchId } }),
         tx.inventoryMovement.deleteMany({ where: { organizationId: orgId, batchId } }),
         tx.statementFee.deleteMany({ where: { organizationId: orgId, importBatch: batchId } }),
+        tx.noonStatementSummary.deleteMany({ where: { organizationId: orgId, importBatchId: batchId } }),
       ]);
       await tx.importBatch.delete({ where: { id: batch.id } });
       return [o.count, m.count, f.count];
@@ -871,6 +1031,45 @@ export class ImportsService {
     });
 
     return { deleted: true, batchId, ordersDeleted, movementsDeleted, feesDeleted };
+  }
+
+  // ─── Statement summaries (Transaction View) ───────────────────────────────────
+
+  async getStatementSummaries(batchId: string, orgId: number) {
+    const batch = await this.prisma.importBatch.findFirst({
+      where: { batchId, organizationId: orgId },
+    });
+    if (!batch) throw new NotFoundException('Import batch not found');
+
+    const summaries = await this.prisma.noonStatementSummary.findMany({
+      where:   { organizationId: orgId, importBatchId: batchId },
+      orderBy: { statementDate: 'asc' },
+    });
+
+    return {
+      batchId,
+      fileName:  batch.fileName,
+      importedAt: batch.createdAt.toISOString(),
+      statements: summaries.map(s => ({
+        id:                              s.id,
+        referenceNr:                     s.referenceNr,
+        statementDate:                   s.statementDate,
+        netProceeds:                     Number(s.netProceeds),
+        feesInclVat:                     Number(s.feesInclVat),
+        feesExclVat:                     Number(s.feesExclVat),
+        statementVat:                    Number(s.statementVat),
+        statementTotal:                  Number(s.statementTotal),
+        netAfterVat:                     Number(s.netAfterVat),
+        tvTotal:                         Number(s.tvTotal),
+        difference:                      Number(s.difference),
+        status:                          s.status,
+        vatEstimated:                    s.vatEstimated,
+        orderRowsCount:                  s.orderRowsCount,
+        orderUpdateRowsCount:            s.orderUpdateRowsCount,
+        ignoredPaymentRowsCount:         s.ignoredPaymentRowsCount,
+        ignoredBalanceTransferRowsCount: s.ignoredBalanceTransferRowsCount,
+      })),
+    };
   }
 
   // ─── Statement reconciliation ──────────────────────────────────────────────────

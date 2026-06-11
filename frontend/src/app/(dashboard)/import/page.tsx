@@ -4,16 +4,16 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Upload, AlertCircle, CheckCircle2, Trash2, RefreshCw,
   AlertTriangle, ShoppingCart, Calendar, Package,
-  ChevronDown, ChevronUp, Clock, BarChart2, X,
+  ChevronDown, ChevronUp, Clock, BarChart2, X, FileText,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { imports as api } from '@/lib/api';
 import { translateError } from '@/lib/errors';
-import type { ImportBatch, ImportResult, ReconciliationReport } from '@/lib/types';
+import type { ImportBatch, ImportResult, NoonStatementSummary, ReconciliationReport } from '@/lib/types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-type ImportTypeId   = 'weekly' | 'monthly' | 'inventory';
+type ImportTypeId   = 'weekly' | 'monthly' | 'inventory' | 'transaction_view';
 type HistoryFilter  = 'all' | '7days' | '30days' | 'success' | 'failed';
 
 interface ImportTypeDef {
@@ -99,6 +99,27 @@ const IMPORT_TYPES: ImportTypeDef[] = [
     signature:    ['warehouse_code', 'inventory_type', 'inventory_snapshot_at'],
     historyTypes: ['full_inventory', 'inventory_sync'],
   },
+  {
+    id:           'transaction_view',
+    importType:   'transaction_view',
+    label:        'Transaction View',
+    desc:         'استيراد ملف Transaction View من نون لمطابقة الكشوفات (PS-*) وحساب صافي كل دورة.',
+    filename:     'noon_financeweb_transactionviewreport*.csv',
+    icon:         FileText,
+    iconBg:       'bg-orange-100',
+    iconColor:    'text-orange-600',
+    activeBorder: 'border-orange-500',
+    activeBg:     'bg-orange-50',
+    primaryCols:  ['reference_nr', 'transaction_type', 'net_proceeds', 'total'],
+    allCols: [
+      'contract', 'contract_title', 'reference_nr', 'order_nr', 'item_nr',
+      'order_date', 'transaction_date', 'title', 'skus', 'partner_skus',
+      'transaction_type', 'currency', 'net_proceeds', 'total',
+      'referral_fee_including_vat', 'fullfilment_logistics_fees_including_vat',
+    ],
+    signature:    ['reference_nr', 'total'],
+    historyTypes: ['transaction_view'],
+  },
 ];
 
 const UPLOAD_STAGES = [
@@ -156,6 +177,9 @@ export default function ImportPage() {
   const [recon, setRecon]               = useState<ReconciliationReport | null>(null);
   const [reconLoading, setReconLoading] = useState(false);
   const [reconError, setReconError]     = useState('');
+
+  // Statement summary expanded rows
+  const [expandedStmt, setExpandedStmt] = useState<Set<string>>(new Set());
 
   // File mismatch detection
   const [pendingFile, setPendingFile]   = useState<File | null>(null);
@@ -530,6 +554,90 @@ export default function ImportPage() {
                   <StatCard label="منتجات محدّثة"  value={uploadResult.productsUpdated ?? 0} color="blue"    />
                   <StatCard label="تسويات مخزون"   value={uploadResult.stockUpdated ?? 0}    color="violet"  />
                   <StatCard label="متخطاة"          value={uploadResult.rowsSkipped}          color="slate"   />
+                </div>
+              )}
+
+              {/* Transaction View — per-statement summary table */}
+              {uploadResult.format === 'transaction_view' && uploadResult.statementSummaries && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                    <StatCard label="كشوفات PS"     value={uploadResult.feesCount}     color="orange"  />
+                    <StatCard label="طلبات مستوردة" value={uploadResult.rowsImported}  color="emerald" />
+                    <StatCard label="متخطاة"         value={uploadResult.rowsSkipped}   color="slate"   />
+                    <StatCard label="مبيعات"          value={uploadResult.salesCount}    color="violet"  />
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 text-xs">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          {['', 'رقم الكشف (PS)', 'التاريخ', 'صافي المبيعات', 'الرسوم', 'إجمالي الكشف', 'ضريبة الرسوم', 'صافي بعد VAT', 'إجمالي TV', 'الفرق', 'الحالة'].map(h => (
+                            <th key={h} className="px-2 py-2 text-right font-semibold text-slate-500 whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {uploadResult.statementSummaries.map(s => {
+                          const isExpanded = expandedStmt.has(s.referenceNr);
+                          const statusCls = s.status === 'matched'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : s.status === 'rounding'
+                            ? 'bg-amber-50 text-amber-700'
+                            : 'bg-red-50 text-red-600';
+                          const statusLabel = s.status === 'matched' ? 'مطابق' : s.status === 'rounding' ? 'فرق تقريب' : 'يحتاج مراجعة';
+                          return (
+                            <>
+                              <tr key={s.referenceNr} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-2 py-2">
+                                  <button
+                                    onClick={() => setExpandedStmt(prev => {
+                                      const n = new Set(prev);
+                                      n.has(s.referenceNr) ? n.delete(s.referenceNr) : n.add(s.referenceNr);
+                                      return n;
+                                    })}
+                                    className="p-1 rounded text-slate-400 hover:text-slate-600"
+                                  >
+                                    {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                  </button>
+                                </td>
+                                <td className="px-2 py-2 font-mono text-[11px] text-slate-800 whitespace-nowrap">{s.referenceNr}</td>
+                                <td className="px-2 py-2 text-slate-500 whitespace-nowrap">{s.statementDate}</td>
+                                <td className="px-2 py-2 tabular-nums text-slate-700">{s.netProceeds.toFixed(2)}</td>
+                                <td className="px-2 py-2 tabular-nums text-red-600">{s.feesExclVat.toFixed(2)}</td>
+                                <td className="px-2 py-2 tabular-nums font-semibold text-slate-800">{s.statementTotal.toFixed(2)}</td>
+                                <td className="px-2 py-2 tabular-nums text-slate-500">{s.statementVat.toFixed(2)}{s.vatEstimated && <span className="text-[9px] text-amber-500 mr-0.5">تقدير</span>}</td>
+                                <td className="px-2 py-2 tabular-nums font-bold text-emerald-700">{s.netAfterVat.toFixed(2)}</td>
+                                <td className="px-2 py-2 tabular-nums text-slate-400">{s.tvTotal.toFixed(2)}</td>
+                                <td className={`px-2 py-2 tabular-nums font-semibold ${Math.abs(s.difference) < 0.01 ? 'text-emerald-500' : 'text-amber-600'}`}>
+                                  {s.difference >= 0 ? '+' : ''}{s.difference.toFixed(2)}
+                                </td>
+                                <td className="px-2 py-2">
+                                  <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium ${statusCls}`}>
+                                    {statusLabel}
+                                  </span>
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr key={`${s.referenceNr}-detail`} className="bg-slate-50">
+                                  <td colSpan={11} className="px-4 py-3">
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1 text-[11px]">
+                                      <span className="text-slate-500">طلبات order: <span className="font-semibold text-slate-800">{s.orderRowsCount}</span></span>
+                                      <span className="text-slate-500">تحديثات order_update: <span className="font-semibold text-slate-800">{s.orderUpdateRowsCount}</span></span>
+                                      <span className="text-slate-500">دفعات بنكية مُتجاهَلة: <span className="font-semibold text-amber-700">{s.ignoredPaymentRowsCount}</span></span>
+                                      <span className="text-slate-500">تحويلات رصيد مُتجاهَلة: <span className="font-semibold text-amber-700">{s.ignoredBalanceTransferRowsCount}</span></span>
+                                      <span className="text-slate-500">الرسوم (شامل VAT): <span className="font-semibold text-red-600">{s.feesInclVat.toFixed(2)} ر.س</span></span>
+                                      <span className="text-slate-500">الرسوم (بدون VAT): <span className="font-semibold text-slate-800">{s.feesExclVat.toFixed(2)} ر.س</span></span>
+                                      <span className="text-slate-500">ضريبة الرسوم: <span className="font-semibold text-slate-800">{s.statementVat.toFixed(2)} ر.س {s.vatEstimated ? '(تقديرية)' : '(فعلية)'}</span></span>
+                                      <span className="text-slate-500">صافي TV بعد VAT: <span className="font-semibold text-emerald-700">{s.netAfterVat.toFixed(2)} ر.س</span></span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
@@ -913,7 +1021,7 @@ export default function ImportPage() {
 
 // ─── Stat cards ───────────────────────────────────────────────────────────────
 
-type StatColor = 'emerald' | 'blue' | 'violet' | 'amber' | 'slate';
+type StatColor = 'emerald' | 'blue' | 'violet' | 'amber' | 'slate' | 'orange';
 
 const STAT_CLS: Record<StatColor, string> = {
   emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700',
@@ -921,6 +1029,7 @@ const STAT_CLS: Record<StatColor, string> = {
   violet:  'bg-violet-50 border-violet-100 text-violet-700',
   amber:   'bg-amber-50  border-amber-100  text-amber-700',
   slate:   'bg-slate-50  border-slate-100  text-slate-600',
+  orange:  'bg-orange-50 border-orange-100 text-orange-700',
 };
 
 function StatCard({ label, value, color }: { label: string; value: number; color: StatColor }) {

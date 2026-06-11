@@ -48,7 +48,7 @@ export class ImportsController {
     @Query('importType') importType: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
-    const ALLOWED = ['weekly_noon', 'full_inventory', 'monthly_statement', 'orders'];
+    const ALLOWED = ['weekly_noon', 'full_inventory', 'monthly_statement', 'orders', 'transaction_view'];
     if (importType && !ALLOWED.includes(importType)) {
       throw new BadRequestException(`importType غير مدعوم: ${importType}. القيم المسموحة: ${ALLOWED.join(', ')}`);
     }
@@ -73,6 +73,12 @@ export class ImportsController {
   @ApiOperation({ summary: 'Reconciliation report for a single import batch — Noon values vs PreciseFlow calculation' })
   getReconciliation(@Param('batchId') batchId: string, @CurrentUser() user: JwtPayload) {
     return this.imports.getReconciliation(batchId, user.orgId);
+  }
+
+  @Get('batches/:batchId/statements')
+  @ApiOperation({ summary: 'Per-statement summaries for a Transaction View import batch' })
+  getStatementSummaries(@Param('batchId') batchId: string, @CurrentUser() user: JwtPayload) {
+    return this.imports.getStatementSummaries(batchId, user.orgId);
   }
 
   @Delete('batches/:batchId')

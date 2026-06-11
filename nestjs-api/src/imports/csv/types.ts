@@ -92,20 +92,61 @@ export interface FeeRow {
   statementDate: string;
 }
 
+// Noon Transaction View — noon_financeweb_transactionviewreport*.csv
+// Two variants: "onitemlevel" (has item_nr) and regular (has details column).
+// Key columns: reference_nr, transaction_type, net_proceeds, total
+export interface TransactionViewRow {
+  referenceNr:      string;
+  transactionType:  string;   // order | order_update | payment | balance_transfer
+  orderNr:          string;
+  itemNr:           string;
+  orderDate:        string;
+  transactionDate:  string;
+  title:            string;
+  sku:              string;
+  partnerSku:       string;
+  netProceeds:      number;
+  total:            number;
+  feesInclVat:      number;   // = netProceeds - total (positive = fees paid to Noon)
+}
+
+// Per-PS-statement calculated summary (produced entirely in parser, stored in service)
+export interface NoonStatementSummaryData {
+  referenceNr:                    string;
+  statementDate:                  string;
+  netProceeds:                    number;
+  feesInclVat:                    number;
+  feesExclVat:                    number;
+  statementVat:                   number;
+  statementTotal:                 number;
+  netAfterVat:                    number;
+  tvTotal:                        number;
+  difference:                     number;
+  status:                         'matched' | 'rounding' | 'review';
+  vatEstimated:                   boolean;
+  orderRowsCount:                 number;
+  orderUpdateRowsCount:           number;
+  ignoredPaymentRowsCount:        number;
+  ignoredBalanceTransferRowsCount: number;
+  orderRows:                      TransactionViewRow[];
+}
+
 export interface ParsedCsv {
-  format: 'monthly' | 'old' | 'weekly_noon' | 'full_inventory';
+  format: 'monthly' | 'old' | 'weekly_noon' | 'full_inventory' | 'transaction_view';
   customerRows: CustomerRow[];
   oldRows: OldRow[];
   weeklyRows: WeeklyRow[];
   inventoryRows: InventoryRow[];
   feeRows: FeeRow[];
+  transactionViewRows: TransactionViewRow[];
+  statementSummaries: NoonStatementSummaryData[];
   statementNr: string;
   statementDate: string;
 }
 
 export interface ImportResult {
   batchId: string;
-  format: 'monthly' | 'old' | 'weekly_noon' | 'full_inventory';
+  format: 'monthly' | 'old' | 'weekly_noon' | 'full_inventory' | 'transaction_view';
   rowsImported: number;
   rowsSkipped: number;
   rowsUpdated: number;
@@ -118,4 +159,5 @@ export interface ImportResult {
   productsUpdated?: number;
   stockUpdated?: number;
   warnings: string[];
+  statementSummaries?: NoonStatementSummaryData[];
 }

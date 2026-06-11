@@ -301,9 +301,28 @@ export interface SettlementRow {
   mismatchFlag: boolean;
 }
 
+export interface NoonStatementSummary {
+  referenceNr:                    string;
+  statementDate:                  string;
+  netProceeds:                    number;
+  feesInclVat:                    number;
+  feesExclVat:                    number;
+  statementVat:                   number;
+  statementTotal:                 number;
+  netAfterVat:                    number;
+  tvTotal:                        number;
+  difference:                     number;
+  status:                         'matched' | 'rounding' | 'review';
+  vatEstimated:                   boolean;
+  orderRowsCount:                 number;
+  orderUpdateRowsCount:           number;
+  ignoredPaymentRowsCount:        number;
+  ignoredBalanceTransferRowsCount: number;
+}
+
 export interface ImportResult {
   batchId: string;
-  format: 'monthly' | 'old' | 'weekly_noon' | 'full_inventory';
+  format: 'monthly' | 'old' | 'weekly_noon' | 'full_inventory' | 'transaction_view';
   rowsImported: number;
   rowsSkipped: number;
   rowsUpdated: number;
@@ -316,6 +335,7 @@ export interface ImportResult {
   productsUpdated?: number;
   stockUpdated?: number;
   warnings: string[];
+  statementSummaries?: NoonStatementSummary[];
 }
 
 export interface ImportBatch {

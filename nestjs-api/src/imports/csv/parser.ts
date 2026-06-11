@@ -1,6 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import { BadRequestException } from '@nestjs/common';
-import { CustomerRow, OldRow, WeeklyRow, InventoryRow, FeeRow, ParsedCsv } from './types';
+import { CustomerRow, OldRow, WeeklyRow, InventoryRow, FeeRow, ParsedCsv, TransactionViewRow, NoonStatementSummaryData } from './types';
 
 // ── Column name normalizer ────────────────────────────────────────────────────
 // Maps both title-case ("Net Proceeds") and snake_case ("net_proceeds") to the
@@ -28,6 +28,9 @@ function normalizeRecords(
 
 // ── Format detection signatures (normalized column names) ─────────────────────
 
+// Noon Transaction View: Reference Nr + Total columns (unique to this format)
+const TRANSACTION_VIEW_DETECT = ['reference_nr', 'total', 'transaction_type'];
+
 // Monthly statement: Transaction Type + Document Type driven rows
 const MONTHLY_DETECT = [
   'transaction_type',
@@ -51,6 +54,7 @@ const OLD_DETECT = ['net_proceeds', 'referral_fee', 'fbn_outbound_fee'];
 const MONTHLY_REQUIRED   = ['transaction_type', 'document_type', 'source_doc_nr', 'source_doc_line_nr', 'price_including_vat_document_currency'];
 const WEEKLY_REQUIRED    = ['order_nr', 'item_nr', 'net_proceeds', 'total_payment', 'fee_name'];
 const INVENTORY_REQUIRED = ['warehouse_code', 'qty', 'inventory_type'];
+const TV_REQUIRED        = ['reference_nr', 'transaction_type', 'net_proceeds', 'total'];
 
 // ── Fee category classifier ───────────────────────────────────────────────────
 export function classifyFeeDescription(desc: string): string {
@@ -81,12 +85,23 @@ function toFloat(val: unknown): number {
   return isNaN(n) ? 0 : n;
 }
 
+function r2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 // Flask: int(float(raw)) — "1.0" → "1"
 function normalizeItemNr(raw: string): string {
   if (!raw) return raw;
   const n = parseFloat(raw);
   if (!isNaN(n) && Number.isFinite(n)) return String(Math.floor(n));
   return raw;
+}
+
+// Extract YYYY-MM-DD from a PS-XXXXXXX-SAYYYYmmdd reference number
+function extractDateFromRef(ref: string): string {
+  const m = ref.match(/SA(\d{4})(\d{2})(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return '';
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -143,15 +158,29 @@ export function parseCsvBuffer(buffer: Buffer, hintType?: string): ParsedCsv {
     return parseWeekly(records);
   }
 
+  if (hintType === 'transaction_view') {
+    const missing = TV_REQUIRED.filter(c => !cols.has(c));
+    if (missing.length) {
+      throw new BadRequestException(
+        `الأعمدة المطلوبة غير موجودة في ملف Transaction View: ${missing.join(', ')}`,
+      );
+    }
+    return parseTransactionView(records);
+  }
+
   // ── Auto-detection (checked in priority order) ───────────────────────────────
-  const isInventory = INVENTORY_DETECT.every(c => cols.has(c));
-  const isMonthly   = MONTHLY_DETECT.every(c => cols.has(c));
-  const isWeekly    = WEEKLY_DETECT.every(c => cols.has(c));   // checked before OLD
-  const isOld       = OLD_DETECT.every(c => cols.has(c));
+  const isInventory       = INVENTORY_DETECT.every(c => cols.has(c));
+  // Transaction View must be checked before monthly (both have transaction_type)
+  const isTransactionView = TRANSACTION_VIEW_DETECT.every(c => cols.has(c))
+                         && !cols.has('document_type');  // monthly has document_type; TV does not
+  const isMonthly         = MONTHLY_DETECT.every(c => cols.has(c));
+  const isWeekly          = WEEKLY_DETECT.every(c => cols.has(c));   // checked before OLD
+  const isOld             = OLD_DETECT.every(c => cols.has(c));
 
-  console.log(JSON.stringify({ event: 'csv_autodetect', isInventory, isMonthly, isWeekly, isOld }));
+  console.log(JSON.stringify({ event: 'csv_autodetect', isInventory, isTransactionView, isMonthly, isWeekly, isOld }));
 
-  if (isInventory) return parseInventory(records);
+  if (isInventory)       return parseInventory(records);
+  if (isTransactionView) return parseTransactionView(records);
   if (isMonthly) {
     const missing = MONTHLY_REQUIRED.filter(c => !cols.has(c));
     if (missing.length) {
@@ -167,6 +196,147 @@ export function parseCsvBuffer(buffer: Buffer, hintType?: string): ParsedCsv {
   throw new BadRequestException(
     'تنسيق الملف غير معروف. تأكد من رفع ملف CSV صحيح من بوابة نون.',
   );
+}
+
+// ── Transaction View parser ───────────────────────────────────────────────────
+// Handles both "onitemlevel" and regular variants of Noon Transaction View.
+// Groups by Reference Nr (PS-*), calculates per-statement summaries.
+function parseTransactionView(records: Record<string, unknown>[]): ParsedCsv {
+  const allRows: TransactionViewRow[] = [];
+
+  // Group rows by reference_nr
+  const groups = new Map<string, {
+    orderRows:    TransactionViewRow[];
+    updateRows:   TransactionViewRow[];
+    paymentCount:         number;
+    balanceTransferCount: number;
+    vatRows:      TransactionViewRow[];
+  }>();
+
+  for (const row of records) {
+    const ref     = sanitize(row['reference_nr']);
+    const txType  = sanitize(row['transaction_type']).toLowerCase();
+    const orderNr = sanitize(row['order_nr'] ?? row['order_nr']);
+    const itemNr  = sanitize(row['item_nr'] ?? '');
+    const netP    = toFloat(row['net_proceeds']);
+    const total   = toFloat(row['total']);
+
+    const tvRow: TransactionViewRow = {
+      referenceNr:     ref,
+      transactionType: txType,
+      orderNr,
+      itemNr,
+      orderDate:       sanitize(row['order_date']),
+      transactionDate: sanitize(row['transaction_date']),
+      title:           sanitize(row['title'] ?? row['details'] ?? ''),
+      sku:             sanitize(row['skus'] ?? row['sku'] ?? ''),
+      partnerSku:      sanitize(row['partner_skus'] ?? row['partner_sku'] ?? ''),
+      netProceeds:     netP,
+      total,
+      feesInclVat:     r2(netP - total),
+    };
+
+    allRows.push(tvRow);
+
+    if (!ref) continue;
+
+    if (!groups.has(ref)) {
+      groups.set(ref, { orderRows: [], updateRows: [], paymentCount: 0, balanceTransferCount: 0, vatRows: [] });
+    }
+    const g = groups.get(ref)!;
+
+    if (txType === 'order') {
+      g.orderRows.push(tvRow);
+    } else if (txType === 'order_update') {
+      g.updateRows.push(tvRow);
+    } else if (txType === 'payment') {
+      g.paymentCount++;
+    } else if (txType === 'balance_transfer') {
+      g.balanceTransferCount++;
+    } else if (txType === 'statement vat' || txType === 'statement_vat') {
+      g.vatRows.push(tvRow);
+    }
+  }
+
+  // Calculate per-PS-statement summaries
+  const statementSummaries: NoonStatementSummaryData[] = [];
+
+  for (const [ref, g] of groups) {
+    if (!ref.startsWith('PS-')) continue;
+
+    const activeRows = [...g.orderRows, ...g.updateRows];
+
+    let sumNetProceeds = 0;
+    let sumTotal       = 0;
+    let salesCount     = 0;
+    let updateCount    = 0;
+
+    for (const r of activeRows) {
+      sumNetProceeds += r.netProceeds;
+      sumTotal       += r.total;
+      if (r.transactionType === 'order')        salesCount++;
+      else if (r.transactionType === 'order_update') updateCount++;
+    }
+
+    const feesInclVat  = r2(sumNetProceeds - sumTotal);
+    const feesExclVat  = r2(feesInclVat / 1.15);
+    const statementVat = r2(feesExclVat * 0.15);
+    const stmtTotal    = r2(sumNetProceeds - feesExclVat);
+    const netAfterVat  = r2(stmtTotal - statementVat);
+    const tvTotal      = r2(sumTotal);
+    const difference   = r2(netAfterVat - tvTotal);
+    const absDiff      = Math.abs(difference);
+
+    let status: 'matched' | 'rounding' | 'review';
+    if      (absDiff <= 0.20) status = 'matched';
+    else if (absDiff <= 0.50) status = 'rounding';
+    else                       status = 'review';
+
+    // Statement VAT: prefer an explicit SA-* row if present, else mark estimated
+    let vatEstimated = true;
+    if (g.vatRows.length > 0) {
+      vatEstimated = false;
+    }
+
+    statementSummaries.push({
+      referenceNr:                    ref,
+      statementDate:                  extractDateFromRef(ref),
+      netProceeds:                    r2(sumNetProceeds),
+      feesInclVat,
+      feesExclVat,
+      statementVat,
+      statementTotal:                 stmtTotal,
+      netAfterVat,
+      tvTotal,
+      difference,
+      status,
+      vatEstimated,
+      orderRowsCount:                 salesCount,
+      orderUpdateRowsCount:           updateCount,
+      ignoredPaymentRowsCount:        g.paymentCount,
+      ignoredBalanceTransferRowsCount: g.balanceTransferCount,
+      orderRows:                      activeRows,
+    });
+  }
+
+  // Sort summaries by date ascending
+  statementSummaries.sort((a, b) => a.statementDate.localeCompare(b.statementDate));
+
+  // Use first PS statement date/nr for batch-level metadata
+  const firstPS = statementSummaries[0];
+
+  return {
+    format: 'transaction_view',
+    customerRows: [],
+    oldRows: [],
+    weeklyRows: [],
+    inventoryRows: [],
+    feeRows: [],
+    transactionViewRows: allRows,
+    statementSummaries,
+    statementNr:   firstPS?.referenceNr   ?? '',
+    statementDate: firstPS?.statementDate ?? '',
+  };
 }
 
 // ── Monthly statement parser ──────────────────────────────────────────────────
@@ -227,7 +397,7 @@ function parseMonthly(records: Record<string, unknown>[]): ParsedCsv {
     }
   }
 
-  return { format: 'monthly', customerRows, oldRows: [], weeklyRows: [], inventoryRows: [], feeRows, statementNr, statementDate };
+  return { format: 'monthly', customerRows, oldRows: [], weeklyRows: [], inventoryRows: [], feeRows, transactionViewRows: [], statementSummaries: [], statementNr, statementDate };
 }
 
 // ── Old / sales CSV parser ────────────────────────────────────────────────────
@@ -265,7 +435,7 @@ function parseOld(records: Record<string, unknown>[]): ParsedCsv {
     });
   }
 
-  return { format: 'old', customerRows: [], oldRows, weeklyRows: [], inventoryRows: [], feeRows: [], statementNr, statementDate };
+  return { format: 'old', customerRows: [], oldRows, weeklyRows: [], inventoryRows: [], feeRows: [], transactionViewRows: [], statementSummaries: [], statementNr, statementDate };
 }
 
 // ── Weekly Noon sales parser ──────────────────────────────────────────────────
@@ -344,6 +514,8 @@ function parseWeekly(records: Record<string, unknown>[]): ParsedCsv {
     weeklyRows,
     inventoryRows: [],
     feeRows,
+    transactionViewRows: [],
+    statementSummaries: [],
     statementNr,
     statementDate,
   };
@@ -386,6 +558,8 @@ function parseInventory(records: Record<string, unknown>[]): ParsedCsv {
     weeklyRows: [],
     inventoryRows,
     feeRows: [],
+    transactionViewRows: [],
+    statementSummaries: [],
     statementNr:  '',
     statementDate: snapshotDate,
   };

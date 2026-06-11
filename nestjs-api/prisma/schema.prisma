@@ -72,6 +72,7 @@ enum ImportType {
   inventory_sync
   weekly_noon
   full_inventory
+  transaction_view
 }
 
 enum AccountType {
@@ -127,23 +128,24 @@ model Organization {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  users               User[]
-  refreshTokens       RefreshToken[]
-  products            Product[]
-  invoices            Invoice[]
-  warehouses          Warehouse[]
-  movements           InventoryMovement[]
-  orders              Order[]
-  importBatches       ImportBatch[]
-  statementFees       StatementFee[]
-  auditLogs           AuditLog[]
-  journalEntries      JournalEntry[]
-  accounts            Account[]
-  journalTemplates    JournalTemplate[]
-  accountingPeriods   AccountingPeriod[]
-  expenseCategories   ExpenseCategory[]
-  expenses            Expense[]
-  merchants           Merchant[]
+  users                   User[]
+  refreshTokens           RefreshToken[]
+  products                Product[]
+  invoices                Invoice[]
+  warehouses              Warehouse[]
+  movements               InventoryMovement[]
+  orders                  Order[]
+  importBatches           ImportBatch[]
+  statementFees           StatementFee[]
+  noonStatementSummaries  NoonStatementSummary[]
+  auditLogs               AuditLog[]
+  journalEntries          JournalEntry[]
+  accounts                Account[]
+  journalTemplates        JournalTemplate[]
+  accountingPeriods       AccountingPeriod[]
+  expenseCategories       ExpenseCategory[]
+  expenses                Expense[]
+  merchants               Merchant[]
 
   @@map("organizations")
 }
@@ -414,6 +416,38 @@ model StatementFee {
   @@index([importBatch])
   @@index([statementNr])
   @@map("statement_fees")
+}
+
+// ─── Noon Statement Summaries ─────────────────────────────────────────────────
+
+model NoonStatementSummary {
+  id                              Int      @id @default(autoincrement())
+  organizationId                  Int      @map("organization_id")
+  importBatchId                   String   @map("import_batch_id")
+  referenceNr                     String   @map("reference_nr")
+  statementDate                   String?  @map("statement_date")
+  netProceeds                     Decimal  @default(0) @map("net_proceeds") @db.Decimal(14, 2)
+  feesInclVat                     Decimal  @default(0) @map("fees_incl_vat") @db.Decimal(14, 2)
+  feesExclVat                     Decimal  @default(0) @map("fees_excl_vat") @db.Decimal(14, 2)
+  statementVat                    Decimal  @default(0) @map("statement_vat") @db.Decimal(12, 2)
+  statementTotal                  Decimal  @default(0) @map("statement_total") @db.Decimal(14, 2)
+  netAfterVat                     Decimal  @default(0) @map("net_after_vat") @db.Decimal(14, 2)
+  tvTotal                         Decimal  @default(0) @map("tv_total") @db.Decimal(14, 2)
+  difference                      Decimal  @default(0) @map("difference") @db.Decimal(10, 2)
+  status                          String   @default("matched")
+  vatEstimated                    Boolean  @default(true) @map("vat_estimated")
+  orderRowsCount                  Int      @default(0) @map("order_rows_count")
+  orderUpdateRowsCount            Int      @default(0) @map("order_update_rows_count")
+  ignoredPaymentRowsCount         Int      @default(0) @map("ignored_payment_rows_count")
+  ignoredBalanceTransferRowsCount Int      @default(0) @map("ignored_balance_transfer_rows_count")
+  createdAt                       DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, referenceNr])
+  @@index([organizationId])
+  @@index([importBatchId])
+  @@map("noon_statement_summaries")
 }
 
 // ─── Audit Logs ────────────────────────────────────────────────────────────────
