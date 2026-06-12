@@ -158,6 +158,8 @@ export interface ImportResult {
   feesVat: number;
   productsUpdated?: number;
   stockUpdated?: number;
+  partnerSkusDetected?: number;
+  partnerSkusFilled?: number;
   warnings: string[];
   statementSummaries?: NoonStatementSummaryData[];
 }

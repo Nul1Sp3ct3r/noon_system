@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion, FinancialSummary, MonthlyFinancialSummary, ReconciliationResult } from './types';
 import { translateError } from './errors';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
@@ -443,16 +443,42 @@ export const orgSettings = {
     }),
 };
 
+// ── Financial Engine ──────────────────────────────────────────────────────────
+// Single source of truth for all financial metrics. All pages should use these
+// endpoints instead of calculating independently.
+
+export const financial = {
+  summary: (params?: { year?: number; month?: string; startDate?: string; endDate?: string }) =>
+    http<FinancialSummary>(`/api/v1/financial/summary?${qs(params)}`),
+
+  monthly: (year?: number) =>
+    http<MonthlyFinancialSummary[]>(`/api/v1/financial/monthly?${qs({ year })}`),
+
+  reconcile: (year?: number) =>
+    http<ReconciliationResult>(`/api/v1/financial/reconcile?${qs({ year })}`),
+};
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export const dashboard = {
   getData: () => http<{
     summary: {
-      revenue: number; payout: number; fees: number;
-      feesBeforeVat: number; vatOnFees: number;
-      deliveredCount: number; returnedCount: number;
-      netProfit: number; operationalProfit: number; marginPct: number | null;
-      vatRegistered: boolean; profitMode: string;
+      revenue:           number;
+      grossSales:        number;
+      returns:           number;
+      fees:              number;
+      feesBeforeVat:     number;
+      vatOnFees:         number;
+      cogs:              number;
+      netProfit:         number;
+      operationalProfit: number;
+      activeProfit:      number;
+      marginPct:         number | null;
+      deliveredCount:    number;
+      returnedCount:     number;
+      vatRegistered:     boolean;
+      profitMode:        string;
+      vatPayable:        number;
     };
     dailyRevenue: { date: string; revenue: number }[];
     topProducts: { sku: string | null; name: string | null; revenue: number }[];

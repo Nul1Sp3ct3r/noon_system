@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FinancialSummaryService } from '../financial/financial.service';
 
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -18,97 +19,37 @@ export interface StatementsFilter {
 
 @Injectable()
 export class StatementsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma:    PrismaService,
+    private financial: FinancialSummaryService,
+  ) {}
 
   // ─── KPI dashboard cards ──────────────────────────────────────────────────
+  // Financial totals come from FinancialSummaryService — guaranteed consistent with all pages.
 
   async getKpis(orgId: number) {
-    const summaries = await this.prisma.noonStatementSummary.findMany({
-      where: { organizationId: orgId },
-      select: {
-        netProceeds: true, feesExclVat: true, statementVat: true,
-        netAfterVat: true, statementTotal: true, status: true,
-      },
-    });
-
-    const [allOrders, allProducts, org] = await Promise.all([
-      this.prisma.order.findMany({
-        where: { organizationId: orgId, statementRef: { not: null }, itemStatus: 'delivered' },
-        select: { statementRef: true, sku: true },
-      }),
-      this.prisma.product.findMany({
+    const [stmtCounts, financials] = await Promise.all([
+      this.prisma.noonStatementSummary.groupBy({
+        by:    ['status'],
         where: { organizationId: orgId },
-        select: { sku: true, unitCost: true, extraCosts: true, costIncludesVat: true },
+        _count: { _all: true },
       }),
-      this.prisma.organization.findUnique({
-        where: { id: orgId },
-        select: { vatRegistered: true, profitMode: true },
-      }),
+      this.financial.getSummary(orgId, {}),
     ]);
 
-    const productMap = new Map(allProducts.map(p => [p.sku, p]));
-    const cogsByRef = new Map<string, number>();
-    for (const o of allOrders) {
-      if (!o.statementRef || !o.sku) continue;
-      const p = productMap.get(o.sku);
-      if (!p?.unitCost) continue;
-      const cost = toNum(p.unitCost);
-      const cogs = (p.costIncludesVat ? cost / 1.15 : cost) + toNum(p.extraCosts);
-      cogsByRef.set(o.statementRef, r2((cogsByRef.get(o.statementRef) ?? 0) + cogs));
-    }
-
-    const vatRegistered = org?.vatRegistered ?? false;
-    let totalNetProceeds = 0;
-    let totalFees = 0;
-    let totalVat = 0;
-    let totalNetAfterVat = 0;
-    let totalCogs = 0;
-    let totalProfit = 0;
-    let matched = 0;
-    let needsReview = 0;
-
-    for (const s of summaries) {
-      const np = toNum(s.netProceeds);
-      const fe = toNum(s.feesExclVat);
-      const vt = toNum(s.statementVat);
-      const nav = toNum(s.netAfterVat);
-      const st = toNum(s.statementTotal);
-      totalNetProceeds += np;
-      totalFees        += fe;
-      totalVat         += vt;
-      totalNetAfterVat += nav;
-      if (s.status === 'matched')  matched++;
-      if (s.status === 'review')   needsReview++;
-    }
-
-    for (const [ref, cogs] of cogsByRef) {
-      const s = summaries.find(x => {
-        // can't easily find by referenceNr here; just accumulate all COGS
-        return true;
-      });
-      totalCogs += cogs;
-    }
-
-    // Recalculate COGS correctly
-    totalCogs = 0;
-    for (const [, cogs] of cogsByRef) totalCogs += cogs;
-
-    const totalStmtTotal = summaries.reduce((a, s) => a + toNum(s.statementTotal), 0);
-    if (vatRegistered) {
-      totalProfit = r2(totalStmtTotal - totalCogs);
-    } else {
-      totalProfit = r2(totalNetAfterVat - totalCogs);
-    }
+    const total      = stmtCounts.reduce((a, r) => a + r._count._all, 0);
+    const matched    = stmtCounts.find(r => r.status === 'matched')?._count._all  ?? 0;
+    const needsReview = stmtCounts.find(r => r.status === 'review')?._count._all  ?? 0;
 
     return {
-      totalStatements:    summaries.length,
+      totalStatements:    total,
       matchedStatements:  matched,
       reviewStatements:   needsReview,
-      totalNetProceeds:   r2(totalNetProceeds),
-      totalFees:          r2(totalFees),
-      totalVat:           r2(totalVat),
-      totalProfit,
-      vatRegistered,
+      totalNetProceeds:   financials.grossSales,
+      totalFees:          financials.feesBeforeVAT,
+      totalVat:           financials.vatOnFees,
+      totalProfit:        financials.activeProfit,
+      vatRegistered:      financials.vatRegistered,
     };
   }
 

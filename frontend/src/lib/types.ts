@@ -274,6 +274,7 @@ export interface VatRow {
 
 export interface ProfitabilityRow {
   sku: string;
+  partnerSku?: string | null;
   nameEn: string | null;
   brand: string | null;
   units: number;
@@ -334,6 +335,8 @@ export interface ImportResult {
   feesVat: number;
   productsUpdated?: number;
   stockUpdated?: number;
+  partnerSkusDetected?: number;
+  partnerSkusFilled?: number;
   warnings: string[];
   statementSummaries?: NoonStatementSummary[];
 }
@@ -407,6 +410,7 @@ export interface InventoryMovement {
 
 export interface SalesRow {
   sku: string;
+  partnerSku?: string | null;
   brand: string;
   name: string;
   units: number;
@@ -418,6 +422,7 @@ export interface SalesRow {
 
 export interface FeesRow {
   sku: string;
+  partnerSku?: string | null;
   brand: string;
   units: number;
   referralFees: number;
@@ -783,18 +788,19 @@ export interface ProductFamily {
 }
 
 export interface ProductFamilySkuRow {
-  productId: number;
-  sku:       string;
-  nameAr:    string | null;
-  nameEn:    string | null;
-  brand:     string | null;
-  unitCost:  string | null;
-  units:     number;
-  revenue:   number;
-  fees:      number;
-  cogs:      number;
-  profit:    number;
-  stock:     number;
+  productId:  number;
+  sku:        string;
+  partnerSku: string | null;
+  nameAr:     string | null;
+  nameEn:     string | null;
+  brand:      string | null;
+  unitCost:   string | null;
+  units:      number;
+  revenue:    number;
+  fees:       number;
+  cogs:       number;
+  profit:     number;
+  stock:      number;
 }
 
 export interface ProductFamilyDetail extends ProductFamily {
@@ -815,4 +821,43 @@ export interface ExpenseStats {
   topCategory: string | null;
   unpaidExpenses: number;
   monthlyAverage: number;
+}
+
+// ─── Unified Financial Engine ─────────────────────────────────────────────────
+// Single source of truth — all pages consume this instead of calculating independently.
+
+export interface FinancialSummary {
+  grossSales:        number;
+  returns:           number;
+  netSales:          number;
+  feesBeforeVAT:     number;
+  vatOnFees:         number;
+  totalFees:         number;
+  cogs:              number;
+  operationalProfit: number;
+  accountingProfit:  number;
+  outputVAT:         number;
+  inputVATNoon:      number;
+  inputVATSuppliers: number;
+  vatPayable:        number;
+  deliveredCount:    number;
+  returnedCount:     number;
+  statementCount:    number;
+  vatRegistered:     boolean;
+  profitMode:        string;
+  activeProfit:      number;
+  marginPct:         number | null;
+}
+
+export interface MonthlyFinancialSummary extends FinancialSummary {
+  month: string;
+}
+
+export interface ReconciliationResult {
+  ok:             boolean;
+  yearTotal:      FinancialSummary;
+  monthlySum:     FinancialSummary;
+  discrepancies:  { field: string; yearValue: number; monthlySum: number; diff: number }[];
+  identityErrors: { rule: string; lhs: number; rhs: number; diff: number }[];
+  checkedAt:      string;
 }

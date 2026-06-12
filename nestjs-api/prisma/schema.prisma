@@ -443,6 +443,7 @@ model StatementFee {
   statementDate  String?  @map("statement_date")
   feeType        String   @map("fee_type")
   description    String?
+  category       String?  // referralFee|fbnOutboundFee|storageFee|returnFee|damageFee|removalFee|compensation|other
   exclVat        Decimal  @map("excl_vat") @db.Decimal(14, 4)
   vatAmount      Decimal  @map("vat_amount") @db.Decimal(12, 4)
   inclVat        Decimal  @map("incl_vat") @db.Decimal(14, 4)
@@ -454,6 +455,7 @@ model StatementFee {
   @@index([organizationId])
   @@index([importBatch])
   @@index([statementNr])
+  @@index([organizationId, category])
   @@map("statement_fees")
 }
 
@@ -479,6 +481,11 @@ model NoonStatementSummary {
   orderUpdateRowsCount            Int      @default(0) @map("order_update_rows_count")
   ignoredPaymentRowsCount         Int      @default(0) @map("ignored_payment_rows_count")
   ignoredBalanceTransferRowsCount Int      @default(0) @map("ignored_balance_transfer_rows_count")
+  // Financial-engine tracking
+  source                          String   @default("transaction_view")
+  monthlyReconciled               Boolean  @default(false) @map("monthly_reconciled")
+  reconciliationStatus            String   @default("tv_only") @map("reconciliation_status")
+  payoutAmount                    Decimal? @map("payout_amount") @db.Decimal(14, 2)
   createdAt                       DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
@@ -486,6 +493,8 @@ model NoonStatementSummary {
   @@unique([organizationId, referenceNr])
   @@index([organizationId])
   @@index([importBatchId])
+  @@index([statementDate])
+  @@index([organizationId, statementDate])
   @@map("noon_statement_summaries")
 }
 

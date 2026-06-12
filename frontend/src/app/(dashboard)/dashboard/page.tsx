@@ -37,9 +37,11 @@ export default function DashboardPage() {
   const s = data?.summary;
   const vatRegistered  = s?.vatRegistered  ?? false;
   const profitMode     = s?.profitMode     ?? 'expense';
-  const mainProfit     = vatRegistered && profitMode === 'recoverable'
-    ? (s?.operationalProfit ?? 0)
-    : (s?.netProfit ?? 0);
+  const mainProfit     = s?.activeProfit ?? (
+    vatRegistered && profitMode === 'recoverable'
+      ? (s?.operationalProfit ?? 0)
+      : (s?.netProfit ?? 0)
+  );
   const profitable = mainProfit >= 0;
 
   const pieData = data ? [
@@ -114,7 +116,7 @@ export default function DashboardPage() {
           <p className="text-xl font-bold mb-1 text-rose-700">
             {loading ? '—' : `${fmt(s?.fees ?? 0)} ر.س`}
           </p>
-          <p className="text-xs text-slate-400">صافي الدفعة: {fmt(s?.payout ?? 0)} ر.س</p>
+          <p className="text-xs text-slate-400">قبل الضريبة: {fmt(s?.feesBeforeVat ?? 0)} ر.س</p>
         </div>
       </div>
 

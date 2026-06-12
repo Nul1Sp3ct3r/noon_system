@@ -69,7 +69,7 @@ export class ExportsController {
     ws.views = [{ rightToLeft: true }];
     applyHeader(ws, ['الشهر', 'الإيرادات', 'رسوم المبيعات', 'رسوم FBN', 'رسوم الكشف', 'إجمالي الرسوم', 'تكلفة البضاعة', 'تكاليف إضافية', 'مجمل الربح', 'صافي الربح']);
     for (const r of rows) {
-      ws.addRow([r.month, r.revenue, r.referralFees, r.fbnFees, r.stmtFees, r.totalFees, r.cogs, r.extra, r.grossProfit, r.netProfit]);
+      ws.addRow([r.month, r.revenue, r.referralFees, r.fbnFees, r.stmtFees, r.totalFees, r.cogs, 0, r.grossProfit, r.netProfit]);
     }
     ws.columns.forEach(c => { c.width = 16; });
     return sendXlsx(res, wb, `pl_${query.year ?? 'all'}.xlsx`);

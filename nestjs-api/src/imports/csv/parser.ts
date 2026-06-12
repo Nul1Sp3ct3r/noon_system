@@ -69,6 +69,16 @@ export function classifyFeeDescription(desc: string): string {
   return 'other';
 }
 
+// ── Partner SKU reader ────────────────────────────────────────────────────────
+// Tries all known header variations for the merchant's own product code.
+// norm() already maps: "Partner SKU" → partner_sku, "Partner SKUs" → partner_skus,
+// "Seller SKU" → seller_sku, "Merchant SKU" → merchant_sku.
+function readPartnerSku(row: Record<string, unknown>): string {
+  return sanitize(
+    row['partner_sku'] ?? row['partner_skus'] ?? row['seller_sku'] ?? row['merchant_sku'] ?? '',
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 
@@ -230,7 +240,7 @@ function parseTransactionView(records: Record<string, unknown>[]): ParsedCsv {
       transactionDate: sanitize(row['transaction_date']),
       title:           sanitize(row['title'] ?? row['details'] ?? ''),
       sku:             sanitize(row['skus'] ?? row['sku'] ?? ''),
-      partnerSku:      sanitize(row['partner_skus'] ?? row['partner_sku'] ?? ''),
+      partnerSku:      readPartnerSku(row),
       netProceeds:     netP,
       total,
       feesInclVat:     r2(netP - total),
@@ -366,7 +376,7 @@ function parseMonthly(records: Record<string, unknown>[]): ParsedCsv {
         orderNr,
         itemNr:         normalizeItemNr(rawItemNr),
         sku:            sanitize(row['sku']),
-        partnerSku:     sanitize(row['partner_sku']),
+        partnerSku:     readPartnerSku(row),
         productTitleEn: sanitize(row['description']),
         netProceeds:    inclVat,
         vatAmount:      vat,
@@ -419,7 +429,7 @@ function parseOld(records: Record<string, unknown>[]): ParsedCsv {
       orderNr,
       itemNr,
       sku:             sanitize(row['sku']),
-      partnerSku:      sanitize(row['partner_sku']),
+      partnerSku:      readPartnerSku(row),
       brandEn:         sanitize(row['brand_english'] ?? row['brand_en'] ?? row['brand']),
       brandAr:         sanitize(row['brand_arabic']  ?? row['brand_ar']),
       productTitleEn:  sanitize(row['product_title_english'] ?? row['product_title_en'] ?? row['description']),
@@ -485,7 +495,7 @@ function parseWeekly(records: Record<string, unknown>[]): ParsedCsv {
       orderNr,
       itemNr:         normalizeItemNr(rawItem),
       sku:            sanitize(row['sku']),
-      partnerSku:     sanitize(row['partner_sku']),
+      partnerSku:     readPartnerSku(row),
       brandEn:        sanitize(row['brand_en']),
       brandAr:        sanitize(row['brand_ar']),
       productTitleEn: sanitize(row['product_title_en']),
@@ -528,7 +538,7 @@ function parseInventory(records: Record<string, unknown>[]): ParsedCsv {
 
   for (const row of records) {
     const sku        = sanitize(row['sku']);
-    const partnerSku = sanitize(row['partner_sku']);
+    const partnerSku = readPartnerSku(row);
     // Must have at least one identifier
     if (!sku && !partnerSku) continue;
 

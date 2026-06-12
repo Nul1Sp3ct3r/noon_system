@@ -90,8 +90,10 @@ export class ImportsService {
     let totalSales      = 0;
     let totalFees       = 0;
     let feesVat         = 0;
-    let productsUpdated = 0;
-    let stockUpdated    = 0;
+    let productsUpdated       = 0;
+    let stockUpdated          = 0;
+    let partnerSkusDetected   = 0;
+    let partnerSkusFilled     = 0;
 
     try {
       if (parsed.format === 'monthly') {
@@ -125,6 +127,18 @@ export class ImportsService {
             })
           : [];
         const prodSkuMapM = new Map(existingProdsM.map(p => [p.sku, p] as [string, { sku: string; partnerSku: string | null }]));
+
+        // Pre-load existing TV NoonStatementSummary referenceNrs.
+        // When a TV summary exists, skip referral/FBN fee rows — they're already captured
+        // in the summary and double-counting would corrupt every financial calculation.
+        const uniqueStmtNrsM = [...new Set(parsed.feeRows.map(f => f.statementNr).filter(Boolean))];
+        const existingTvSummaries = uniqueStmtNrsM.length
+          ? await this.prisma.noonStatementSummary.findMany({
+              where:  { organizationId: orgId, referenceNr: { in: uniqueStmtNrsM } },
+              select: { referenceNr: true },
+            })
+          : [];
+        const tvSummaryRefSet = new Set(existingTvSummaries.map(s => s.referenceNr));
 
         // Pre-load FBN stock for negative-stock warnings (one groupBy)
         const fbnStockMap = new Map<string, number>();
@@ -199,6 +213,7 @@ export class ImportsService {
               }
             }
 
+            if (row.partnerSku) partnerSkusDetected++;
             if (row.sku) {
               const ep = prodSkuMapM.get(row.sku);
               if (!ep && !newProdSkusM.has(row.sku)) {
@@ -210,9 +225,11 @@ export class ImportsService {
                 });
                 newProdSkusM.add(row.sku);
                 prodSkuMapM.set(row.sku, { sku: row.sku, partnerSku: row.partnerSku || null });
+                if (row.partnerSku) partnerSkusFilled++;
               } else if (ep && !ep.partnerSku && row.partnerSku && !productPartnerUpdatesM.has(row.sku)) {
                 productPartnerUpdatesM.set(row.sku, row.partnerSku);
                 ep.partnerSku = row.partnerSku; // prevent duplicate entries
+                partnerSkusFilled++;
               }
             }
           } catch (err) {
@@ -222,12 +239,23 @@ export class ImportsService {
         }
 
         for (const fee of parsed.feeRows) {
+          // Skip referral/FBN fees if Transaction View data already exists for this statement.
+          // Those fees are stored in NoonStatementSummary.feesExclVat and adding them again
+          // to statement_fees would cause every financial report to double-count them.
+          const feeCategory = fee.category || classifyFeeDescription(fee.description ?? '');
+          const isPrimaryFee = feeCategory === 'referralFee' || feeCategory === 'fbnOutboundFee';
+          if (isPrimaryFee && fee.statementNr && tvSummaryRefSet.has(fee.statementNr)) {
+            rowsSkipped++;
+            continue;
+          }
+
           feesToInsertM.push({
             organizationId: orgId,
             statementNr:    fee.statementNr || null,
             statementDate:  fee.statementDate || null,
             feeType:        fee.feeType,
             description:    fee.description || null,
+            category:       feeCategory,
             exclVat:        fee.exclVat.toFixed(4),
             vatAmount:      fee.vatAmount.toFixed(4),
             inclVat:        fee.inclVat.toFixed(4),
@@ -360,6 +388,7 @@ export class ImportsService {
               }
 
               // Product upsert
+              if (row.partnerSku) partnerSkusDetected++;
               if (row.sku) {
                 const ep = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } });
                 if (!ep) {
@@ -373,9 +402,10 @@ export class ImportsService {
                       nameAr:    row.productTitleAr || null,
                     },
                   }).catch(() => {});
+                  if (row.partnerSku) partnerSkusFilled++;
                 } else {
                   const updates: Record<string, unknown> = {};
-                  if (!ep.partnerSku && row.partnerSku) updates.partnerSku = row.partnerSku;
+                  if (!ep.partnerSku && row.partnerSku) { updates.partnerSku = row.partnerSku; partnerSkusFilled++; }
                   if (!ep.brand      && row.brandEn)    updates.brand      = row.brandEn;
                   if (!ep.nameEn     && row.productTitleEn) updates.nameEn = row.productTitleEn;
                   if (Object.keys(updates).length > 0) {
@@ -408,6 +438,7 @@ export class ImportsService {
               statementDate:  fee.statementDate || null,
               feeType:        fee.feeType,
               description:    fee.description   || null,
+              category:       fee.category || classifyFeeDescription(fee.description ?? ''),
               exclVat:        fee.exclVat.toFixed(4),
               vatAmount:      fee.vatAmount.toFixed(4),
               inclVat:        fee.inclVat.toFixed(4),
@@ -546,12 +577,13 @@ export class ImportsService {
               if (!product.brand      && row.brand)       upd.brand      = row.brand;
               if (!product.nameEn     && row.title)       upd.nameEn     = row.title;
               if (!product.family     && row.family)      upd.family     = row.family;
-              if (!product.partnerSku && row.partnerSku)  upd.partnerSku = row.partnerSku;
+              if (!product.partnerSku && row.partnerSku)  { upd.partnerSku = row.partnerSku; partnerSkusFilled++; }
               if (Object.keys(upd).length > 0) {
                 await this.prisma.product.update({ where: { id: product.id }, data: upd }).catch(() => {});
                 productsUpdated++;
               }
             }
+            if (row.partnerSku) partnerSkusDetected++;
 
             // Only sync saleable inventory
             const invType = row.inventoryType.toLowerCase();
@@ -688,6 +720,42 @@ export class ImportsService {
               data: ordersToInsert.slice(i, i + CHUNK),
               skipDuplicates: true,
             });
+          }
+        }
+
+        // Product upsert for TV rows (non-destructive: only create or fill blanks)
+        const tvSkusToUpsert = new Map<string, { partnerSku: string | null; title: string | null }>();
+        for (const row of parsed.transactionViewRows) {
+          if (!row.sku) continue;
+          if (!tvSkusToUpsert.has(row.sku)) {
+            tvSkusToUpsert.set(row.sku, { partnerSku: row.partnerSku || null, title: row.title || null });
+          }
+          if (row.partnerSku) partnerSkusDetected++;
+        }
+        if (tvSkusToUpsert.size > 0) {
+          const tvSkuList = [...tvSkusToUpsert.keys()];
+          const existingTvProds = await this.prisma.product.findMany({
+            where: { organizationId: orgId, sku: { in: tvSkuList } },
+            select: { sku: true, partnerSku: true, nameEn: true },
+          });
+          const existingTvMap = new Map(existingTvProds.map(p => [p.sku, p]));
+          for (const [sku, info] of tvSkusToUpsert) {
+            const ep = existingTvMap.get(sku);
+            if (!ep) {
+              await this.prisma.product.create({
+                data: { organizationId: orgId, sku, partnerSku: info.partnerSku, nameEn: info.title },
+              }).catch(() => {});
+              if (info.partnerSku) partnerSkusFilled++;
+              productsUpdated++;
+            } else {
+              const upd: Record<string, unknown> = {};
+              if (!ep.partnerSku && info.partnerSku) { upd.partnerSku = info.partnerSku; partnerSkusFilled++; }
+              if (!ep.nameEn     && info.title)       upd.nameEn     = info.title;
+              if (Object.keys(upd).length > 0) {
+                await this.prisma.product.update({ where: { organizationId_sku: { organizationId: orgId, sku } }, data: upd }).catch(() => {});
+                productsUpdated++;
+              }
+            }
           }
         }
 
@@ -850,12 +918,15 @@ export class ImportsService {
                 }
               }
 
+              if (row.partnerSku) partnerSkusDetected++;
               if (row.sku) {
                 const ep = await tx.product.findUnique({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } } });
                 if (!ep) {
                   await tx.product.create({ data: { organizationId: orgId, sku: row.sku, partnerSku: row.partnerSku || null, brand: row.brandEn || null, nameEn: row.productTitleEn || null } }).catch(() => {});
+                  if (row.partnerSku) partnerSkusFilled++;
                 } else if (!ep.partnerSku && row.partnerSku) {
                   await tx.product.update({ where: { organizationId_sku: { organizationId: orgId, sku: row.sku } }, data: { partnerSku: row.partnerSku } });
+                  partnerSkusFilled++;
                 }
               }
             } catch (err) {
@@ -958,6 +1029,8 @@ export class ImportsService {
       feesVat:         Math.round(feesVat    * 100) / 100,
       productsUpdated,
       stockUpdated,
+      partnerSkusDetected,
+      partnerSkusFilled,
       warnings,
     };
 

@@ -29,6 +29,7 @@ import { ExpensesModule } from './expenses/expenses.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { StatementsModule } from './statements/statements.module';
 import { ProductFamiliesModule } from './product-families/product-families.module';
+import { FinancialModule } from './financial/financial.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -81,6 +82,7 @@ import { AppController } from './app.controller';
     PlatformAdminModule,
     StatementsModule,
     ProductFamiliesModule,
+    FinancialModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
