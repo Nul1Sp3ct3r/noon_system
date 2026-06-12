@@ -23,11 +23,18 @@ export class StatementsController {
   @ApiOperation({ summary: 'List all Noon statement summaries with COGS and profit' })
   listStatements(
     @CurrentUser() user: JwtPayload,
-    @Query('startDate') startDate?: string,
-    @Query('endDate')   endDate?: string,
-    @Query('status')    status?: string,
-    @Query('search')    search?: string,
+    @Query() periodQuery: PeriodQueryDto,
+    @Query('status') status?: string,
+    @Query('search')  search?: string,
   ) {
+    const period = resolveFinancialPeriod(periodQuery);
+    let startDate: string | undefined;
+    let endDate:   string | undefined;
+    if (period.from !== null) {
+      const { from, to } = periodBounds(period);
+      startDate = from.toISOString().slice(0, 10);
+      endDate   = new Date(to.getTime() - 1).toISOString().slice(0, 10);
+    }
     const filters: StatementsFilter = { startDate, endDate, status, search };
     return this.statements.listStatements(user.orgId, filters);
   }

@@ -92,30 +92,36 @@ function KpiCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StatementsPage() {
-  const [kpiPeriod, setKpiPeriod] = usePeriodFilter();
-  const [kpis, setKpis]       = useState<StatementKpis | null>(null);
-  const [rows, setRows]       = useState<StatementRow[]>([]);
-  const [vatReg, setVatReg]   = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
+  const [period, setPeriod] = usePeriodFilter();
+  const [kpis, setKpis]         = useState<StatementKpis | null>(null);
+  const [rows, setRows]         = useState<StatementRow[]>([]);
+  const [vatReg, setVatReg]     = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Filters
-  const [search, setSearch]     = useState('');
-  const [status, setStatus]     = useState('');
-  const [startDate, setStart]   = useState('');
-  const [endDate, setEnd]       = useState('');
+  // Table-level filters (no dates — handled by global period above)
+  const [search, setSearch]           = useState('');
+  const [status, setStatus]           = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
-  const kpiPeriodKey = [kpiPeriod.periodType, kpiPeriod.year, kpiPeriod.month, kpiPeriod.from, kpiPeriod.to].join(':');
+  const periodKey  = [period.periodType, period.year, period.month, period.from, period.to].join(':');
+  const customIncomplete = period.periodType === 'custom' && (!period.from || !period.to);
 
   const load = useCallback(async () => {
+    if (customIncomplete) {
+      setLoading(false);
+      setKpis(null);
+      setRows([]);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
+      const pp = periodToParams(period);
       const [k, data] = await Promise.all([
-        api.kpis(periodToParams(kpiPeriod)),
-        api.list({ search: search || undefined, status: status || undefined, startDate: startDate || undefined, endDate: endDate || undefined }),
+        api.kpis(pp),
+        api.list({ ...pp, search: search || undefined, status: status || undefined }),
       ]);
       setKpis(k);
       setRows(data.statements);
@@ -125,7 +131,7 @@ export default function StatementsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, status, startDate, endDate, kpiPeriodKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, status, periodKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -161,11 +167,18 @@ export default function StatementsPage() {
         </button>
       </div>
 
-      {/* ── KPI period filter ── */}
-      <FinancialPeriodFilter value={kpiPeriod} onChange={setKpiPeriod} />
+      {/* ── Period filter (applies to KPI cards AND table) ── */}
+      <FinancialPeriodFilter value={period} onChange={setPeriod} />
+
+      {customIncomplete && (
+        <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          <AlertCircle size={14} className="shrink-0" />
+          اختر تاريخ البداية والنهاية
+        </div>
+      )}
 
       {/* ── KPI cards ── */}
-      {kpis && (
+      {!customIncomplete && kpis && (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
           <KpiCard label="عدد الكشوفات"            value={kpis.totalStatements.toLocaleString('ar-SA')}        color="slate"   icon={FileText}     />
           <KpiCard label="مطابقة"                   value={kpis.matchedStatements.toLocaleString('ar-SA')}      color="emerald" icon={CheckCircle2} />
@@ -203,9 +216,9 @@ export default function StatementsPage() {
         </div>
 
         {showFilters && (
-          <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3 border-b border-slate-100 bg-slate-50/50">
             <div>
-              <label className="text-[11px] text-slate-500 font-medium block mb-1">الحالة</label>
+              <label className="text-[11px] text-slate-500 font-medium block mb-1">حالة المطابقة</label>
               <select
                 value={status}
                 onChange={e => setStatus(e.target.value)}
@@ -217,19 +230,9 @@ export default function StatementsPage() {
                 <option value="review">يحتاج مراجعة</option>
               </select>
             </div>
-            <div>
-              <label className="text-[11px] text-slate-500 font-medium block mb-1">من تاريخ</label>
-              <input type="date" value={startDate} onChange={e => setStart(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none bg-white text-slate-700" />
-            </div>
-            <div>
-              <label className="text-[11px] text-slate-500 font-medium block mb-1">إلى تاريخ</label>
-              <input type="date" value={endDate} onChange={e => setEnd(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none bg-white text-slate-700" />
-            </div>
             <div className="flex items-end">
               <button
-                onClick={() => { setSearch(''); setStatus(''); setStart(''); setEnd(''); }}
+                onClick={() => { setSearch(''); setStatus(''); }}
                 className="w-full text-xs text-slate-500 border border-slate-200 rounded-lg px-2 py-1.5 hover:bg-white transition-colors"
               >
                 مسح الفلاتر

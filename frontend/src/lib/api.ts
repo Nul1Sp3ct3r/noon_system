@@ -317,7 +317,7 @@ export const statements = {
   kpis: (period?: Partial<PeriodFilter>) =>
     http<StatementKpis>(`/api/v1/statements/kpis?${qs(period)}`),
 
-  list: (filters?: { startDate?: string; endDate?: string; status?: string; search?: string }) =>
+  list: (filters?: Partial<PeriodFilter> & { status?: string; search?: string }) =>
     http<{ statements: StatementRow[]; vatRegistered: boolean }>(
       `/api/v1/statements?${qs(filters)}`,
     ),
