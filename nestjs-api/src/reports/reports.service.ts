@@ -277,13 +277,16 @@ export class ReportsService {
   }
 
   // ── Dashboard data ─────────────────────────────────────────────────────────
-  // Uses FinancialSummaryService for all KPIs — guaranteed consistent with all other pages.
+  // year defaults to current calendar year so KPIs match the Reports P&L page exactly.
 
-  async getDashboardData(orgId: number) {
+  async getDashboardData(orgId: number, year?: number) {
+    const y    = year ?? new Date().getFullYear();
+    const from = new Date(`${y}-01-01T00:00:00Z`);
+    const to   = new Date(`${y + 1}-01-01T00:00:00Z`);
+
     const [financials, daily, topProductsRaw] = await Promise.all([
-      // All-time summary — no date filter means all data
-      this.financial.getSummary(orgId, {}),
-      // Daily revenue chart
+      this.financial.getSummary(orgId, { year: y }),
+      // Daily revenue chart — scoped to the selected year
       this.prisma.$queryRaw<{ date: string; revenue: number }[]>`
         SELECT
           to_char("ordered_date", 'YYYY-MM-DD') AS date,
@@ -294,14 +297,15 @@ export class ReportsService {
           ), 0) AS revenue
         FROM orders
         WHERE organization_id = ${orgId}
-          AND "ordered_date" IS NOT NULL
+          AND "ordered_date" >= ${from}
+          AND "ordered_date" <  ${to}
         GROUP BY to_char("ordered_date", 'YYYY-MM-DD')
         ORDER BY date
       `,
-      // Top 5 products by revenue
+      // Top 5 products by revenue — scoped to the selected year
       this.prisma.order.groupBy({
         by:    ['sku'],
-        where: { organizationId: orgId, itemStatus: { equals: 'delivered', mode: 'insensitive' }, sku: { not: null } },
+        where: { organizationId: orgId, itemStatus: { equals: 'delivered', mode: 'insensitive' }, sku: { not: null }, orderedDate: { gte: from, lt: to } },
         _sum:  { netProceeds: true },
         orderBy: { _sum: { netProceeds: 'desc' } },
         take:  5,
@@ -318,6 +322,7 @@ export class ReportsService {
     const topProdMap = new Map(topProds.map(p => [p.sku, p]));
 
     return {
+      year: y,
       summary: {
         revenue:           financials.netSales,
         grossSales:        financials.grossSales,

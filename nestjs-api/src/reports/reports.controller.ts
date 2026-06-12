@@ -41,8 +41,9 @@ export class ReportsController {
   }
 
   @Get('dashboard')
-  @ApiOperation({ summary: 'Dashboard summary + chart data' })
-  getDashboard(@CurrentUser() user: JwtPayload) {
-    return this.reports.getDashboardData(user.orgId);
+  @ApiOperation({ summary: 'Dashboard summary + chart data (defaults to current year)' })
+  getDashboard(@Query('year') yearStr: string, @CurrentUser() user: JwtPayload) {
+    const year = yearStr ? parseInt(yearStr, 10) : undefined;
+    return this.reports.getDashboardData(user.orgId, year);
   }
 }

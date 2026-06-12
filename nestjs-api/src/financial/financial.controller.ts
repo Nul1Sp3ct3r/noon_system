@@ -35,4 +35,12 @@ export class FinancialController {
   reconcile(@Query() query: FinancialQueryDto, @CurrentUser() user: JwtPayload) {
     return this.financial.reconcile(user.orgId, query.year);
   }
+
+  @Get('debug')
+  @ApiOperation({
+    summary: 'Debug: compare canonical getSummary vs getMonthlySummaries sum for a given year. All values should match within 0.01 SAR. Use this to diagnose inconsistencies.',
+  })
+  debugCompare(@Query() query: FinancialQueryDto, @CurrentUser() user: JwtPayload) {
+    return this.financial.debugCompare(user.orgId, query.year);
+  }
 }

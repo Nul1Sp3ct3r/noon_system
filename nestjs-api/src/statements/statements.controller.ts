@@ -10,9 +10,10 @@ export class StatementsController {
   constructor(private statements: StatementsService) {}
 
   @Get('kpis')
-  @ApiOperation({ summary: 'KPI dashboard cards for all statements' })
-  getKpis(@CurrentUser() user: JwtPayload) {
-    return this.statements.getKpis(user.orgId);
+  @ApiOperation({ summary: 'KPI dashboard cards for statements (defaults to current year)' })
+  getKpis(@Query('year') yearStr: string, @CurrentUser() user: JwtPayload) {
+    const year = yearStr ? parseInt(yearStr, 10) : undefined;
+    return this.statements.getKpis(user.orgId, year);
   }
 
   @Get()

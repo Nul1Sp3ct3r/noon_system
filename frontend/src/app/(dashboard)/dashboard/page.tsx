@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { dashboard } from '@/lib/api';
+
+const CURRENT_YEAR = new Date().getFullYear();
 
 const fmt = (n: number) =>
   n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -19,25 +21,26 @@ type DashData = Awaited<ReturnType<typeof dashboard.getData>>;
 const PIE_COLORS = ['#10b981', '#f59e0b'];
 
 export default function DashboardPage() {
+  const [year, setYear]       = useState(CURRENT_YEAR);
   const [data, setData]       = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
-  function load() {
+  function load(y: number) {
     setLoading(true);
     setError('');
-    dashboard.getData()
+    dashboard.getData(y)
       .then(setData)
       .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل البيانات'))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(year); }, [year]);
 
   const s = data?.summary;
-  const vatRegistered  = s?.vatRegistered  ?? false;
-  const profitMode     = s?.profitMode     ?? 'expense';
-  const mainProfit     = s?.activeProfit ?? (
+  const vatRegistered = s?.vatRegistered ?? false;
+  const profitMode    = s?.profitMode    ?? 'expense';
+  const mainProfit    = s?.activeProfit ?? (
     vatRegistered && profitMode === 'recoverable'
       ? (s?.operationalProfit ?? 0)
       : (s?.netProfit ?? 0)
@@ -54,12 +57,33 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">لوحة التحكم</h1>
-          <p className="text-slate-500 text-sm mt-1">ملخص الأداء المالي</p>
+          <p className="text-slate-500 text-sm mt-1">ملخص الأداء المالي — {year}</p>
         </div>
-        <button onClick={load} className="btn-ghost flex items-center gap-1.5 text-xs">
-          <RefreshCw size={13} />
-          تحديث
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Year selector — must match Reports, VAT Center, and Statements pages */}
+          <div className="flex items-center gap-1 border border-slate-200 rounded-lg px-2 py-1.5">
+            <button
+              onClick={() => setYear(y => y - 1)}
+              className="text-slate-400 hover:text-slate-700 transition-colors"
+              title="السنة السابقة"
+            >
+              <ChevronRight size={14} />
+            </button>
+            <span className="text-sm font-semibold text-slate-700 tabular-nums w-10 text-center">{year}</span>
+            <button
+              onClick={() => setYear(y => Math.min(y + 1, CURRENT_YEAR))}
+              disabled={year >= CURRENT_YEAR}
+              className="text-slate-400 hover:text-slate-700 transition-colors disabled:opacity-30"
+              title="السنة التالية"
+            >
+              <ChevronLeft size={14} />
+            </button>
+          </div>
+          <button onClick={() => load(year)} className="btn-ghost flex items-center gap-1.5 text-xs">
+            <RefreshCw size={13} />
+            تحديث
+          </button>
+        </div>
       </div>
 
       {error && (

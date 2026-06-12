@@ -25,23 +25,28 @@ export class StatementsService {
   ) {}
 
   // ─── KPI dashboard cards ──────────────────────────────────────────────────
-  // Financial totals come from FinancialSummaryService — guaranteed consistent with all pages.
+  // Financial totals come from FinancialSummaryService filtered by year — consistent with Reports & VAT Center.
 
-  async getKpis(orgId: number) {
+  async getKpis(orgId: number, year?: number) {
+    const y       = year ?? new Date().getFullYear();
+    const fromStr = `${y}-01-01`;
+    const toStr   = `${y}-12-31`;
+
     const [stmtCounts, financials] = await Promise.all([
       this.prisma.noonStatementSummary.groupBy({
         by:    ['status'],
-        where: { organizationId: orgId },
+        where: { organizationId: orgId, statementDate: { gte: fromStr, lte: toStr } },
         _count: { _all: true },
       }),
-      this.financial.getSummary(orgId, {}),
+      this.financial.getSummary(orgId, { year: y }),
     ]);
 
-    const total      = stmtCounts.reduce((a, r) => a + r._count._all, 0);
-    const matched    = stmtCounts.find(r => r.status === 'matched')?._count._all  ?? 0;
-    const needsReview = stmtCounts.find(r => r.status === 'review')?._count._all  ?? 0;
+    const total       = stmtCounts.reduce((a, r) => a + r._count._all, 0);
+    const matched     = stmtCounts.find(r => r.status === 'matched')?._count._all  ?? 0;
+    const needsReview = stmtCounts.find(r => r.status === 'review')?._count._all   ?? 0;
 
     return {
+      year,
       totalStatements:    total,
       matchedStatements:  matched,
       reviewStatements:   needsReview,

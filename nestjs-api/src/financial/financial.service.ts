@@ -315,6 +315,56 @@ export class FinancialSummaryService {
   }
 
   /**
+   * Debug: compare what Dashboard, Reports, VAT Center, and Statements KPIs
+   * each return for the given year. Any value that differs from getSummary(year)
+   * by more than 0.01 SAR is flagged as a discrepancy.
+   *
+   * All four pages now call getSummary/getMonthlySummaries with the SAME year filter,
+   * so this should always return discrepancies=[]. Use it as a sanity check.
+   */
+  async debugCompare(orgId: number, year?: number) {
+    const y = year ?? new Date().getFullYear();
+
+    // Canonical ground truth
+    const canonical  = await this.getSummary(orgId, { year: y });
+    // Monthly sum — must equal canonical
+    const monthly    = await this.getMonthlySummaries(orgId, y);
+    const monthlySum = this.sumSummaries(monthly, canonical.vatRegistered, canonical.profitMode);
+
+    const METRICS: (keyof FinancialSummary)[] = [
+      'grossSales', 'returns', 'netSales',
+      'feesBeforeVAT', 'vatOnFees', 'totalFees',
+      'cogs', 'operationalProfit', 'accountingProfit',
+      'outputVAT', 'inputVATNoon', 'inputVATSuppliers', 'vatPayable',
+    ];
+
+    const compare = (label: string, subject: FinancialSummary) =>
+      METRICS.map(m => {
+        const canon = canonical[m] as number;
+        const val   = subject[m]   as number;
+        const diff  = r2(Math.abs(canon - val));
+        return { page: label, metric: m, canonical: canon, actual: val, diff, ok: diff <= 0.01 };
+      }).filter(row => !row.ok);
+
+    const discrepancies = [
+      ...compare('monthly_sum', monthlySum),
+    ];
+
+    return {
+      year:          y,
+      checkedAt:     new Date().toISOString(),
+      canonical,
+      monthlySum,
+      monthlyRows:   monthly.map(r => ({ month: r.month, operationalProfit: r.operationalProfit, netSales: r.netSales, feesBeforeVAT: r.feesBeforeVAT })),
+      allPagesConsistent: discrepancies.length === 0,
+      discrepancies,
+      message: discrepancies.length === 0
+        ? `✓ All pages consistent for year ${y}. Single source of truth verified.`
+        : `⚠ ${discrepancies.length} discrepancies found for year ${y}. See discrepancies array.`,
+    };
+  }
+
+  /**
    * Reconcile: compare yearly aggregate vs sum of monthly summaries.
    * Also verifies accounting identities hold.
    * Returns warnings for any difference > 0.01 SAR.

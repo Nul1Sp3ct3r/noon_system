@@ -313,8 +313,8 @@ export const imports = {
 // ── Statements ────────────────────────────────────────────────────────────────
 
 export const statements = {
-  kpis: () =>
-    http<StatementKpis>('/api/v1/statements/kpis'),
+  kpis: (year?: number) =>
+    http<StatementKpis & { year?: number }>(`/api/v1/statements/kpis?${qs({ year })}`),
 
   list: (filters?: { startDate?: string; endDate?: string; status?: string; search?: string }) =>
     http<{ statements: StatementRow[]; vatRegistered: boolean }>(
@@ -460,30 +460,33 @@ export const financial = {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
+type DashboardSummary = {
+  revenue:           number;
+  grossSales:        number;
+  returns:           number;
+  fees:              number;
+  feesBeforeVat:     number;
+  vatOnFees:         number;
+  cogs:              number;
+  netProfit:         number;
+  operationalProfit: number;
+  activeProfit:      number;
+  marginPct:         number | null;
+  deliveredCount:    number;
+  returnedCount:     number;
+  vatRegistered:     boolean;
+  profitMode:        string;
+  vatPayable:        number;
+};
+
 export const dashboard = {
-  getData: () => http<{
-    summary: {
-      revenue:           number;
-      grossSales:        number;
-      returns:           number;
-      fees:              number;
-      feesBeforeVat:     number;
-      vatOnFees:         number;
-      cogs:              number;
-      netProfit:         number;
-      operationalProfit: number;
-      activeProfit:      number;
-      marginPct:         number | null;
-      deliveredCount:    number;
-      returnedCount:     number;
-      vatRegistered:     boolean;
-      profitMode:        string;
-      vatPayable:        number;
-    };
+  getData: (year?: number) => http<{
+    year:         number;
+    summary:      DashboardSummary;
     dailyRevenue: { date: string; revenue: number }[];
-    topProducts: { sku: string | null; name: string | null; revenue: number }[];
-    orderStatus: { delivered: number; returned: number };
-  }>('/api/v1/reports/dashboard'),
+    topProducts:  { sku: string | null; name: string | null; revenue: number }[];
+    orderStatus:  { delivered: number; returned: number };
+  }>(`/api/v1/reports/dashboard?${qs({ year })}`),
 };
 
 // ── Admin ──────────────────────────────────────────────────────────────────────
