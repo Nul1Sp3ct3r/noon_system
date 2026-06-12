@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProfitabilityQueryDto } from './dto/profitability-query.dto';
+import { resolveFinancialPeriod, periodBounds } from '../common/period.helper';
 
 type Badge = 'profitable' | 'low_margin' | 'loss' | 'missing_cost' | 'no_fees_allocated';
 
@@ -29,20 +30,29 @@ export class ProfitabilityService {
   constructor(private prisma: PrismaService) {}
 
   async getProfitability(orgId: number, query: ProfitabilityQueryDto) {
-    const where: any = { organizationId: orgId };
+    // Resolve date range: period params take precedence over legacy startDate/endDate
+    let startDate = query.startDate;
+    let endDate   = query.endDate;
 
-    if (query.startDate || query.endDate) {
+    if (query.periodType) {
+      const bounds = periodBounds(resolveFinancialPeriod(query));
+      startDate = bounds.from.toISOString().slice(0, 10);
+      endDate   = new Date(bounds.to.getTime() - 1).toISOString().slice(0, 10);
+    }
+
+    const where: any = { organizationId: orgId };
+    if (startDate || endDate) {
       where.orderedDate = {};
-      if (query.startDate) where.orderedDate.gte = new Date(query.startDate);
-      if (query.endDate)   where.orderedDate.lte = new Date(query.endDate);
+      if (startDate) where.orderedDate.gte = new Date(startDate);
+      if (endDate)   where.orderedDate.lte = new Date(endDate);
     }
     if (query.brand) where.brandEn = { contains: query.brand, mode: 'insensitive' };
 
     // Build statementFee date filter matching the order date range
     const stmtFeeWhere: any = { organizationId: orgId };
-    if (query.startDate || query.endDate) {
-      const fromMonth = query.startDate ? query.startDate.slice(0, 7) : '2000-01';
-      const toMonth   = query.endDate   ? query.endDate.slice(0, 7)   : '2100-12';
+    if (startDate || endDate) {
+      const fromMonth = startDate ? startDate.slice(0, 7) : '2000-01';
+      const toMonth   = endDate   ? endDate.slice(0, 7)   : '2100-12';
       stmtFeeWhere.statementDate = { gte: fromMonth, lt: nextMonthStr(toMonth) };
     }
 
@@ -64,12 +74,13 @@ export class ProfitabilityService {
 
     const products = await this.prisma.product.findMany({
       where: { organizationId: orgId },
-      select: { sku: true, nameEn: true, brand: true, unitCost: true, extraCosts: true, costIncludesVat: true },
+      select: { sku: true, partnerSku: true, nameEn: true, brand: true, unitCost: true, extraCosts: true, costIncludesVat: true },
     });
     const prodMap = new Map(products.map(p => [p.sku, p]));
 
     const skuMap = new Map<string, {
       sku: string;
+      partnerSku: string | null;
       nameEn: string | null;
       brand: string | null;
       units: number;
@@ -94,7 +105,8 @@ export class ProfitabilityService {
       if (!skuMap.has(sku)) {
         const p = prodMap.get(sku);
         skuMap.set(sku, {
-          sku, nameEn: p?.nameEn ?? null, brand: o.brandEn ?? p?.brand ?? null,
+          sku, partnerSku: p?.partnerSku ?? null, nameEn: p?.nameEn ?? null,
+          brand: o.brandEn ?? p?.brand ?? null,
           units: 0, returns: 0, revenue: 0, fees: 0, cogs: 0, extra: 0,
           profit: 0, profitPerUnit: 0, badge: 'missing_cost',
         });
@@ -128,7 +140,7 @@ export class ProfitabilityService {
     for (const p of products) {
       if (!skuMap.has(p.sku)) {
         skuMap.set(p.sku, {
-          sku: p.sku, nameEn: p.nameEn, brand: p.brand,
+          sku: p.sku, partnerSku: p.partnerSku ?? null, nameEn: p.nameEn, brand: p.brand,
           units: 0, returns: 0, revenue: 0, fees: 0, cogs: 0, extra: 0,
           profit: 0, profitPerUnit: 0, badge: 'missing_cost',
         });
@@ -163,6 +175,7 @@ export class ProfitabilityService {
       const q = query.sku.toLowerCase();
       filtered = filtered.filter(r =>
         r.sku.toLowerCase().includes(q) ||
+        (r.partnerSku ?? '').toLowerCase().includes(q) ||
         (r.nameEn ?? '').toLowerCase().includes(q)
       );
     }

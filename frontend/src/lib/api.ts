@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion, FinancialSummary, MonthlyFinancialSummary, ReconciliationResult } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion, FinancialSummary, MonthlyFinancialSummary, ReconciliationResult, PeriodFilter } from './types';
 import { translateError } from './errors';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
@@ -205,10 +205,11 @@ export const inventory = {
 // ── Reports ────────────────────────────────────────────────────────────────────
 
 export const reports = {
-  pl:        (year?: number) => http<PlRow[]>(`/api/v1/reports/pl?${qs({ year })}`),
-  sales:     (params?: { year?: number; brand?: string; sortBy?: string; status?: string }) =>
+  pl:        (period?: Partial<PeriodFilter>) =>
+    http<PlRow[]>(`/api/v1/reports/pl?${qs(period)}`),
+  sales:     (params?: { startDate?: string; endDate?: string; brand?: string; sortBy?: string; status?: string }) =>
     http<SalesRow[]>(`/api/v1/reports/sales?${qs(params)}`),
-  fees:      (params?: { year?: number; brand?: string }) =>
+  fees:      (params?: { startDate?: string; endDate?: string; brand?: string }) =>
     http<FeesResponse>(`/api/v1/reports/fees?${qs(params)}`),
   inventory: ()                => http<InventoryStock[]>('/api/v1/reports/inventory'),
   invoices:  (year?: number)   => http<unknown>(`/api/v1/reports/invoices?${qs({ year })}`),
@@ -217,14 +218,14 @@ export const reports = {
 // ── VAT Center ─────────────────────────────────────────────────────────────────
 
 export const vatCenter = {
-  breakdown: (year?: number) =>
-    http<{ year: number; months: VatRow[] }>(`/api/v1/vat-center?${qs({ year })}`),
+  breakdown: (period?: Partial<PeriodFilter>) =>
+    http<{ months: VatRow[] }>(`/api/v1/vat-center?${qs(period)}`),
 };
 
 // ── Profitability ──────────────────────────────────────────────────────────────
 
 export const profitability = {
-  list: (params?: { startDate?: string; endDate?: string; brand?: string }) =>
+  list: (params?: Partial<PeriodFilter> & { brand?: string; sku?: string; badge?: string }) =>
     http<ProfitabilityResponse>(`/api/v1/profitability?${qs(params)}`),
 };
 
@@ -313,8 +314,8 @@ export const imports = {
 // ── Statements ────────────────────────────────────────────────────────────────
 
 export const statements = {
-  kpis: (year?: number) =>
-    http<StatementKpis & { year?: number }>(`/api/v1/statements/kpis?${qs({ year })}`),
+  kpis: (period?: Partial<PeriodFilter>) =>
+    http<StatementKpis>(`/api/v1/statements/kpis?${qs(period)}`),
 
   list: (filters?: { startDate?: string; endDate?: string; status?: string; search?: string }) =>
     http<{ statements: StatementRow[]; vatRegistered: boolean }>(
@@ -448,11 +449,11 @@ export const orgSettings = {
 // endpoints instead of calculating independently.
 
 export const financial = {
-  summary: (params?: { year?: number; month?: string; startDate?: string; endDate?: string }) =>
-    http<FinancialSummary>(`/api/v1/financial/summary?${qs(params)}`),
+  summary: (period?: Partial<PeriodFilter>) =>
+    http<FinancialSummary>(`/api/v1/financial/summary?${qs(period)}`),
 
-  monthly: (year?: number) =>
-    http<MonthlyFinancialSummary[]>(`/api/v1/financial/monthly?${qs({ year })}`),
+  monthly: (period?: Partial<PeriodFilter>) =>
+    http<MonthlyFinancialSummary[]>(`/api/v1/financial/monthly?${qs(period)}`),
 
   reconcile: (year?: number) =>
     http<ReconciliationResult>(`/api/v1/financial/reconcile?${qs({ year })}`),
@@ -480,13 +481,14 @@ type DashboardSummary = {
 };
 
 export const dashboard = {
-  getData: (year?: number) => http<{
+  getData: (period?: Partial<PeriodFilter>) => http<{
     year:         number;
+    period?:      string;
     summary:      DashboardSummary;
     dailyRevenue: { date: string; revenue: number }[];
     topProducts:  { sku: string | null; name: string | null; revenue: number }[];
     orderStatus:  { delivered: number; returned: number };
-  }>(`/api/v1/reports/dashboard?${qs({ year })}`),
+  }>(`/api/v1/reports/dashboard?${qs(period)}`),
 };
 
 // ── Admin ──────────────────────────────────────────────────────────────────────

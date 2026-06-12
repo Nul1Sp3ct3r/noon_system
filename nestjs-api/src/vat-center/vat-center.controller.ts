@@ -2,7 +2,8 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { VatCenterService } from './vat-center.service';
-import { VatQueryDto } from './dto/vat-query.dto';
+import { PeriodQueryDto } from '../financial/dto/period-query.dto';
+import { resolveFinancialPeriod, periodBounds } from '../common/period.helper';
 
 @ApiTags('vat-center')
 @ApiBearerAuth()
@@ -11,8 +12,10 @@ export class VatCenterController {
   constructor(private vatCenter: VatCenterService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Monthly VAT breakdown: output, noon input, supplier input, net' })
-  getVatBreakdown(@Query() query: VatQueryDto, @CurrentUser() user: JwtPayload) {
-    return this.vatCenter.getVatBreakdown(user.orgId, query);
+  @ApiOperation({ summary: 'Monthly VAT breakdown — supports periodType/year/month/from/to' })
+  getVatBreakdown(@Query() query: PeriodQueryDto, @CurrentUser() user: JwtPayload) {
+    const period        = resolveFinancialPeriod(query);
+    const { from, to }  = periodBounds(period);
+    return this.vatCenter.getVatBreakdown(user.orgId, from, to);
   }
 }

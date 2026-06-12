@@ -2,7 +2,8 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { FinancialSummaryService } from './financial.service';
-import { FinancialQueryDto } from './dto/financial-query.dto';
+import { PeriodQueryDto } from './dto/period-query.dto';
+import { resolveFinancialPeriod, periodBounds } from '../common/period.helper';
 
 @ApiTags('financial')
 @ApiBearerAuth()
@@ -12,35 +13,28 @@ export class FinancialController {
 
   @Get('summary')
   @ApiOperation({ summary: 'Unified financial summary — single source of truth for all pages' })
-  getSummary(@Query() query: FinancialQueryDto, @CurrentUser() user: JwtPayload) {
-    return this.financial.getSummary(user.orgId, {
-      year:      query.year,
-      month:     query.month,
-      startDate: query.startDate,
-      endDate:   query.endDate,
-    });
+  getSummary(@Query() query: PeriodQueryDto, @CurrentUser() user: JwtPayload) {
+    const period = resolveFinancialPeriod(query);
+    return this.financial.getSummary(user.orgId, { period });
   }
 
   @Get('monthly')
   @ApiOperation({ summary: 'Month-by-month financial breakdown for P&L and VAT center' })
-  getMonthlySummaries(@Query() query: FinancialQueryDto, @CurrentUser() user: JwtPayload) {
-    const year = query.year ?? new Date().getFullYear();
-    return this.financial.getMonthlySummaries(user.orgId, year);
+  getMonthlySummaries(@Query() query: PeriodQueryDto, @CurrentUser() user: JwtPayload) {
+    const period        = resolveFinancialPeriod(query);
+    const { from, to }  = periodBounds(period);
+    return this.financial.getMonthlySummaries(user.orgId, from, to);
   }
 
   @Get('reconcile')
-  @ApiOperation({
-    summary: 'Validate financial consistency — compares yearly vs monthly totals and verifies accounting identities. Returns warnings for differences > 0.01 SAR.',
-  })
-  reconcile(@Query() query: FinancialQueryDto, @CurrentUser() user: JwtPayload) {
+  @ApiOperation({ summary: 'Validate yearly vs monthly consistency. Accepts year param.' })
+  reconcile(@Query() query: PeriodQueryDto, @CurrentUser() user: JwtPayload) {
     return this.financial.reconcile(user.orgId, query.year);
   }
 
   @Get('debug')
-  @ApiOperation({
-    summary: 'Debug: compare canonical getSummary vs getMonthlySummaries sum for a given year. All values should match within 0.01 SAR. Use this to diagnose inconsistencies.',
-  })
-  debugCompare(@Query() query: FinancialQueryDto, @CurrentUser() user: JwtPayload) {
+  @ApiOperation({ summary: 'Debug: compare canonical getSummary vs getMonthlySummaries sum' })
+  debugCompare(@Query() query: PeriodQueryDto, @CurrentUser() user: JwtPayload) {
     return this.financial.debugCompare(user.orgId, query.year);
   }
 }

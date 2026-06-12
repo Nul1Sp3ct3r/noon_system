@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { classifyFeeDescription } from '../imports/csv/parser';
+import { ResolvedPeriod, periodBounds } from '../common/period.helper';
 
 // ── Supplementary fee categories — only these come from monthly statement
 // when TV data exists. Referral + FBN are already captured in NoonStatementSummary.
@@ -44,6 +45,7 @@ export interface MonthlyFinancialSummary extends FinancialSummary {
 }
 
 export interface FinancialFilter {
+  period?:    ResolvedPeriod;  // pre-resolved period — overrides all other range fields
   from?:      Date;
   to?:        Date;
   year?:      number;
@@ -171,12 +173,10 @@ export class FinancialSummaryService {
     );
   }
 
-  /** Per-month breakdown for a full year (P&L report, VAT center). */
-  async getMonthlySummaries(orgId: number, year: number): Promise<MonthlyFinancialSummary[]> {
-    const from    = new Date(`${year}-01-01T00:00:00Z`);
-    const to      = new Date(`${year + 1}-01-01T00:00:00Z`);
-    const fromStr = `${year}-01-01`;
-    const toStr   = `${year}-12-31`;
+  /** Per-month breakdown for any date range (P&L report, VAT center). */
+  async getMonthlySummaries(orgId: number, from: Date, to: Date): Promise<MonthlyFinancialSummary[]> {
+    const fromStr = from.toISOString().slice(0, 10);
+    const toStr   = new Date(to.getTime() - 1).toISOString().slice(0, 10);
 
     const [deliveredOrders, returnedOrders, stmtSummaries, stmtFees, invoiceItems, products, org] =
       await Promise.all([
@@ -323,12 +323,14 @@ export class FinancialSummaryService {
    * so this should always return discrepancies=[]. Use it as a sanity check.
    */
   async debugCompare(orgId: number, year?: number) {
-    const y = year ?? new Date().getFullYear();
+    const y    = year ?? new Date().getFullYear();
+    const from = new Date(`${y}-01-01T00:00:00Z`);
+    const to   = new Date(`${y + 1}-01-01T00:00:00Z`);
 
     // Canonical ground truth
     const canonical  = await this.getSummary(orgId, { year: y });
     // Monthly sum — must equal canonical
-    const monthly    = await this.getMonthlySummaries(orgId, y);
+    const monthly    = await this.getMonthlySummaries(orgId, from, to);
     const monthlySum = this.sumSummaries(monthly, canonical.vatRegistered, canonical.profitMode);
 
     const METRICS: (keyof FinancialSummary)[] = [
@@ -370,11 +372,13 @@ export class FinancialSummaryService {
    * Returns warnings for any difference > 0.01 SAR.
    */
   async reconcile(orgId: number, year?: number): Promise<ReconciliationResult> {
-    const y = year ?? new Date().getFullYear();
+    const y    = year ?? new Date().getFullYear();
+    const from = new Date(`${y}-01-01T00:00:00Z`);
+    const to   = new Date(`${y + 1}-01-01T00:00:00Z`);
 
     const [yearTotal, monthlyRows] = await Promise.all([
       this.getSummary(orgId, { year: y }),
-      this.getMonthlySummaries(orgId, y),
+      this.getMonthlySummaries(orgId, from, to),
     ]);
 
     // Sum monthly rows
@@ -514,6 +518,9 @@ export class FinancialSummaryService {
   }
 
   resolveRange(filter: FinancialFilter): { from: Date; to: Date } {
+    if (filter.period) {
+      return periodBounds(filter.period);
+    }
     if (filter.startDate || filter.endDate) {
       const from = filter.startDate
         ? new Date(filter.startDate + 'T00:00:00Z')

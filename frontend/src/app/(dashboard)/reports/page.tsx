@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { AlertCircle, Download } from 'lucide-react';
 import { reports as api, downloadExport, orgSettings } from '@/lib/api';
 import type { PlRow, SalesRow, FeesRow, StatementFeeSummary, CompanySettings } from '@/lib/types';
+import { FinancialPeriodFilter, usePeriodFilter, periodToParams, periodToDateRange } from '@/components/ui/financial-period-filter';
 
-const YEAR = new Date().getFullYear();
 type Tab = 'pl' | 'sales' | 'fees';
 
 const FEE_CAT_LABELS: Record<string, string> = {
@@ -22,8 +22,8 @@ const FEE_CAT_LABELS: Record<string, string> = {
 const EMPTY_STMT: StatementFeeSummary = { total: 0, totalExclVat: 0, totalVat: 0, byCategory: {}, rows: [] };
 
 export default function ReportsPage() {
+  const [period, setPeriod] = usePeriodFilter();
   const [tab, setTab]   = useState<Tab>('pl');
-  const [year, setYear] = useState(YEAR);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
@@ -35,6 +35,8 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState(false);
   const [settings, setSettings]   = useState<CompanySettings>({ vatRegistered: false, vatNumber: null, profitMode: 'expense' });
 
+  const periodKey = [period.periodType, period.year, period.month, period.from, period.to].join(':');
+
   useEffect(() => {
     orgSettings.get().then(setSettings).catch(() => {});
   }, []);
@@ -43,7 +45,10 @@ export default function ReportsPage() {
     setExporting(true);
     try {
       const type = tab === 'pl' ? 'pl' : tab === 'sales' ? 'sales' : 'fees';
-      await downloadExport(type, { year });
+      const params = tab === 'pl'
+        ? periodToParams(period)
+        : periodToDateRange(period);
+      await downloadExport(type, params);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'فشل التصدير');
     } finally {
@@ -57,15 +62,16 @@ export default function ReportsPage() {
   useEffect(() => {
     setLoading(true);
     setError('');
+    const dateRange = periodToDateRange(period);
     const load =
-      tab === 'pl'    ? () => api.pl(year).then(r => setPlRows(r)) :
-      tab === 'sales' ? () => api.sales({ year, sortBy }).then(r => setSalesRows(r)) :
-                        () => api.fees({ year }).then(r => { setFeesRows(r.items); setStmtFees(r.statementFees ?? EMPTY_STMT); });
+      tab === 'pl'    ? () => api.pl(periodToParams(period)).then(r => setPlRows(r)) :
+      tab === 'sales' ? () => api.sales({ ...dateRange, sortBy }).then(r => setSalesRows(r)) :
+                        () => api.fees({ ...dateRange }).then(r => { setFeesRows(r.items); setStmtFees(r.statementFees ?? EMPTY_STMT); });
 
     load()
       .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل التقرير'))
       .finally(() => setLoading(false));
-  }, [tab, year, sortBy]);
+  }, [tab, periodKey, sortBy]);
 
   const plTotals = plRows.reduce(
     (a, r) => ({
@@ -93,22 +99,20 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-slate-900">التقارير</h1>
-        <div className="flex items-center gap-2">
-          <select className="input w-28 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
-            {[YEAR, YEAR - 1, YEAR - 2].map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <button
-            onClick={handleExport}
-            disabled={exporting || loading}
-            className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
-          >
-            <Download size={14} />
-            {exporting ? 'جارٍ…' : 'تصدير Excel'}
-          </button>
-        </div>
+        <button
+          onClick={handleExport}
+          disabled={exporting || loading}
+          className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
+        >
+          <Download size={14} />
+          {exporting ? 'جارٍ…' : 'تصدير Excel'}
+        </button>
       </div>
+
+      {/* Period filter */}
+      <FinancialPeriodFilter value={period} onChange={setPeriod} className="mb-6" />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-slate-100 p-1 rounded-xl w-fit">
@@ -278,7 +282,7 @@ export default function ReportsPage() {
             <table className="w-full">
               <thead>
                 <tr>
-                  {['SKU', 'الاسم', 'الماركة', 'الوحدات', 'الإيرادات', 'الرسوم', 'التكلفة', 'الربح'].map(h => (
+                  {['كود التاجر / SKU', 'الاسم', 'الماركة', 'الوحدات', 'الإيرادات', 'الرسوم', 'التكلفة', 'الربح'].map(h => (
                     <th key={h} className="table-th">{h}</th>
                   ))}
                 </tr>
@@ -290,7 +294,10 @@ export default function ReportsPage() {
                   <tr><td colSpan={8} className="table-td text-center py-10 text-slate-400">لا توجد بيانات</td></tr>
                 ) : salesRows.map(r => (
                   <tr key={r.sku} className="hover:bg-slate-50">
-                    <td className="table-td font-mono text-xs">{r.sku}</td>
+                    <td className="table-td">
+                      {r.partnerSku && <div className="font-mono text-xs font-semibold text-brand-700">{r.partnerSku}</div>}
+                      <div className="font-mono text-xs text-slate-500">{r.sku}</div>
+                    </td>
                     <td className="table-td">{r.name || '—'}</td>
                     <td className="table-td">{r.brand || '—'}</td>
                     <td className="table-td">{r.units.toLocaleString('ar-SA')}</td>
@@ -329,7 +336,7 @@ export default function ReportsPage() {
             <table className="w-full">
               <thead>
                 <tr>
-                  {['SKU', 'الماركة', 'الوحدات', 'الإيرادات', 'عمولة نون', 'رسوم FBN', 'إجمالي الرسوم', 'نسبة الرسوم'].map(h => (
+                  {['كود التاجر / SKU', 'الماركة', 'الوحدات', 'الإيرادات', 'عمولة نون', 'رسوم FBN', 'إجمالي الرسوم', 'نسبة الرسوم'].map(h => (
                     <th key={h} className="table-th">{h}</th>
                   ))}
                 </tr>
@@ -341,7 +348,10 @@ export default function ReportsPage() {
                   <tr><td colSpan={8} className="table-td text-center py-10 text-slate-400">لا توجد بيانات</td></tr>
                 ) : feesRows.map(r => (
                   <tr key={r.sku} className="hover:bg-slate-50">
-                    <td className="table-td font-mono text-xs">{r.sku}</td>
+                    <td className="table-td">
+                      {r.partnerSku && <div className="font-mono text-xs font-semibold text-brand-700">{r.partnerSku}</div>}
+                      <div className="font-mono text-xs text-slate-500">{r.sku}</div>
+                    </td>
                     <td className="table-td">{r.brand || '—'}</td>
                     <td className="table-td">{r.units.toLocaleString('ar-SA')}</td>
                     <td className="table-td text-emerald-600">{fmt0(r.revenue)}</td>

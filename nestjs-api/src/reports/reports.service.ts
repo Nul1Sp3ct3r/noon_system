@@ -20,9 +20,8 @@ export class ReportsService {
   // Delegates all financial calculations to FinancialSummaryService.
   // Maps MonthlyFinancialSummary → PlRow for backward-compatible API response.
 
-  async getPl(orgId: number, query: ReportRangeDto) {
-    const year = query.year ?? new Date().getFullYear();
-    const rows = await this.financial.getMonthlySummaries(orgId, year);
+  async getPl(orgId: number, from: Date, to: Date) {
+    const rows = await this.financial.getMonthlySummaries(orgId, from, to);
 
     return rows.map(r => ({
       month:              r.month,
@@ -279,13 +278,9 @@ export class ReportsService {
   // ── Dashboard data ─────────────────────────────────────────────────────────
   // year defaults to current calendar year so KPIs match the Reports P&L page exactly.
 
-  async getDashboardData(orgId: number, year?: number) {
-    const y    = year ?? new Date().getFullYear();
-    const from = new Date(`${y}-01-01T00:00:00Z`);
-    const to   = new Date(`${y + 1}-01-01T00:00:00Z`);
-
+  async getDashboardData(orgId: number, from: Date, to: Date, periodLabel: string) {
     const [financials, daily, topProductsRaw] = await Promise.all([
-      this.financial.getSummary(orgId, { year: y }),
+      this.financial.getSummary(orgId, { from, to }),
       // Daily revenue chart — scoped to the selected year
       this.prisma.$queryRaw<{ date: string; revenue: number }[]>`
         SELECT
@@ -322,7 +317,8 @@ export class ReportsService {
     const topProdMap = new Map(topProds.map(p => [p.sku, p]));
 
     return {
-      year: y,
+      year: from.getUTCFullYear(),
+      period: periodLabel,
       summary: {
         revenue:           financials.netSales,
         grossSales:        financials.grossSales,

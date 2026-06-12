@@ -5,34 +5,35 @@ import { AlertCircle, Download, Info } from 'lucide-react';
 import { vatCenter as api, downloadExport } from '@/lib/api';
 import { translateError } from '@/lib/errors';
 import type { VatRow } from '@/lib/types';
-
-const YEAR = new Date().getFullYear();
+import { FinancialPeriodFilter, usePeriodFilter, periodToParams } from '@/components/ui/financial-period-filter';
 
 export default function VatCenterPage() {
+  const [period, setPeriod] = usePeriodFilter();
   const [rows, setRows]       = useState<VatRow[]>([]);
-  const [year, setYear]       = useState(YEAR);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const [exporting, setExporting] = useState(false);
   const [showTip, setShowTip]     = useState(false);
 
+  const periodKey = [period.periodType, period.year, period.month, period.from, period.to].join(':');
+
   useEffect(() => {
     setLoading(true);
     setError('');
-    api.breakdown(year)
+    api.breakdown(periodToParams(period))
       .then(d => setRows(d.months))
       .catch(err => setError(translateError(err, 'فشل تحميل بيانات الضريبة')))
       .finally(() => setLoading(false));
-  }, [year]);
+  }, [periodKey]);
 
   const fmt = (n: number) => n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const totals = rows.reduce(
     (a, r) => ({
-      outputVat:       a.outputVat       + r.outputVat,
-      inputVatNoon:    a.inputVatNoon    + r.inputVatNoon,
+      outputVat:        a.outputVat       + r.outputVat,
+      inputVatNoon:     a.inputVatNoon    + r.inputVatNoon,
       inputVatSupplier: a.inputVatSupplier + r.inputVatSupplier,
-      netVat:          a.netVat          + r.netVat,
+      netVat:           a.netVat          + r.netVat,
     }),
     { outputVat: 0, inputVatNoon: 0, inputVatSupplier: 0, netVat: 0 },
   );
@@ -42,32 +43,30 @@ export default function VatCenterPage() {
   return (
     <div>
       {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">مركز ضريبة القيمة المضافة</h1>
           <p className="text-sm text-slate-500 mt-1">
             المستحق للهيئة = ضريبة المخرجات − ضريبة مدخلات نون − ضريبة مدخلات الموردين
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <select className="input w-28 text-sm" value={year} onChange={e => setYear(Number(e.target.value))}>
-            {[YEAR, YEAR - 1, YEAR - 2].map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <button
-            onClick={async () => {
-              setExporting(true);
-              try { await downloadExport('vat', { year }); }
-              catch (e) { setError(translateError(e)); }
-              finally { setExporting(false); }
-            }}
-            disabled={exporting || loading}
-            className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
-          >
-            <Download size={14} />
-            {exporting ? 'جارٍ…' : 'تصدير Excel'}
-          </button>
-        </div>
+        <button
+          onClick={async () => {
+            setExporting(true);
+            try { await downloadExport('vat', periodToParams(period)); }
+            catch (e) { setError(translateError(e)); }
+            finally { setExporting(false); }
+          }}
+          disabled={exporting || loading}
+          className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
+        >
+          <Download size={14} />
+          {exporting ? 'جارٍ…' : 'تصدير Excel'}
+        </button>
       </div>
+
+      {/* Period filter */}
+      <FinancialPeriodFilter value={period} onChange={setPeriod} className="mb-6" />
 
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
@@ -78,32 +77,27 @@ export default function VatCenterPage() {
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {/* Output VAT */}
         <div className="card p-4">
           <p className="text-xs text-slate-500 font-medium">ضريبة المخرجات</p>
           <p className="text-xl font-bold mt-1 text-red-600">{fmt(totals.outputVat)} ر.س</p>
           <p className="text-[10px] text-slate-400 mt-1">على مبيعاتك لنون</p>
         </div>
 
-        {/* Noon input VAT */}
         <div className="card p-4">
           <p className="text-xs text-slate-500 font-medium">ضريبة مدخلات نون</p>
           <p className="text-xl font-bold mt-1 text-emerald-600">{fmt(totals.inputVatNoon)} ر.س</p>
           <p className="text-[10px] text-slate-400 mt-1">VAT على رسوم نون</p>
         </div>
 
-        {/* Supplier input VAT */}
         <div className="card p-4">
           <p className="text-xs text-slate-500 font-medium">ضريبة مدخلات الموردين</p>
           <p className="text-xl font-bold mt-1 text-emerald-600">{fmt(totals.inputVatSupplier)} ر.س</p>
           <p className="text-[10px] text-slate-400 mt-1">VAT على فواتير الشراء</p>
         </div>
 
-        {/* MAIN CARD — المستحق للهيئة */}
         <div className={`card p-4 border-2 ${isPayable ? 'border-orange-300 bg-orange-50' : 'border-emerald-300 bg-emerald-50'}`}>
           <div className="flex items-start justify-between">
             <p className="text-xs font-semibold text-slate-700">المستحق للهيئة</p>
-            {/* Tooltip trigger */}
             <div className="relative">
               <button
                 onClick={() => setShowTip(v => !v)}
@@ -122,16 +116,12 @@ export default function VatCenterPage() {
               )}
             </div>
           </div>
-
           <p className="text-xs text-slate-500 mt-0.5">ضريبة المخرجات − ضريبة المدخلات القابلة للاسترداد</p>
           <p className={`text-2xl font-bold mt-2 ${isPayable ? 'text-orange-700' : 'text-emerald-700'}`}>
             {fmt(totals.netVat)} ر.س
           </p>
-
           <span className={`inline-block mt-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-            isPayable
-              ? 'bg-orange-200 text-orange-800'
-              : 'bg-emerald-200 text-emerald-800'
+            isPayable ? 'bg-orange-200 text-orange-800' : 'bg-emerald-200 text-emerald-800'
           }`}>
             {isPayable ? 'مستحق دفعه للهيئة' : 'رصيد ضريبي قابل للترحيل/الاسترداد'}
           </span>
@@ -143,20 +133,10 @@ export default function VatCenterPage() {
         <table className="w-full">
           <thead>
             <tr>
-              {[
-                'الشهر',
-                'المبيعات شاملة الضريبة',
-                'ضريبة المخرجات',
-                'رسوم نون (ق.ض.)',
-                'ضريبة مدخلات نون',
-                'فواتير الموردين (ق.ض.)',
-                'ضريبة مدخلات الموردين',
-                'المستحق للهيئة',
-              ].map(h => (
+              {['الشهر','المبيعات شاملة الضريبة','ضريبة المخرجات','رسوم نون (ق.ض.)','ضريبة مدخلات نون','فواتير الموردين (ق.ض.)','ضريبة مدخلات الموردين','المستحق للهيئة'].map(h => (
                 <th key={h} className="table-th">{h}</th>
               ))}
             </tr>
-            {/* Formula row */}
             <tr className="bg-slate-100 border-t border-slate-200">
               <td className="table-td text-xs text-slate-400 font-medium" colSpan={2}>المعادلة</td>
               <td className="table-td text-xs text-red-500 font-semibold">ضريبة المخرجات</td>
@@ -171,7 +151,7 @@ export default function VatCenterPage() {
             {loading ? (
               <tr><td colSpan={8} className="table-td text-center py-10 text-slate-400">جارٍ التحميل…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={8} className="table-td text-center py-10 text-slate-400">لا توجد بيانات لهذه السنة</td></tr>
+              <tr><td colSpan={8} className="table-td text-center py-10 text-slate-400">لا توجد بيانات للفترة المحددة</td></tr>
             ) : rows.map(r => (
               <tr key={r.month} className="hover:bg-slate-50">
                 <td className="table-td font-medium">{r.month}</td>
@@ -179,9 +159,7 @@ export default function VatCenterPage() {
                 <td className="table-td text-red-600 font-medium">{fmt(r.outputVat)}</td>
                 <td className="table-td text-slate-500">{fmt(r.noonFeesExcl)}</td>
                 <td className="table-td text-emerald-600">{fmt(r.inputVatNoon)}</td>
-                <td className="table-td text-slate-500">
-                  {r.inputVatSupplier > 0 ? fmt(r.inputVatSupplier / 1.15 * 1.15) : '—'}
-                </td>
+                <td className="table-td text-slate-500">{r.inputVatSupplier > 0 ? fmt(r.inputVatSupplier / 1.15 * 1.15) : '—'}</td>
                 <td className="table-td text-emerald-600">{fmt(r.inputVatSupplier)}</td>
                 <td className={`table-td font-bold ${r.netVat >= 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
                   {fmt(r.netVat)}
@@ -193,7 +171,6 @@ export default function VatCenterPage() {
               </tr>
             ))}
           </tbody>
-          {/* Totals row */}
           {!loading && rows.length > 1 && (
             <tfoot>
               <tr className="bg-slate-50 border-t-2 border-slate-200 font-semibold">
@@ -204,9 +181,7 @@ export default function VatCenterPage() {
                 <td className="table-td text-emerald-600">{fmt(totals.inputVatNoon)}</td>
                 <td className="table-td">—</td>
                 <td className="table-td text-emerald-600">{fmt(totals.inputVatSupplier)}</td>
-                <td className={`table-td text-lg ${isPayable ? 'text-orange-600' : 'text-emerald-600'}`}>
-                  {fmt(totals.netVat)}
-                </td>
+                <td className={`table-td text-lg ${isPayable ? 'text-orange-600' : 'text-emerald-600'}`}>{fmt(totals.netVat)}</td>
               </tr>
             </tfoot>
           )}

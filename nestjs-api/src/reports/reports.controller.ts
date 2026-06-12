@@ -2,7 +2,9 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
-import { ReportRangeDto, SalesReportDto, FeesReportDto } from './dto/report-query.dto';
+import { SalesReportDto, FeesReportDto, ReportRangeDto } from './dto/report-query.dto';
+import { PeriodQueryDto } from '../financial/dto/period-query.dto';
+import { resolveFinancialPeriod, periodBounds } from '../common/period.helper';
 
 @ApiTags('reports')
 @ApiBearerAuth()
@@ -11,9 +13,11 @@ export class ReportsController {
   constructor(private reports: ReportsService) {}
 
   @Get('pl')
-  @ApiOperation({ summary: 'Monthly P&L report' })
-  getPl(@Query() query: ReportRangeDto, @CurrentUser() user: JwtPayload) {
-    return this.reports.getPl(user.orgId, query);
+  @ApiOperation({ summary: 'Monthly P&L report — supports periodType/year/month/from/to' })
+  getPl(@Query() query: PeriodQueryDto, @CurrentUser() user: JwtPayload) {
+    const period        = resolveFinancialPeriod(query);
+    const { from, to }  = periodBounds(period);
+    return this.reports.getPl(user.orgId, from, to);
   }
 
   @Get('sales')
@@ -41,9 +45,10 @@ export class ReportsController {
   }
 
   @Get('dashboard')
-  @ApiOperation({ summary: 'Dashboard summary + chart data (defaults to current year)' })
-  getDashboard(@Query('year') yearStr: string, @CurrentUser() user: JwtPayload) {
-    const year = yearStr ? parseInt(yearStr, 10) : undefined;
-    return this.reports.getDashboardData(user.orgId, year);
+  @ApiOperation({ summary: 'Dashboard summary + chart data — supports periodType/year/month/from/to' })
+  getDashboard(@Query() query: PeriodQueryDto, @CurrentUser() user: JwtPayload) {
+    const period        = resolveFinancialPeriod(query);
+    const { from, to }  = periodBounds(period);
+    return this.reports.getDashboardData(user.orgId, from, to, period.label);
   }
 }

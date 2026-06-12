@@ -5,6 +5,7 @@ import { AlertCircle, Download } from 'lucide-react';
 import { profitability as api, downloadExport } from '@/lib/api';
 import type { ProfitabilityRow, StatementFeeSummary } from '@/lib/types';
 import { Badge, profitBadge } from '@/components/ui/badge';
+import { FinancialPeriodFilter, usePeriodFilter, periodToParams } from '@/components/ui/financial-period-filter';
 
 const FEE_CAT_LABELS: Record<string, string> = {
   referralFee:    'عمولة نون',
@@ -20,30 +21,34 @@ const FEE_CAT_LABELS: Record<string, string> = {
 const EMPTY_STMT: StatementFeeSummary = { total: 0, totalExclVat: 0, totalVat: 0, byCategory: {}, rows: [] };
 
 export default function ProfitabilityPage() {
+  const [period, setPeriod] = usePeriodFilter();
   const [rows, setRows]             = useState<ProfitabilityRow[]>([]);
   const [stmtFees, setStmtFees]     = useState<StatementFeeSummary>(EMPTY_STMT);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
 
+  const periodKey = [period.periodType, period.year, period.month, period.from, period.to].join(':');
+
   useEffect(() => {
-    api.list()
+    setLoading(true);
+    api.list(periodToParams(period))
       .then(r => { setRows(r.rows); setStmtFees(r.statementFees ?? EMPTY_STMT); })
       .catch(err => setError(err instanceof Error ? err.message : 'فشل تحميل بيانات الربحية'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [periodKey]);
 
   const fmt  = (n: number) => n.toFixed(2);
   const fmtN = (n: number) => n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">تحليل الربحية</h1>
           <p className="text-slate-500 text-sm mt-1">ربحية لكل SKU · مرتبة تنازلياً حسب الربح للوحدة</p>
         </div>
         <button
-          onClick={async () => { try { await downloadExport('profitability'); } catch(e) { setError(String(e)); } }}
+          onClick={async () => { try { await downloadExport('profitability', periodToParams(period)); } catch(e) { setError(String(e)); } }}
           disabled={loading}
           className="btn-ghost flex items-center gap-1.5 text-sm border border-slate-200"
         >
@@ -51,6 +56,9 @@ export default function ProfitabilityPage() {
           تصدير Excel
         </button>
       </div>
+
+      {/* Period filter */}
+      <FinancialPeriodFilter value={period} onChange={setPeriod} className="mb-6" />
 
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
@@ -63,7 +71,7 @@ export default function ProfitabilityPage() {
         <table className="w-full">
           <thead>
             <tr>
-              {['SKU', 'الاسم', 'الوحدات', 'الإيرادات', 'الرسوم', 'تكلفة البضاعة', 'الربح', 'الربح / وحدة', 'التصنيف'].map(h => (
+              {['كود التاجر / SKU', 'الاسم', 'الوحدات', 'الإيرادات', 'الرسوم', 'تكلفة البضاعة', 'الربح', 'الربح / وحدة', 'التصنيف'].map(h => (
                 <th key={h} className="table-th">{h}</th>
               ))}
             </tr>
@@ -77,7 +85,10 @@ export default function ProfitabilityPage() {
               const { label, variant } = profitBadge(r.badge);
               return (
                 <tr key={r.sku} className="hover:bg-slate-50">
-                  <td className="table-td font-mono text-xs">{r.sku}</td>
+                  <td className="table-td">
+                    {r.partnerSku && <div className="font-mono text-xs font-semibold text-brand-700">{r.partnerSku}</div>}
+                    <div className="font-mono text-xs text-slate-500">{r.sku}</div>
+                  </td>
                   <td className="table-td">{r.nameEn ?? '—'}</td>
                   <td className="table-td">{r.units}</td>
                   <td className="table-td">{fmt(r.revenue)}</td>

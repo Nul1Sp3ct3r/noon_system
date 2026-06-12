@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FinancialSummaryService } from '../financial/financial.service';
-import { VatQueryDto } from './dto/vat-query.dto';
 
 @Injectable()
 export class VatCenterService {
@@ -10,16 +9,11 @@ export class VatCenterService {
     private financial: FinancialSummaryService,
   ) {}
 
-  async getVatBreakdown(orgId: number, query: VatQueryDto) {
-    const year = query.year ?? new Date().getFullYear();
-
+  async getVatBreakdown(orgId: number, from: Date, to: Date) {
     // Core VAT metrics come from FinancialSummaryService — guaranteed consistent with all pages
-    const monthlySummaries = await this.financial.getMonthlySummaries(orgId, year);
+    const monthlySummaries = await this.financial.getMonthlySummaries(orgId, from, to);
 
     // Supplier invoice subtotals are detail data not held in FinancialSummaryService — fetch separately
-    const from = new Date(`${year}-01-01T00:00:00Z`);
-    const to   = new Date(`${year + 1}-01-01T00:00:00Z`);
-
     const invoiceItems = await this.prisma.invoiceItem.findMany({
       where: {
         invoice: {
@@ -52,6 +46,6 @@ export class VatCenterService {
       netVat:              r.vatPayable,
     }));
 
-    return { year, months };
+    return { months };
   }
 }

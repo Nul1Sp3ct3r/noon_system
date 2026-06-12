@@ -27,10 +27,9 @@ export class StatementsService {
   // ─── KPI dashboard cards ──────────────────────────────────────────────────
   // Financial totals come from FinancialSummaryService filtered by year — consistent with Reports & VAT Center.
 
-  async getKpis(orgId: number, year?: number) {
-    const y       = year ?? new Date().getFullYear();
-    const fromStr = `${y}-01-01`;
-    const toStr   = `${y}-12-31`;
+  async getKpis(orgId: number, from: Date, to: Date) {
+    const fromStr = from.toISOString().slice(0, 10);
+    const toStr   = new Date(to.getTime() - 1).toISOString().slice(0, 10);
 
     const [stmtCounts, financials] = await Promise.all([
       this.prisma.noonStatementSummary.groupBy({
@@ -38,7 +37,7 @@ export class StatementsService {
         where: { organizationId: orgId, statementDate: { gte: fromStr, lte: toStr } },
         _count: { _all: true },
       }),
-      this.financial.getSummary(orgId, { year: y }),
+      this.financial.getSummary(orgId, { from, to }),
     ]);
 
     const total       = stmtCounts.reduce((a, r) => a + r._count._all, 0);
@@ -46,7 +45,6 @@ export class StatementsService {
     const needsReview = stmtCounts.find(r => r.status === 'review')?._count._all   ?? 0;
 
     return {
-      year,
       totalStatements:    total,
       matchedStatements:  matched,
       reviewStatements:   needsReview,

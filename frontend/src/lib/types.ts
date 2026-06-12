@@ -823,6 +823,18 @@ export interface ExpenseStats {
   monthlyAverage: number;
 }
 
+// ─── Period Filter ────────────────────────────────────────────────────────────
+
+export type PeriodType = 'all' | 'year' | 'month' | 'custom';
+
+export interface PeriodFilter {
+  periodType: PeriodType;
+  year?:  number;
+  month?: number;  // 1–12
+  from?:  string;  // YYYY-MM-DD
+  to?:    string;  // YYYY-MM-DD
+}
+
 // ─── Unified Financial Engine ─────────────────────────────────────────────────
 // Single source of truth — all pages consume this instead of calculating independently.
 

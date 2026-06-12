@@ -10,6 +10,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { statements as api } from '@/lib/api';
 import type { StatementRow, StatementKpis } from '@/lib/types';
+import { FinancialPeriodFilter, usePeriodFilter, periodToParams } from '@/components/ui/financial-period-filter';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,16 +91,14 @@ function KpiCard({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const CURRENT_YEAR = new Date().getFullYear();
-
 export default function StatementsPage() {
+  const [kpiPeriod, setKpiPeriod] = usePeriodFilter();
   const [kpis, setKpis]       = useState<StatementKpis | null>(null);
   const [rows, setRows]       = useState<StatementRow[]>([]);
   const [vatReg, setVatReg]   = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [kpiYear, setKpiYear] = useState(CURRENT_YEAR);
 
   // Filters
   const [search, setSearch]     = useState('');
@@ -108,12 +107,14 @@ export default function StatementsPage() {
   const [endDate, setEnd]       = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
+  const kpiPeriodKey = [kpiPeriod.periodType, kpiPeriod.year, kpiPeriod.month, kpiPeriod.from, kpiPeriod.to].join(':');
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const [k, data] = await Promise.all([
-        api.kpis(kpiYear),
+        api.kpis(periodToParams(kpiPeriod)),
         api.list({ search: search || undefined, status: status || undefined, startDate: startDate || undefined, endDate: endDate || undefined }),
       ]);
       setKpis(k);
@@ -124,7 +125,7 @@ export default function StatementsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, status, startDate, endDate, kpiYear]);
+  }, [search, status, startDate, endDate, kpiPeriodKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -160,16 +161,8 @@ export default function StatementsPage() {
         </button>
       </div>
 
-      {/* ── KPI year selector ── */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500 font-medium">مؤشرات عام:</span>
-        <div className="flex items-center gap-1 border border-slate-200 rounded-lg px-2 py-1">
-          <button onClick={() => setKpiYear(y => y - 1)} className="text-slate-400 hover:text-slate-700 text-xs px-1">‹</button>
-          <span className="text-xs font-semibold text-slate-700 tabular-nums w-10 text-center">{kpiYear}</span>
-          <button onClick={() => setKpiYear(y => Math.min(y + 1, CURRENT_YEAR))} disabled={kpiYear >= CURRENT_YEAR} className="text-slate-400 hover:text-slate-700 text-xs px-1 disabled:opacity-30">›</button>
-        </div>
-        <span className="text-[10px] text-slate-400">(يجب أن تطابق أرقام صفحة التقارير لنفس العام)</span>
-      </div>
+      {/* ── KPI period filter ── */}
+      <FinancialPeriodFilter value={kpiPeriod} onChange={setKpiPeriod} />
 
       {/* ── KPI cards ── */}
       {kpis && (

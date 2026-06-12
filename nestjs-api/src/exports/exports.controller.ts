@@ -13,6 +13,8 @@ import { ProfitabilityService } from '../profitability/profitability.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { ReportRangeDto, SalesReportDto, FeesReportDto } from '../reports/dto/report-query.dto';
+import { PeriodQueryDto } from '../financial/dto/period-query.dto';
+import { resolveFinancialPeriod, periodBounds } from '../common/period.helper';
 
 const BADGE_AR: Record<string, string> = {
   profitable: 'مربح',
@@ -59,11 +61,13 @@ export class ExportsController {
 
   @Get('pl')
   async exportPl(
-    @Query() query: ReportRangeDto,
+    @Query() query: PeriodQueryDto,
     @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
-    const rows = await this.reports.getPl(user.orgId, query);
+    const period        = resolveFinancialPeriod(query);
+    const { from, to }  = periodBounds(period);
+    const rows = await this.reports.getPl(user.orgId, from, to);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('الأرباح والخسائر');
     ws.views = [{ rightToLeft: true }];
@@ -72,7 +76,7 @@ export class ExportsController {
       ws.addRow([r.month, r.revenue, r.referralFees, r.fbnFees, r.stmtFees, r.totalFees, r.cogs, 0, r.grossProfit, r.netProfit]);
     }
     ws.columns.forEach(c => { c.width = 16; });
-    return sendXlsx(res, wb, `pl_${query.year ?? 'all'}.xlsx`);
+    return sendXlsx(res, wb, `pl_${period.label.replace(/\s+/g, '_')}.xlsx`);
   }
 
   @Get('sales')
@@ -113,12 +117,13 @@ export class ExportsController {
 
   @Get('vat')
   async exportVat(
-    @Query('year') yearStr: string,
+    @Query() query: PeriodQueryDto,
     @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
-    const year = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
-    const { months } = await this.vatCenter.getVatBreakdown(user.orgId, { year });
+    const period        = resolveFinancialPeriod(query);
+    const { from, to }  = periodBounds(period);
+    const { months } = await this.vatCenter.getVatBreakdown(user.orgId, from, to);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('ضريبة القيمة المضافة');
     ws.views = [{ rightToLeft: true }];
@@ -127,7 +132,7 @@ export class ExportsController {
       ws.addRow([r.month, r.salesInclVat, r.outputVat, r.noonFeesExcl, r.inputVatNoon, r.supplierInvoiceExcl, r.inputVatSupplier, r.stmtFeeVat, r.netVat]);
     }
     ws.columns.forEach(c => { c.width = 22; });
-    return sendXlsx(res, wb, `vat_${year}.xlsx`);
+    return sendXlsx(res, wb, `vat_${period.label.replace(/\s+/g, '_')}.xlsx`);
   }
 
   @Get('settlements')
