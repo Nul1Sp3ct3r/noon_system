@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion, FinancialSummary, MonthlyFinancialSummary, ReconciliationResult, PeriodFilter } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion, FinancialSummary, MonthlyFinancialSummary, ReconciliationResult, PeriodFilter, PriceUpdatePreview, PriceUpdateResult } from './types';
 import { translateError } from './errors';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
@@ -308,6 +308,52 @@ export const imports = {
   statementSummaries: (batchId: string) =>
     http<{ batchId: string; fileName: string | null; importedAt: string; statements: NoonStatementSummary[] }>(
       `/api/v1/imports/batches/${batchId}/statements`,
+    ),
+
+  priceUpdatePreview: (
+    file: File,
+    onProgress?: (pct: number) => void,
+  ): Promise<PriceUpdatePreview> =>
+    new Promise((resolve, reject) => {
+      const token = Cookies.get('token');
+      const fd  = new FormData();
+      fd.append('file', file);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE}/api/v1/imports/price-update/preview`);
+      xhr.timeout = 60_000;
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); }
+          catch { reject(new Error('استجابة غير صالحة من الخادم')); }
+        } else {
+          let msg = `خطأ HTTP ${xhr.status}`;
+          try { const b = JSON.parse(xhr.responseText); msg = extractMsg(b, msg); } catch { /* keep default */ }
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror   = () => reject(new Error('فشل الاتصال بالخادم'));
+      xhr.ontimeout = () => reject(new Error('انتهت مهلة رفع الملف'));
+      xhr.send(fd);
+    }),
+
+  priceUpdateApply: (
+    rows: { productId: number; sku: string; partnerSku?: string | null; newCost: number }[],
+    costIncludesVat: boolean,
+    fileName?: string,
+  ): Promise<PriceUpdateResult> =>
+    http<PriceUpdateResult>('/api/v1/imports/price-update/apply', {
+      method: 'POST',
+      body:   JSON.stringify({ rows, costIncludesVat, fileName }),
+    }),
+
+  priceUpdateBatch: (batchId: string) =>
+    http<{ batchId: string; fileName: string | null; importedAt: string; updatedCount: number; rows: { id: number; sku: string; partnerSku: string | null; oldCost: number | null; newCost: number; costIncludesVat: boolean; createdAt: string }[] }>(
+      `/api/v1/imports/price-update/batches/${batchId}`,
     ),
 };
 

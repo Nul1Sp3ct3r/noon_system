@@ -341,6 +341,29 @@ export interface ImportResult {
   statementSummaries?: NoonStatementSummary[];
 }
 
+export interface PriceUpdatePreviewRow {
+  sku:        string;
+  partnerSku: string | null;
+  productId:  number | null;
+  oldCost:    number | null;
+  newCost:    number | null;
+  rawPrice:   string;
+  status:     'found' | 'not_found' | 'invalid';
+}
+
+export interface PriceUpdatePreview {
+  rows:          PriceUpdatePreviewRow[];
+  updatedCount:  number;
+  notFoundCount: number;
+  invalidCount:  number;
+  fileName:      string;
+}
+
+export interface PriceUpdateResult {
+  batchId:      string;
+  updatedCount: number;
+}
+
 export interface ImportBatch {
   id: number;
   batchId: string;

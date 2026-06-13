@@ -4,16 +4,16 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Upload, AlertCircle, CheckCircle2, Trash2, RefreshCw,
   AlertTriangle, ShoppingCart, Calendar, Package,
-  ChevronDown, ChevronUp, Clock, BarChart2, X, FileText,
+  ChevronDown, ChevronUp, Clock, BarChart2, X, FileText, Tag,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { imports as api } from '@/lib/api';
 import { translateError } from '@/lib/errors';
-import type { ImportBatch, ImportResult, NoonStatementSummary, ReconciliationReport } from '@/lib/types';
+import type { ImportBatch, ImportResult, NoonStatementSummary, ReconciliationReport, PriceUpdatePreview, PriceUpdateResult } from '@/lib/types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-type ImportTypeId   = 'weekly' | 'monthly' | 'inventory' | 'transaction_view';
+type ImportTypeId   = 'weekly' | 'monthly' | 'inventory' | 'transaction_view' | 'price_update';
 type HistoryFilter  = 'all' | '7days' | '30days' | 'success' | 'failed';
 
 interface ImportTypeDef {
@@ -120,6 +120,22 @@ const IMPORT_TYPES: ImportTypeDef[] = [
     signature:    ['reference_nr', 'total'],
     historyTypes: ['transaction_view'],
   },
+  {
+    id:           'price_update',
+    importType:   'product_price_update',
+    label:        'تحديث أسعار المنتجات',
+    desc:         'رفع ملف CSV لتحديث تكلفة المنتجات بناءً على الـ SKU دون إنشاء منتجات جديدة.',
+    filename:     'price_update.csv',
+    icon:         Tag,
+    iconBg:       'bg-rose-100',
+    iconColor:    'text-rose-600',
+    activeBorder: 'border-rose-500',
+    activeBg:     'bg-rose-50',
+    primaryCols:  ['Row Labels', 'Sum of Price'],
+    allCols:      ['Row Labels', 'Sum of Price', 'SKU', 'Partner SKU', 'Price', 'Cost'],
+    signature:    [],
+    historyTypes: ['product_price_update'],
+  },
 ];
 
 const UPLOAD_STAGES = [
@@ -178,6 +194,11 @@ export default function ImportPage() {
   const [reconLoading, setReconLoading] = useState(false);
   const [reconError, setReconError]     = useState('');
 
+  // Price update flow
+  const [costIncludesVat, setCostIncludesVat] = useState(false);
+  const [pricePreview, setPricePreview]       = useState<PriceUpdatePreview | null>(null);
+  const [priceResult, setPriceResult]         = useState<PriceUpdateResult | null>(null);
+
   // Statement summary expanded rows
   const [expandedStmt, setExpandedStmt] = useState<Set<string>>(new Set());
 
@@ -231,6 +252,8 @@ export default function ImportPage() {
     setPendingFile(null);
     setMismatchId(null);
     setHistoryFilter('all');
+    setPricePreview(null);
+    setPriceResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -276,6 +299,14 @@ export default function ImportPage() {
     }
     setUploadError('');
     setUploadResult(null);
+    setPricePreview(null);
+    setPriceResult(null);
+
+    // Price update has its own two-step flow
+    if (selectedId === 'price_update') {
+      await handlePriceUpdatePreview(file);
+      return;
+    }
 
     // Client-side type detection from CSV headers
     try {
@@ -290,6 +321,50 @@ export default function ImportPage() {
     } catch { /* proceed without detection if text read fails */ }
 
     processFile(file, selectedId);
+  }
+
+  async function handlePriceUpdatePreview(file: File) {
+    setUploading(true);
+    setProgress(0);
+    setUploadError('');
+    startTimeRef.current = Date.now();
+    setUploadDuration(null);
+    try {
+      const result = await api.priceUpdatePreview(file, pct => setProgress(pct));
+      setUploadDuration(parseFloat(((Date.now() - (startTimeRef.current ?? Date.now())) / 1000).toFixed(1)));
+      setPricePreview(result);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : 'فشل تحليل الملف';
+      const isPermission = raw === 'Insufficient role' || raw.includes('403');
+      setUploadError(isPermission ? 'لا تملك صلاحية تحديث الأسعار. تواصل مع مدير النظام.' : raw);
+    } finally {
+      setUploading(false);
+      setProgress(0);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function handlePriceUpdateApply() {
+    if (!pricePreview) return;
+    const foundRows = pricePreview.rows.filter(r => r.status === 'found' && r.newCost !== null);
+    if (!foundRows.length) return;
+
+    setUploading(true);
+    setUploadError('');
+    try {
+      const result = await api.priceUpdateApply(
+        foundRows.map(r => ({ productId: r.productId!, sku: r.sku, partnerSku: r.partnerSku, newCost: r.newCost! })),
+        costIncludesVat,
+        pricePreview.fileName,
+      );
+      setPriceResult(result);
+      setPricePreview(null);
+      loadBatches();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'فشل تحديث الأسعار');
+    } finally {
+      setUploading(false);
+    }
   }
 
   function handleMismatchConvert() {
@@ -392,8 +467,10 @@ export default function ImportPage() {
                 </div>
                 {isSelected && (
                   <span className={`w-2 h-2 rounded-full shrink-0 mt-2 ${
-                    type.id === 'weekly' ? 'bg-blue-500'
-                    : type.id === 'monthly' ? 'bg-violet-500'
+                    type.id === 'weekly'           ? 'bg-blue-500'
+                    : type.id === 'monthly'        ? 'bg-violet-500'
+                    : type.id === 'transaction_view' ? 'bg-orange-500'
+                    : type.id === 'price_update'   ? 'bg-rose-500'
                     : 'bg-emerald-500'
                   }`} />
                 )}
@@ -460,6 +537,151 @@ export default function ImportPage() {
         </div>
 
         <div className="p-5 space-y-3">
+
+          {/* ── VAT option (price_update only) ── */}
+          {selectedId === 'price_update' && !pricePreview && !priceResult && (
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-rose-200 bg-rose-50 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={costIncludesVat}
+                onChange={e => setCostIncludesVat(e.target.checked)}
+                className="w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
+              />
+              <div>
+                <p className="text-sm font-semibold text-rose-800">الأسعار تشمل ضريبة القيمة المضافة</p>
+                <p className="text-xs text-rose-600 mt-0.5">إذا كانت الأسعار في الملف شاملة VAT سيتم تخزينها كـ costIncludesVat=true</p>
+              </div>
+            </label>
+          )}
+
+          {/* ── Price update preview table ── */}
+          {selectedId === 'price_update' && pricePreview && !priceResult && (
+            <div className="space-y-3">
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-700 tabular-nums">{pricePreview.updatedCount.toLocaleString('ar-SA')}</p>
+                  <p className="text-xs text-emerald-600 mt-0.5">منتج سيُحدَّث</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center">
+                  <p className="text-2xl font-bold text-slate-500 tabular-nums">{pricePreview.notFoundCount.toLocaleString('ar-SA')}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">غير موجود</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-600 tabular-nums">{pricePreview.invalidCount.toLocaleString('ar-SA')}</p>
+                  <p className="text-xs text-amber-600 mt-0.5">صفوف غير صالحة</p>
+                </div>
+              </div>
+
+              {/* VAT option */}
+              <label className="flex items-center gap-3 p-3 rounded-xl border border-rose-200 bg-rose-50 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={costIncludesVat}
+                  onChange={e => setCostIncludesVat(e.target.checked)}
+                  className="w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
+                />
+                <div>
+                  <p className="text-sm font-semibold text-rose-800">الأسعار تشمل ضريبة القيمة المضافة</p>
+                  <p className="text-xs text-rose-600 mt-0.5">سيُخزَّن costIncludesVat=true لكل منتج محدَّث</p>
+                </div>
+              </label>
+
+              {/* Confirmation button */}
+              {pricePreview.updatedCount > 0 && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-sm font-bold text-blue-800 mb-3">
+                    سيتم تحديث {pricePreview.updatedCount.toLocaleString('ar-SA')} منتج — هل تريد المتابعة؟
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handlePriceUpdateApply}
+                      disabled={uploading}
+                      className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {uploading ? 'جارٍ التحديث...' : `تأكيد تحديث ${pricePreview.updatedCount.toLocaleString('ar-SA')} منتج`}
+                    </button>
+                    <button
+                      onClick={() => { setPricePreview(null); setUploadError(''); }}
+                      disabled={uploading}
+                      className="px-4 py-2.5 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview table */}
+              <div className="overflow-x-auto rounded-lg border border-slate-200 text-xs max-h-80 overflow-y-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                    <tr>
+                      {['SKU', 'كود التاجر', 'التكلفة الحالية', 'التكلفة الجديدة', 'الحالة'].map(h => (
+                        <th key={h} className="px-3 py-2 text-right font-semibold text-slate-500 whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pricePreview.rows.map((row, i) => {
+                      const statusCls = row.status === 'found'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : row.status === 'not_found'
+                        ? 'bg-slate-100 text-slate-500'
+                        : 'bg-amber-50 text-amber-700';
+                      const statusLabel = row.status === 'found' ? 'موجود' : row.status === 'not_found' ? 'غير موجود' : 'قيمة غير صالحة';
+                      return (
+                        <tr key={i} className={`hover:bg-slate-50 ${row.status !== 'found' ? 'opacity-60' : ''}`}>
+                          <td className="px-3 py-2 font-mono text-slate-800">{row.sku}</td>
+                          <td className="px-3 py-2 text-slate-400">{row.partnerSku ?? '—'}</td>
+                          <td className="px-3 py-2 tabular-nums text-slate-500">
+                            {row.oldCost !== null ? `${row.oldCost.toFixed(4)} ر.س` : '—'}
+                          </td>
+                          <td className="px-3 py-2 tabular-nums font-semibold text-blue-700">
+                            {row.newCost !== null ? `${row.newCost.toFixed(4)} ر.س` : <span className="text-amber-600 font-mono">{row.rawPrice}</span>}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${statusCls}`}>
+                              {statusLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {uploadDuration != null && (
+                <p className="text-xs text-slate-400 flex items-center gap-1">
+                  <Clock size={10} /> تم التحليل في {uploadDuration} ثانية
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── Price update result ── */}
+          {selectedId === 'price_update' && priceResult && (
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                <span className="font-bold text-emerald-800 text-sm">تم تحديث الأسعار بنجاح</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <StatCard label="منتجات محدَّثة" value={priceResult.updatedCount} color="emerald" />
+                <div className="rounded-lg p-3 text-center border border-slate-100 bg-slate-50">
+                  <p className="text-xs text-slate-500 font-mono break-all">{priceResult.batchId}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">رقم الدفعة</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setPriceResult(null); setUploadError(''); }}
+                className="w-full py-2 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                رفع ملف آخر
+              </button>
+            </div>
+          )}
 
           {/* ── Mismatch detection banner ── */}
           {mismatchId && pendingFile && (
@@ -554,6 +776,16 @@ export default function ImportPage() {
                   <StatCard label="منتجات محدّثة"  value={uploadResult.productsUpdated ?? 0} color="blue"    />
                   <StatCard label="تسويات مخزون"   value={uploadResult.stockUpdated ?? 0}    color="violet"  />
                   <StatCard label="متخطاة"          value={uploadResult.rowsSkipped}          color="slate"   />
+                </div>
+              )}
+
+              {/* Partner SKU stats — shown for any format when partner SKUs were detected */}
+              {(uploadResult.partnerSkusDetected ?? 0) > 0 && (
+                <div className="mt-2 flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700">
+                  <span>كود التاجر: تم رصد <strong>{uploadResult.partnerSkusDetected}</strong> منتج</span>
+                  {(uploadResult.partnerSkusFilled ?? 0) > 0 && (
+                    <span className="text-blue-500">· تم تعبئة <strong>{uploadResult.partnerSkusFilled}</strong></span>
+                  )}
                 </div>
               )}
 
@@ -659,7 +891,7 @@ export default function ImportPage() {
           )}
 
           {/* ── Upload zone ── */}
-          {!mismatchId && (
+          {!mismatchId && !pricePreview && !priceResult && (
             uploading ? (
               <div className="border-2 border-dashed border-blue-200 rounded-xl p-8 text-center bg-blue-50">
                 <div className="max-w-xs mx-auto mb-4">

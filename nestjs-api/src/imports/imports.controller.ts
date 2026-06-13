@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -53,6 +54,54 @@ export class ImportsController {
       throw new BadRequestException(`importType غير مدعوم: ${importType}. القيم المسموحة: ${ALLOWED.join(', ')}`);
     }
     return this.imports.processUpload(file, user.orgId, user.sub, importType);
+  }
+
+  @Post('price-update/preview')
+  @Roles(
+    Role.super_admin, Role.platform_admin, Role.admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+      required: ['file'],
+    },
+  })
+  @ApiOperation({ summary: 'Preview product cost updates from CSV — no DB changes' })
+  priceUpdatePreview(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.imports.previewPriceUpdate(file, user.orgId);
+  }
+
+  @Post('price-update/apply')
+  @Roles(
+    Role.super_admin, Role.platform_admin, Role.admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
+  @ApiOperation({ summary: 'Apply previewed product cost updates and store history' })
+  priceUpdateApply(
+    @Body() body: {
+      rows: { productId: number; sku: string; partnerSku?: string | null; newCost: number }[];
+      costIncludesVat: boolean;
+      fileName?: string;
+    },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.imports.applyPriceUpdate(user.orgId, user.sub, body);
+  }
+
+  @Get('price-update/batches/:batchId')
+  @ApiOperation({ summary: 'Get row-level history for a product cost update batch' })
+  getPriceUpdateBatch(
+    @Param('batchId') batchId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.imports.getPriceUpdateBatch(batchId, user.orgId);
   }
 
   @Get('batches')

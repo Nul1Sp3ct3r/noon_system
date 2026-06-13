@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { ImportType, MovementType, Prisma } from '@prisma/client';
+import { parse as parseCsv } from 'csv-parse/sync';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AccountingService } from '../accounting/accounting.service';
@@ -1042,6 +1043,246 @@ export class ImportsService {
     }
 
     return result;
+  }
+
+  // ─── Price Update: parse CSV (no DB writes) ───────────────────────────────────
+
+  private parsePriceUpdateCsv(buffer: Buffer): { sku: string; rawPrice: string; price: number | null }[] {
+    const normCol = (s: string) =>
+      s.trim().toLowerCase().replace(/[()]/g, '').replace(/[\s\-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+
+    let records: Record<string, unknown>[];
+    try {
+      records = parseCsv(buffer, { columns: true, skip_empty_lines: true, trim: true });
+    } catch {
+      throw new BadRequestException('ملف CSV غير صالح — تحقق من تنسيق الملف');
+    }
+
+    if (!records.length) throw new BadRequestException('الملف فارغ لا يحتوي على بيانات');
+
+    const rawKeys  = Object.keys(records[0]);
+    const normKeys = rawKeys.map(normCol);
+
+    const SKU_ALIASES   = ['row_labels', 'sku', 'partner_sku', 'partnersku', 'partner_skus'];
+    const PRICE_ALIASES = ['sum_of_price', 'price', 'cost', 'unit_cost', 'unit_price'];
+
+    const skuIdx   = normKeys.findIndex(k => SKU_ALIASES.includes(k));
+    const priceIdx = normKeys.findIndex(k => PRICE_ALIASES.includes(k));
+
+    if (skuIdx === -1) {
+      throw new BadRequestException(
+        `لم يُعثر على عمود الـ SKU — الأعمدة المتوقعة: Row Labels, SKU, Partner SKU. الأعمدة الموجودة: ${rawKeys.slice(0, 8).join(', ')}`,
+      );
+    }
+    if (priceIdx === -1) {
+      throw new BadRequestException(
+        `لم يُعثر على عمود السعر — الأعمدة المتوقعة: Sum of Price, Price, Cost. الأعمدة الموجودة: ${rawKeys.slice(0, 8).join(', ')}`,
+      );
+    }
+
+    const skuKey   = rawKeys[skuIdx];
+    const priceKey = rawKeys[priceIdx];
+
+    return records.map(row => {
+      const sku      = String(row[skuKey]   ?? '').trim();
+      const rawPrice = String(row[priceKey] ?? '').trim();
+
+      let price: number | null = null;
+      if (rawPrice) {
+        const cleaned = rawPrice.replace(/[^\d.\-]/g, '');
+        const parsed  = parseFloat(cleaned);
+        if (!isNaN(parsed) && parsed >= 0) price = parsed;
+      }
+
+      return { sku, rawPrice, price };
+    });
+  }
+
+  async previewPriceUpdate(
+    file: Express.Multer.File,
+    orgId: number,
+  ): Promise<{
+    rows: {
+      sku: string; partnerSku: string | null; productId: number | null;
+      oldCost: number | null; newCost: number | null; rawPrice: string;
+      status: 'found' | 'not_found' | 'invalid';
+    }[];
+    updatedCount:  number;
+    notFoundCount: number;
+    invalidCount:  number;
+    fileName:      string;
+  }> {
+    if (!file) throw new BadRequestException('لم يتم استلام ملف');
+    if (file.size > MAX_FILE_BYTES) throw new BadRequestException('File exceeds the 10 MB limit');
+    if (!file.originalname.toLowerCase().endsWith('.csv')) throw new BadRequestException('Only .csv files are accepted');
+
+    const csvRows = this.parsePriceUpdateCsv(file.buffer);
+
+    // Filter empty SKUs and Excel aggregate rows
+    const SKIP_SKUS = new Set(['grand total', 'إجمالي عام', 'total', 'subtotal', '']);
+    const validInput = csvRows.filter(r => r.sku && !SKIP_SKUS.has(r.sku.toLowerCase()));
+
+    const allSkus = [...new Set(validInput.map(r => r.sku))];
+
+    const [byPartnerSku, bySku] = await Promise.all([
+      allSkus.length
+        ? this.prisma.product.findMany({
+            where:  { organizationId: orgId, partnerSku: { in: allSkus } },
+            select: { id: true, sku: true, partnerSku: true, unitCost: true },
+          })
+        : Promise.resolve([]),
+      allSkus.length
+        ? this.prisma.product.findMany({
+            where:  { organizationId: orgId, sku: { in: allSkus } },
+            select: { id: true, sku: true, partnerSku: true, unitCost: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const partnerSkuMap = new Map(byPartnerSku.map(p => [p.partnerSku!, p]));
+    const skuMap        = new Map(bySku.map(p => [p.sku, p]));
+
+    const rows = validInput.map(r => {
+      if (r.price === null) {
+        return { sku: r.sku, partnerSku: null, productId: null, oldCost: null, newCost: null, rawPrice: r.rawPrice, status: 'invalid' as const };
+      }
+
+      const product = partnerSkuMap.get(r.sku) ?? skuMap.get(r.sku);
+
+      if (!product) {
+        return { sku: r.sku, partnerSku: null, productId: null, oldCost: null, newCost: r.price, rawPrice: r.rawPrice, status: 'not_found' as const };
+      }
+
+      return {
+        sku:        r.sku,
+        partnerSku: product.partnerSku ?? null,
+        productId:  product.id,
+        oldCost:    product.unitCost ? Number(product.unitCost) : null,
+        newCost:    r.price,
+        rawPrice:   r.rawPrice,
+        status:     'found' as const,
+      };
+    });
+
+    return {
+      rows,
+      updatedCount:  rows.filter(r => r.status === 'found').length,
+      notFoundCount: rows.filter(r => r.status === 'not_found').length,
+      invalidCount:  rows.filter(r => r.status === 'invalid').length,
+      fileName:      file.originalname,
+    };
+  }
+
+  // ─── Price Update: apply to DB ────────────────────────────────────────────────
+
+  async applyPriceUpdate(
+    orgId:    number,
+    actorId:  number,
+    dto: {
+      rows: { productId: number; sku: string; partnerSku?: string | null; newCost: number }[];
+      costIncludesVat: boolean;
+      fileName?: string;
+    },
+  ): Promise<{ batchId: string; updatedCount: number }> {
+    const { rows, costIncludesVat, fileName } = dto;
+    if (!rows?.length) throw new BadRequestException('لا توجد صفوف صالحة للتحديث');
+
+    const batchId    = `price-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const productIds = rows.map(r => r.productId);
+
+    const existing = await this.prisma.product.findMany({
+      where:  { id: { in: productIds }, organizationId: orgId },
+      select: { id: true, sku: true, partnerSku: true, unitCost: true },
+    });
+    const productMap = new Map(existing.map(p => [p.id, p]));
+
+    let updatedCount = 0;
+
+    await this.prisma.$transaction(async tx => {
+      for (const row of rows) {
+        const product = productMap.get(row.productId);
+        if (!product) continue;
+
+        await tx.product.update({
+          where: { id: row.productId },
+          data:  { unitCost: row.newCost.toFixed(4), costIncludesVat },
+        });
+
+        await tx.productCostUpdate.create({
+          data: {
+            organizationId:  orgId,
+            importBatchId:   batchId,
+            productId:       row.productId,
+            sku:             product.sku,
+            partnerSku:      product.partnerSku ?? null,
+            oldCost:         product.unitCost ?? null,
+            newCost:         row.newCost,
+            costIncludesVat,
+          },
+        });
+
+        updatedCount++;
+      }
+
+      await tx.importBatch.create({
+        data: {
+          organizationId: orgId,
+          batchId,
+          importType:     ImportType.product_price_update,
+          fileName:       fileName ?? null,
+          fileHash:       null,
+          rowsImported:   updatedCount,
+          rowsSkipped:    0,
+          salesCount:     0,
+          returnsCount:   0,
+          feesCount:      0,
+          statementNr:    null,
+          statementDate:  null,
+          status:         'completed',
+        },
+      });
+    }, { timeout: 30_000 });
+
+    await this.audit.log({
+      action:     'price_update_bulk',
+      userId:     actorId,
+      orgId,
+      entityType: 'import_batch',
+      entityId:   batchId,
+      after:      { batchId, updatedCount, costIncludesVat, fileName },
+    });
+
+    return { batchId, updatedCount };
+  }
+
+  // ─── Price Update: fetch batch history ───────────────────────────────────────
+
+  async getPriceUpdateBatch(batchId: string, orgId: number) {
+    const batch = await this.prisma.importBatch.findFirst({
+      where: { batchId, organizationId: orgId },
+    });
+    if (!batch) throw new NotFoundException('Import batch not found');
+
+    const updates = await this.prisma.productCostUpdate.findMany({
+      where:   { organizationId: orgId, importBatchId: batchId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      batchId:      batch.batchId,
+      fileName:     batch.fileName,
+      importedAt:   batch.createdAt.toISOString(),
+      updatedCount: batch.rowsImported,
+      rows: updates.map(u => ({
+        id:             u.id,
+        sku:            u.sku,
+        partnerSku:     u.partnerSku,
+        oldCost:        u.oldCost  ? Number(u.oldCost)  : null,
+        newCost:        Number(u.newCost),
+        costIncludesVat: u.costIncludesVat,
+        createdAt:      u.createdAt.toISOString(),
+      })),
+    };
   }
 
   // ─── List batches ─────────────────────────────────────────────────────────────

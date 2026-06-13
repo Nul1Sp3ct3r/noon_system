@@ -73,6 +73,7 @@ enum ImportType {
   weekly_noon
   full_inventory
   transaction_view
+  product_price_update
 }
 
 enum AccountType {
@@ -131,6 +132,7 @@ model Organization {
   users                   User[]
   refreshTokens           RefreshToken[]
   products                Product[]
+  productCostUpdates      ProductCostUpdate[]
   productFamilies         ProductFamily[]
   invoices                Invoice[]
   warehouses              Warehouse[]
@@ -218,6 +220,7 @@ model Product {
   invoiceItems InvoiceItem[]
   movements    InventoryMovement[]
   familyItems  ProductFamilyItem[]
+  costUpdates  ProductCostUpdate[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -260,6 +263,29 @@ model ProductFamilyItem {
   @@index([familyId])
   @@index([productId])
   @@map("product_family_items")
+}
+
+// ─── Product Cost Update History ──────────────────────────────────────────────
+
+model ProductCostUpdate {
+  id              Int      @id @default(autoincrement())
+  organizationId  Int      @map("organization_id")
+  importBatchId   String   @map("import_batch_id")
+  productId       Int      @map("product_id")
+  sku             String
+  partnerSku      String?  @map("partner_sku")
+  oldCost         Decimal? @map("old_cost") @db.Decimal(12, 4)
+  newCost         Decimal  @map("new_cost") @db.Decimal(12, 4)
+  costIncludesVat Boolean  @default(false) @map("cost_includes_vat")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  product      Product      @relation(fields: [productId], references: [id])
+
+  @@index([organizationId])
+  @@index([importBatchId])
+  @@index([productId])
+  @@map("product_cost_updates")
 }
 
 // ─── Invoices ──────────────────────────────────────────────────────────────────
