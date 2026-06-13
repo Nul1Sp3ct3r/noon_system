@@ -1,5 +1,5 @@
 import Cookies from 'js-cookie';
-import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion, FinancialSummary, MonthlyFinancialSummary, ReconciliationResult, PeriodFilter, PriceUpdatePreview, PriceUpdateResult } from './types';
+import type { AuthTokens, PaginatedResponse, Product, Order, Invoice, InvoiceDetail, InvoiceItem, InventoryStock, InventoryStockDetail, InventoryDashboard, InventoryMovement, Warehouse, PlRow, VatRow, ProfitabilityRow, ProfitabilityResponse, SettlementRow, ImportBatch, ImportResult, NoonStatementSummary, SalesRow, FeesRow, FeesResponse, ReconciliationReport, JournalEntry, Account, AccountingPeriod, JournalTemplate, TrialBalance, GeneralLedger, Expense, ExpenseCategory, ExpenseStats, Merchant, MerchantDetail, MerchantUser, Plan, MerchantSubscription, PlatformPayment, PlatformKpis, CompanySettings, StatementRow, StatementKpis, StatementDetail, ProductFamily, ProductFamilyDetail, FamilySuggestion, FinancialSummary, MonthlyFinancialSummary, ReconciliationResult, PeriodFilter, PriceUpdatePreview, PriceUpdateResult, PurchaseKpis } from './types';
 import { translateError } from './errors';
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
@@ -116,6 +116,8 @@ export const orders = {
 // ── Invoices ───────────────────────────────────────────────────────────────────
 
 export const invoices = {
+  kpis: () => http<PurchaseKpis>('/api/v1/invoices/kpis'),
+
   list: (params?: { page?: number; limit?: number; status?: string; q?: string; from?: string; to?: string }) =>
     http<PaginatedResponse<Invoice>>(`/api/v1/invoices?${qs(params)}`),
 

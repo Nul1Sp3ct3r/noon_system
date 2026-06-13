@@ -149,6 +149,16 @@ export default function InvoiceDetailPage() {
     exempt: 'معفى',
   };
 
+  const EXPENSE_TYPE_LABELS: Record<string, string> = {
+    goods_purchase:        'شراء بضاعة',
+    shipping:              'شحن وتوصيل',
+    advertising:           'إعلانات',
+    operational_services:  'خدمات تشغيلية',
+    software_subscriptions:'برامج واشتراكات',
+    external_supplier:     'مورد خارجي',
+    other:                 'أخرى',
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -162,9 +172,9 @@ export default function InvoiceDetailPage() {
       <div>
         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2 mb-4">
           <AlertCircle size={16} className="shrink-0" />
-          {error || 'الفاتورة غير موجودة'}
+          {error || 'عملية الشراء غير موجودة'}
         </div>
-        <Link href="/invoices" className="btn-ghost">العودة للفواتير</Link>
+        <Link href="/invoices" className="btn-ghost">العودة للمشتريات</Link>
       </div>
     );
   }
@@ -182,7 +192,7 @@ export default function InvoiceDetailPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-900">
-                {invoice.invoiceNumber ?? `فاتورة #${invoice.id}`}
+                {invoice.invoiceNumber ?? `شراء #${invoice.id}`}
               </h1>
               <Badge
                 label={isActive ? 'نشط' : 'ملغى'}
@@ -226,10 +236,11 @@ export default function InvoiceDetailPage() {
       )}
 
       {/* Meta grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         {[
           { label: 'التاريخ', value: invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleDateString('ar-SA') : '—' },
-          { label: 'معالجة الضريبة', value: VAT_MODE_LABELS[invoice.vatMode] ?? invoice.vatMode },
+          { label: 'نوع المصروف', value: EXPENSE_TYPE_LABELS[(invoice as any).expenseType] ?? ((invoice as any).expenseType ?? '—') },
+          { label: 'ضريبة ق.م', value: VAT_MODE_LABELS[invoice.vatMode] ?? invoice.vatMode },
           { label: 'المستودع', value: invoice.warehouse?.name ?? '—' },
         ].map(({ label, value }) => (
           <div key={label} className="card p-3">

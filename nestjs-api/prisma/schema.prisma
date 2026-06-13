@@ -301,6 +301,7 @@ model Invoice {
   subtotal       Decimal?  @db.Decimal(14, 2)
   vatAmount      Decimal?  @map("vat_amount") @db.Decimal(12, 2)
   totalAmount    Decimal?  @map("total_amount") @db.Decimal(14, 2)
+  expenseType     String?   @map("expense_type")
   notes           String?
   status          String    @default("active")
   voidReason      String?   @map("void_reason")

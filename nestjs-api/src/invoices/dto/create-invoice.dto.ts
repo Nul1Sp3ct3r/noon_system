@@ -36,6 +36,11 @@ export class CreateInvoiceDto {
   @IsOptional()
   vatMode?: VatMode;
 
+  @ApiPropertyOptional({ example: 'goods_purchase' })
+  @IsString()
+  @IsOptional()
+  expenseType?: string;
+
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()

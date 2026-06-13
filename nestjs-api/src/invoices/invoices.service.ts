@@ -143,6 +143,7 @@ export class InvoicesService {
           internalRef,
           invoiceDate: header.invoiceDate ? new Date(header.invoiceDate) : undefined,
           vatMode: header.vatMode,
+          expenseType: header.expenseType,
           notes: header.notes,
           warehouseId: header.warehouseId,
           subtotal: subtotal.toFixed(2),
@@ -192,6 +193,7 @@ export class InvoicesService {
         invoiceNumber: dto.invoiceNumber,
         invoiceDate: dto.invoiceDate ? new Date(dto.invoiceDate) : undefined,
         vatMode: dto.vatMode,
+        expenseType: dto.expenseType,
         notes: dto.notes,
         warehouseId: dto.warehouseId,
       },
@@ -358,5 +360,34 @@ export class InvoicesService {
       data: { pdfData: null, pdfFilename: null, pdfOriginalName: null },
     });
     return { deleted: true };
+  }
+
+  async kpis(orgId: number) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const [allStats, monthStats] = await this.prisma.$transaction([
+      this.prisma.invoice.aggregate({
+        where: { organizationId: orgId, status: 'active' },
+        _sum: { totalAmount: true, vatAmount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.invoice.aggregate({
+        where: {
+          organizationId: orgId,
+          status: 'active',
+          invoiceDate: { gte: monthStart, lt: monthEnd },
+        },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+
+    return {
+      totalPurchases: Number(allStats._sum.totalAmount ?? 0),
+      recoverableVat: Number(allStats._sum.vatAmount ?? 0),
+      monthExpenses:  Number(monthStats._sum.totalAmount ?? 0),
+      purchasesCount: allStats._count._all,
+    };
   }
 }

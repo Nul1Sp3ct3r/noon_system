@@ -33,6 +33,12 @@ import { VoidInvoiceDto } from './dto/void-invoice.dto';
 export class InvoicesController {
   constructor(private invoices: InvoicesService) {}
 
+  @Get('kpis')
+  @ApiOperation({ summary: 'KPI summary — total purchases, recoverable VAT, month expenses, count' })
+  kpis(@CurrentUser() user: JwtPayload) {
+    return this.invoices.kpis(user.orgId);
+  }
+
   @Get()
   @ApiOperation({ summary: 'List invoices with pagination and filters' })
   findAll(@Query() query: ListInvoicesDto, @CurrentUser() user: JwtPayload) {
@@ -46,15 +52,21 @@ export class InvoicesController {
   }
 
   @Post()
-  @Roles(Role.admin, Role.super_admin)
-  @ApiOperation({ summary: 'Create invoice (optionally with items)' })
+  @Roles(
+    Role.admin, Role.super_admin, Role.platform_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
+  @ApiOperation({ summary: 'Create purchase (optionally with items)' })
   create(@Body() dto: CreateInvoiceDto, @CurrentUser() user: JwtPayload) {
     return this.invoices.create(dto, user.orgId, user.sub);
   }
 
   @Patch(':id')
-  @Roles(Role.admin, Role.super_admin)
-  @ApiOperation({ summary: 'Update invoice header fields' })
+  @Roles(
+    Role.admin, Role.super_admin, Role.platform_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
+  @ApiOperation({ summary: 'Update purchase header fields' })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateInvoiceDto,
@@ -64,9 +76,12 @@ export class InvoicesController {
   }
 
   @Post(':id/void')
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(
+    Role.admin, Role.super_admin, Role.platform_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Void an invoice (also voids related inventory movements)' })
+  @ApiOperation({ summary: 'Void a purchase (also voids related inventory movements)' })
   void(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: VoidInvoiceDto,
@@ -76,16 +91,19 @@ export class InvoicesController {
   }
 
   @Delete(':id')
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.merchant_owner)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Hard-delete invoice and its movements (admin only)' })
+  @ApiOperation({ summary: 'Hard-delete purchase and its movements' })
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.invoices.remove(id, user.orgId, user.sub);
   }
 
   @Post(':id/items')
-  @Roles(Role.admin, Role.super_admin)
-  @ApiOperation({ summary: 'Add a line item to an invoice' })
+  @Roles(
+    Role.admin, Role.super_admin, Role.platform_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
+  @ApiOperation({ summary: 'Add a line item to a purchase' })
   addItem(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateInvoiceItemDto,
@@ -95,9 +113,12 @@ export class InvoicesController {
   }
 
   @Delete(':id/items/:itemId')
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(
+    Role.admin, Role.super_admin, Role.platform_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Remove a line item from an invoice' })
+  @ApiOperation({ summary: 'Remove a line item from a purchase' })
   removeItem(
     @Param('id', ParseIntPipe) id: number,
     @Param('itemId', ParseIntPipe) itemId: number,
@@ -107,9 +128,12 @@ export class InvoicesController {
   }
 
   @Post(':id/upload-pdf')
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(
+    Role.admin, Role.super_admin, Role.platform_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
-  @ApiOperation({ summary: 'Upload a PDF attachment to an invoice' })
+  @ApiOperation({ summary: 'Upload a PDF attachment to a purchase' })
   uploadPdf(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file: Express.Multer.File,
@@ -132,9 +156,12 @@ export class InvoicesController {
   }
 
   @Delete(':id/pdf')
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(
+    Role.admin, Role.super_admin, Role.platform_admin,
+    Role.merchant_owner, Role.merchant_accountant,
+  )
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Remove the PDF attachment from an invoice' })
+  @ApiOperation({ summary: 'Remove the PDF attachment from a purchase' })
   deletePdf(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,

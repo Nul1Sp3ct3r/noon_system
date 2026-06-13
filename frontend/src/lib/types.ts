@@ -176,6 +176,7 @@ export interface Invoice {
   internalRef: string | null;
   invoiceDate: string | null;
   vatMode: 'inclusive' | 'exclusive' | 'exempt';
+  expenseType: string | null;
   subtotal: string | null;
   vatAmount: string | null;
   totalAmount: string | null;
@@ -183,6 +184,13 @@ export interface Invoice {
   notes: string | null;
   pdfFilename: string | null;
   pdfOriginalName: string | null;
+}
+
+export interface PurchaseKpis {
+  totalPurchases: number;
+  recoverableVat: number;
+  monthExpenses: number;
+  purchasesCount: number;
 }
 
 export interface InventoryStock {

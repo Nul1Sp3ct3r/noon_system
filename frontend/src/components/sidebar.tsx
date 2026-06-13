@@ -31,7 +31,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: ShoppingCart,
     items: [
       { href: '/orders',        label: 'الطلبات',  icon: ShoppingCart },
-      { href: '/invoices',      label: 'الفواتير', icon: FileText     },
+      { href: '/invoices',      label: 'المشتريات', icon: FileText     },
       { href: '/settlements',   label: 'التسويات', icon: CreditCard   },
       { href: '/profitability', label: 'الربحية',  icon: TrendingUp   },
     ],
