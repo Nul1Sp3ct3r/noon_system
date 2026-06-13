@@ -716,26 +716,34 @@ export default function ImportPage() {
 
           {/* ── Price update result ── */}
           {selectedId === 'price_update' && priceResult && (
-            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
+            <div className={`rounded-xl border p-4 ${priceResult.failedCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
               <div className="flex items-center gap-2 mb-3">
-                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                <span className="font-bold text-emerald-800 text-sm">
-                  {priceResult.createdCount > 0
-                    ? 'تم تحديث الأسعار وإنشاء المنتجات بنجاح'
-                    : 'تم تحديث الأسعار بنجاح'}
+                {priceResult.failedCount > 0
+                  ? <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                  : <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                }
+                <span className={`font-bold text-sm ${priceResult.failedCount > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>
+                  {priceResult.failedCount > 0
+                    ? `تم التطبيق جزئيًا — ${priceResult.failedCount} صف فشل`
+                    : priceResult.createdCount > 0
+                      ? 'تم تحديث الأسعار وإنشاء المنتجات بنجاح'
+                      : 'تم تحديث الأسعار بنجاح'}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className={`grid gap-2 mb-3 ${(priceResult.createdCount > 0 || priceResult.failedCount > 0) ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 <StatCard label="منتجات محدَّثة" value={priceResult.updatedCount} color="emerald" />
-                {priceResult.createdCount > 0
-                  ? <StatCard label="منتجات أُنشئت" value={priceResult.createdCount} color="blue" />
-                  : (
-                    <div className="rounded-lg p-3 text-center border border-slate-100 bg-slate-50">
-                      <p className="text-xs text-slate-500 font-mono break-all">{priceResult.batchId}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">رقم الدفعة</p>
-                    </div>
-                  )
-                }
+                {priceResult.createdCount > 0 && (
+                  <StatCard label="منتجات أُنشئت" value={priceResult.createdCount} color="blue" />
+                )}
+                {priceResult.failedCount > 0 && (
+                  <StatCard label="صفوف فاشلة" value={priceResult.failedCount} color="red" />
+                )}
+                {priceResult.createdCount === 0 && priceResult.failedCount === 0 && (
+                  <div className="rounded-lg p-3 text-center border border-slate-100 bg-slate-50">
+                    <p className="text-xs text-slate-500 font-mono break-all">{priceResult.batchId}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">رقم الدفعة</p>
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => { setPriceResult(null); setUploadError(''); }}
@@ -1316,7 +1324,7 @@ export default function ImportPage() {
 
 // ─── Stat cards ───────────────────────────────────────────────────────────────
 
-type StatColor = 'emerald' | 'blue' | 'violet' | 'amber' | 'slate' | 'orange';
+type StatColor = 'emerald' | 'blue' | 'violet' | 'amber' | 'slate' | 'orange' | 'red';
 
 const STAT_CLS: Record<StatColor, string> = {
   emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700',
@@ -1325,6 +1333,7 @@ const STAT_CLS: Record<StatColor, string> = {
   amber:   'bg-amber-50  border-amber-100  text-amber-700',
   slate:   'bg-slate-50  border-slate-100  text-slate-600',
   orange:  'bg-orange-50 border-orange-100 text-orange-700',
+  red:     'bg-red-50    border-red-100    text-red-700',
 };
 
 function StatCard({ label, value, color }: { label: string; value: number; color: StatColor }) {

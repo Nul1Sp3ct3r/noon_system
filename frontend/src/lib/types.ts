@@ -371,6 +371,7 @@ export interface PriceUpdateResult {
   batchId:      string;
   updatedCount: number;
   createdCount: number;
+  failedCount:  number;
 }
 
 export interface ImportBatch {

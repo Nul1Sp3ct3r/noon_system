@@ -1180,11 +1180,11 @@ export class ImportsService {
     actorId:  number,
     dto: {
       rows: { productId: number | null; sku: string; partnerSku?: string | null; newCost: number }[];
-      costIncludesVat:   boolean;
-      fileName?:         string;
+      costIncludesVat:    boolean;
+      fileName?:          string;
       autoCreateMissing?: boolean;
     },
-  ): Promise<{ batchId: string; updatedCount: number; createdCount: number }> {
+  ): Promise<{ batchId: string; updatedCount: number; createdCount: number; failedCount: number }> {
     const { rows, costIncludesVat, fileName, autoCreateMissing = false } = dto;
 
     const foundRows    = rows.filter(r => r.productId !== null) as { productId: number; sku: string; partnerSku?: string | null; newCost: number }[];
@@ -1194,101 +1194,119 @@ export class ImportsService {
       throw new BadRequestException('لا توجد صفوف صالحة للتحديث');
     }
 
-    const batchId    = `price-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const productIds = foundRows.map(r => r.productId);
+    const batchId = `price-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    const existing = await this.prisma.product.findMany({
-      where:  { id: { in: productIds }, organizationId: orgId },
-      select: { id: true, sku: true, partnerSku: true, unitCost: true },
-    });
+    // Pre-load existing products for update rows
+    const productIds = foundRows.map(r => r.productId);
+    const existing   = productIds.length
+      ? await this.prisma.product.findMany({
+          where:  { id: { in: productIds }, organizationId: orgId },
+          select: { id: true, sku: true, partnerSku: true, unitCost: true },
+        })
+      : [];
     const productMap = new Map(existing.map(p => [p.id, p]));
 
     let updatedCount = 0;
     let createdCount = 0;
+    let failedCount  = 0;
+    const CHUNK = 20; // concurrent DB operations per batch
 
-    await this.prisma.$transaction(async tx => {
-      // ── Update existing products ──────────────────────────────────────────
-      for (const row of foundRows) {
-        const product = productMap.get(row.productId);
-        if (!product) continue;
-
-        await tx.product.update({
-          where: { id: row.productId },
-          data:  { unitCost: row.newCost.toFixed(4), costIncludesVat },
-        });
-
-        await tx.productCostUpdate.create({
-          data: {
-            organizationId:  orgId,
-            importBatchId:   batchId,
-            productId:       row.productId,
-            sku:             product.sku,
-            partnerSku:      product.partnerSku ?? null,
-            oldCost:         product.unitCost ?? null,
-            newCost:         row.newCost,
-            costIncludesVat,
-          },
-        });
-
-        updatedCount++;
-      }
-
-      // ── Create missing products (if autoCreateMissing) ──────────────────
-      if (autoCreateMissing) {
-        for (const row of notFoundRows) {
-          if (!row.sku || row.newCost <= 0) continue;
-
-          // Noon SKUs start with Z followed by digits; everything else is a partner SKU
-          const isNoonSku   = /^Z\d{6,}$/i.test(row.sku);
-          const productSku  = isNoonSku ? row.sku : row.sku;
-          const partnerSku  = isNoonSku ? null : row.sku;
-
-          const created = await tx.product.create({
-            data: {
-              organizationId: orgId,
-              sku:            productSku,
-              partnerSku:     partnerSku,
-              nameAr:         `منتج جديد - ${row.sku}`,
-              unitCost:       row.newCost.toFixed(4),
-              costIncludesVat,
-            },
-          });
-
-          await tx.productCostUpdate.create({
-            data: {
-              organizationId:  orgId,
-              importBatchId:   batchId,
-              productId:       created.id,
-              sku:             created.sku,
-              partnerSku:      created.partnerSku ?? null,
-              oldCost:         null,
-              newCost:         row.newCost,
-              costIncludesVat,
-            },
-          });
-
-          createdCount++;
-        }
-      }
-
-      await tx.importBatch.create({
+    // ── Helper: update one existing product ──────────────────────────────────
+    const updateOne = async (row: typeof foundRows[number]) => {
+      const product = productMap.get(row.productId);
+      if (!product) return;
+      await this.prisma.product.update({
+        where: { id: row.productId },
+        data:  { unitCost: row.newCost.toFixed(4), costIncludesVat },
+      });
+      await this.prisma.productCostUpdate.create({
         data: {
           organizationId: orgId,
-          batchId,
-          importType:     ImportType.product_price_update,
-          fileName:       fileName ?? null,
-          fileHash:       null,
-          rowsImported:   updatedCount + createdCount,
-          rowsSkipped:    notFoundRows.length - createdCount,
-          salesCount:     0,
-          returnsCount:   0,
-          feesCount:      0,
-          statementNr:    null,
-          statementDate:  null,
-          status:         'completed',
+          importBatchId:  batchId,
+          productId:      row.productId,
+          sku:            product.sku,
+          partnerSku:     product.partnerSku ?? null,
+          oldCost:        product.unitCost ?? null,
+          newCost:        row.newCost,
+          costIncludesVat,
         },
       });
-    }, { timeout: 30_000 });
+    };
+
+    // ── Helper: create one missing product ───────────────────────────────────
+    const createOne = async (row: typeof notFoundRows[number]) => {
+      if (!row.sku || row.newCost <= 0) throw new Error(`Invalid row: sku=${row.sku}`);
+      const created = await this.prisma.product.create({
+        data: {
+          organizationId: orgId,
+          sku:            row.sku,
+          // Noon SKUs: Z followed by 6+ digits → set only sku; others also populate partnerSku
+          partnerSku:     /^Z\d{6,}$/i.test(row.sku) ? null : row.sku,
+          nameAr:         `منتج جديد - ${row.sku}`,
+          unitCost:       row.newCost.toFixed(4),
+          costIncludesVat,
+        },
+      });
+      await this.prisma.productCostUpdate.create({
+        data: {
+          organizationId: orgId,
+          importBatchId:  batchId,
+          productId:      created.id,
+          sku:            created.sku,
+          partnerSku:     created.partnerSku ?? null,
+          oldCost:        null,
+          newCost:        row.newCost,
+          costIncludesVat,
+        },
+      });
+    };
+
+    // ── Process foundRows in parallel chunks ─────────────────────────────────
+    for (let i = 0; i < foundRows.length; i += CHUNK) {
+      const chunk = foundRows.slice(i, i + CHUNK);
+      const results = await Promise.allSettled(chunk.map(r => updateOne(r)));
+      for (const r of results) {
+        if (r.status === 'fulfilled') updatedCount++;
+        else {
+          failedCount++;
+          this.logger.error('[price_update] update failed:', r.reason);
+        }
+      }
+    }
+
+    // ── Process notFoundRows in parallel chunks ──────────────────────────────
+    if (autoCreateMissing && notFoundRows.length) {
+      for (let i = 0; i < notFoundRows.length; i += CHUNK) {
+        const chunk = notFoundRows.slice(i, i + CHUNK);
+        const results = await Promise.allSettled(chunk.map(r => createOne(r)));
+        for (const r of results) {
+          if (r.status === 'fulfilled') createdCount++;
+          else {
+            failedCount++;
+            this.logger.error('[price_update] create failed:', r.reason);
+          }
+        }
+      }
+    }
+
+    // ── Record import batch ──────────────────────────────────────────────────
+    await this.prisma.importBatch.create({
+      data: {
+        organizationId: orgId,
+        batchId,
+        importType:     ImportType.product_price_update,
+        fileName:       fileName ?? null,
+        fileHash:       null,
+        rowsImported:   updatedCount + createdCount,
+        rowsSkipped:    failedCount + (autoCreateMissing ? 0 : notFoundRows.length),
+        salesCount:     0,
+        returnsCount:   0,
+        feesCount:      0,
+        statementNr:    null,
+        statementDate:  null,
+        status:         'completed',
+      },
+    });
 
     await this.audit.log({
       action:     'price_update_bulk',
@@ -1296,10 +1314,10 @@ export class ImportsService {
       orgId,
       entityType: 'import_batch',
       entityId:   batchId,
-      after:      { batchId, updatedCount, createdCount, costIncludesVat, fileName, autoCreateMissing },
+      after:      { batchId, updatedCount, createdCount, failedCount, costIncludesVat, autoCreateMissing },
     });
 
-    return { batchId, updatedCount, createdCount };
+    return { batchId, updatedCount, createdCount, failedCount };
   }
 
   // ─── Price Update: fetch batch history ───────────────────────────────────────

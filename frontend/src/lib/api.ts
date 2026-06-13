@@ -349,9 +349,42 @@ export const imports = {
     autoCreateMissing:  boolean,
     fileName?:          string,
   ): Promise<PriceUpdateResult> =>
-    http<PriceUpdateResult>('/api/v1/imports/price-update/apply', {
-      method: 'POST',
-      body:   JSON.stringify({ rows, costIncludesVat, autoCreateMissing, fileName }),
+    new Promise((resolve, reject) => {
+      const token = Cookies.get('token');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE}/api/v1/imports/price-update/apply`);
+      xhr.timeout = 120_000; // 2 minutes — large batches need time for chunked processing
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.onload = () => {
+        if (xhr.status === 401) {
+          reject(new Error('انتهت صلاحية تسجيل الدخول، يرجى تسجيل الدخول مرة أخرى'));
+          return;
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); }
+          catch { reject(new Error('استجابة غير صالحة من الخادم')); }
+        } else {
+          let msg = `خطأ HTTP ${xhr.status}`;
+          try { const b = JSON.parse(xhr.responseText); msg = extractMsg(b, msg); } catch { /* keep default */ }
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror = () => {
+        let msg = 'فشل الاتصال بالخادم أثناء تطبيق التحديثات';
+        try {
+          const b = JSON.parse(xhr.responseText);
+          const s = extractMsg(b, '');
+          if (s) msg = s;
+        } catch { /* keep default */ }
+        reject(new Error(msg));
+      };
+      xhr.ontimeout = () => {
+        reject(new Error('انتهت مهلة العملية (دقيقتان) — يُرجى تقليل عدد الصفوف أو التواصل مع الدعم الفني'));
+      };
+
+      xhr.send(JSON.stringify({ rows, costIncludesVat, autoCreateMissing, fileName }));
     }),
 
   priceUpdateBatch: (batchId: string) =>
