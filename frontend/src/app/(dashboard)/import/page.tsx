@@ -154,13 +154,15 @@ const HISTORY_FILTER_LABELS: Record<HistoryFilter, string> = {
   failed:  'فاشلة',
 };
 
-// Sniff the CSV first line in-browser to detect which type it is
+// Sniff the CSV first line in-browser to detect which type it is.
+// Types with empty signature are skipped — they cannot be auto-detected.
 function detectCsvType(firstLine: string): ImportTypeId | null {
   const cols = firstLine
     .toLowerCase()
     .split(',')
     .map(c => c.trim().replace(/['"]/g, '').replace(/[\s-]+/g, '_'));
   for (const t of IMPORT_TYPES) {
+    if (t.signature.length === 0) continue; // can't auto-detect without a signature
     if (t.signature.every(s => cols.includes(s))) return t.id;
   }
   return null;
@@ -260,6 +262,11 @@ export default function ImportPage() {
   // ── Upload ────────────────────────────────────────────────────────────────
 
   async function processFile(file: File, typeId: ImportTypeId) {
+    // price_update has its own two-step flow — never route through the generic upload endpoint
+    if (typeId === 'price_update') {
+      await handlePriceUpdatePreview(file);
+      return;
+    }
     const type = IMPORT_TYPES.find(t => t.id === typeId)!;
     setUploading(true);
     setProgress(0);
