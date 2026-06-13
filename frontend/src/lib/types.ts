@@ -370,6 +370,7 @@ export interface PriceUpdatePreview {
 export interface PriceUpdateResult {
   batchId:      string;
   updatedCount: number;
+  createdCount: number;
 }
 
 export interface ImportBatch {

@@ -197,9 +197,10 @@ export default function ImportPage() {
   const [reconError, setReconError]     = useState('');
 
   // Price update flow
-  const [costIncludesVat, setCostIncludesVat] = useState(false);
-  const [pricePreview, setPricePreview]       = useState<PriceUpdatePreview | null>(null);
-  const [priceResult, setPriceResult]         = useState<PriceUpdateResult | null>(null);
+  const [costIncludesVat, setCostIncludesVat]     = useState(false);
+  const [autoCreateMissing, setAutoCreateMissing] = useState(false);
+  const [pricePreview, setPricePreview]           = useState<PriceUpdatePreview | null>(null);
+  const [priceResult, setPriceResult]             = useState<PriceUpdateResult | null>(null);
 
   // Statement summary expanded rows
   const [expandedStmt, setExpandedStmt] = useState<Set<string>>(new Set());
@@ -256,6 +257,7 @@ export default function ImportPage() {
     setHistoryFilter('all');
     setPricePreview(null);
     setPriceResult(null);
+    setAutoCreateMissing(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -353,15 +355,21 @@ export default function ImportPage() {
 
   async function handlePriceUpdateApply() {
     if (!pricePreview) return;
-    const foundRows = pricePreview.rows.filter(r => r.status === 'found' && r.newCost !== null);
-    if (!foundRows.length) return;
+
+    // Send found rows for update + not_found rows so backend can create them if autoCreateMissing
+    const sendRows = pricePreview.rows
+      .filter(r => r.status !== 'invalid' && r.newCost !== null)
+      .map(r => ({ productId: r.productId, sku: r.sku, partnerSku: r.partnerSku, newCost: r.newCost! }));
+
+    if (!sendRows.length) return;
 
     setUploading(true);
     setUploadError('');
     try {
       const result = await api.priceUpdateApply(
-        foundRows.map(r => ({ productId: r.productId!, sku: r.sku, partnerSku: r.partnerSku, newCost: r.newCost! })),
+        sendRows,
         costIncludesVat,
+        autoCreateMissing,
         pricePreview.fileName,
       );
       setPriceResult(result);
@@ -562,124 +570,172 @@ export default function ImportPage() {
           )}
 
           {/* ── Price update preview table ── */}
-          {selectedId === 'price_update' && pricePreview && !priceResult && (
-            <div className="space-y-3">
-              {/* Summary stats */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
-                  <p className="text-2xl font-bold text-emerald-700 tabular-nums">{pricePreview.updatedCount.toLocaleString('ar-SA')}</p>
-                  <p className="text-xs text-emerald-600 mt-0.5">منتج سيُحدَّث</p>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center">
-                  <p className="text-2xl font-bold text-slate-500 tabular-nums">{pricePreview.notFoundCount.toLocaleString('ar-SA')}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">غير موجود</p>
-                </div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
-                  <p className="text-2xl font-bold text-amber-600 tabular-nums">{pricePreview.invalidCount.toLocaleString('ar-SA')}</p>
-                  <p className="text-xs text-amber-600 mt-0.5">صفوف غير صالحة</p>
-                </div>
-              </div>
+          {selectedId === 'price_update' && pricePreview && !priceResult && (() => {
+            const willCreate = autoCreateMissing ? pricePreview.notFoundCount : 0;
+            const willUpdate = pricePreview.updatedCount;
+            const totalAction = willUpdate + willCreate;
 
-              {/* VAT option */}
-              <label className="flex items-center gap-3 p-3 rounded-xl border border-rose-200 bg-rose-50 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={costIncludesVat}
-                  onChange={e => setCostIncludesVat(e.target.checked)}
-                  className="w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
-                />
-                <div>
-                  <p className="text-sm font-semibold text-rose-800">الأسعار تشمل ضريبة القيمة المضافة</p>
-                  <p className="text-xs text-rose-600 mt-0.5">سيُخزَّن costIncludesVat=true لكل منتج محدَّث</p>
-                </div>
-              </label>
+            function fmtCost(n: number | null): string {
+              if (n === null) return '—';
+              const display = Number.isInteger(n)
+                ? n.toLocaleString('ar-SA')
+                : n.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              return `${display} ر.س`;
+            }
 
-              {/* Confirmation button */}
-              {pricePreview.updatedCount > 0 && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <p className="text-sm font-bold text-blue-800 mb-3">
-                    سيتم تحديث {pricePreview.updatedCount.toLocaleString('ar-SA')} منتج — هل تريد المتابعة؟
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handlePriceUpdateApply}
-                      disabled={uploading}
-                      className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors disabled:opacity-50"
-                    >
-                      {uploading ? 'جارٍ التحديث...' : `تأكيد تحديث ${pricePreview.updatedCount.toLocaleString('ar-SA')} منتج`}
-                    </button>
-                    <button
-                      onClick={() => { setPricePreview(null); setUploadError(''); }}
-                      disabled={uploading}
-                      className="px-4 py-2.5 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
-                    >
-                      إلغاء
-                    </button>
+            return (
+              <div className="space-y-3">
+                {/* Summary stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
+                    <p className="text-xl font-bold text-emerald-700 tabular-nums">{willUpdate.toLocaleString('ar-SA')}</p>
+                    <p className="text-xs text-emerald-600 mt-0.5">سيتم تحديثه</p>
+                  </div>
+                  <div className={`rounded-lg border p-3 text-center ${autoCreateMissing ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <p className={`text-xl font-bold tabular-nums ${autoCreateMissing ? 'text-blue-600' : 'text-slate-500'}`}>{pricePreview.notFoundCount.toLocaleString('ar-SA')}</p>
+                    <p className={`text-xs mt-0.5 ${autoCreateMissing ? 'text-blue-500' : 'text-slate-500'}`}>{autoCreateMissing ? 'سيتم إنشاؤه' : 'غير موجود'}</p>
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
+                    <p className="text-xl font-bold text-amber-600 tabular-nums">{pricePreview.invalidCount.toLocaleString('ar-SA')}</p>
+                    <p className="text-xs text-amber-600 mt-0.5">صفوف غير صالحة</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center">
+                    <p className="text-xl font-bold text-slate-700 tabular-nums">{totalAction.toLocaleString('ar-SA')}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">إجمالي العمليات</p>
                   </div>
                 </div>
-              )}
 
-              {/* Preview table */}
-              <div className="overflow-x-auto rounded-lg border border-slate-200 text-xs max-h-80 overflow-y-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
-                    <tr>
-                      {['SKU', 'كود التاجر', 'التكلفة الحالية', 'التكلفة الجديدة', 'الحالة'].map(h => (
-                        <th key={h} className="px-3 py-2 text-right font-semibold text-slate-500 whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {pricePreview.rows.map((row, i) => {
-                      const statusCls = row.status === 'found'
-                        ? 'bg-emerald-50 text-emerald-700'
-                        : row.status === 'not_found'
-                        ? 'bg-slate-100 text-slate-500'
-                        : 'bg-amber-50 text-amber-700';
-                      const statusLabel = row.status === 'found' ? 'موجود' : row.status === 'not_found' ? 'غير موجود' : 'قيمة غير صالحة';
-                      return (
-                        <tr key={i} className={`hover:bg-slate-50 ${row.status !== 'found' ? 'opacity-60' : ''}`}>
-                          <td className="px-3 py-2 font-mono text-slate-800">{row.sku}</td>
-                          <td className="px-3 py-2 text-slate-400">{row.partnerSku ?? '—'}</td>
-                          <td className="px-3 py-2 tabular-nums text-slate-500">
-                            {row.oldCost !== null ? `${row.oldCost.toFixed(4)} ر.س` : '—'}
-                          </td>
-                          <td className="px-3 py-2 tabular-nums font-semibold text-blue-700">
-                            {row.newCost !== null ? `${row.newCost.toFixed(4)} ر.س` : <span className="text-amber-600 font-mono">{row.rawPrice}</span>}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${statusCls}`}>
-                              {statusLabel}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                {/* VAT option */}
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-rose-200 bg-rose-50 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={costIncludesVat}
+                    onChange={e => setCostIncludesVat(e.target.checked)}
+                    className="w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-rose-800">الأسعار تشمل ضريبة القيمة المضافة</p>
+                    <p className="text-xs text-rose-600 mt-0.5">سيُحفظ costIncludesVat=true لكل منتج يُحدَّث أو يُنشأ</p>
+                  </div>
+                </label>
+
+                {/* Auto-create missing products option */}
+                {pricePreview.notFoundCount > 0 && (
+                  <label className="flex items-center gap-3 p-3 rounded-xl border border-blue-200 bg-blue-50 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoCreateMissing}
+                      onChange={e => setAutoCreateMissing(e.target.checked)}
+                      className="w-4 h-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-blue-800">إنشاء المنتجات غير الموجودة تلقائيًا</p>
+                      <p className="text-xs text-blue-600 mt-0.5">سيتم إنشاء {pricePreview.notFoundCount.toLocaleString('ar-SA')} منتج جديد بالسعر المرفوع</p>
+                    </div>
+                  </label>
+                )}
+
+                {/* Confirmation button */}
+                {totalAction > 0 && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                    <p className="text-sm font-bold text-blue-800 mb-3">
+                      {willUpdate > 0 && `سيتم تحديث ${willUpdate.toLocaleString('ar-SA')} منتج`}
+                      {willUpdate > 0 && willCreate > 0 && ' · '}
+                      {willCreate > 0 && `وإنشاء ${willCreate.toLocaleString('ar-SA')} منتج جديد`}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handlePriceUpdateApply}
+                        disabled={uploading}
+                        className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors disabled:opacity-50"
+                      >
+                        {uploading ? 'جارٍ التحديث...' : 'تأكيد وتطبيق'}
+                      </button>
+                      <button
+                        onClick={() => { setPricePreview(null); setUploadError(''); setAutoCreateMissing(false); }}
+                        disabled={uploading}
+                        className="px-4 py-2.5 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview table */}
+                <div className="overflow-x-auto rounded-lg border border-slate-200 text-xs max-h-80 overflow-y-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                      <tr>
+                        {['SKU', 'كود التاجر', 'التكلفة الحالية', 'التكلفة الجديدة', 'الحالة'].map(h => (
+                          <th key={h} className="px-3 py-2 text-right font-semibold text-slate-500 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pricePreview.rows.map((row, i) => {
+                        const effectiveStatus = (row.status === 'not_found' && autoCreateMissing) ? 'will_create' : row.status;
+                        const statusCls =
+                          effectiveStatus === 'found'       ? 'bg-emerald-50 text-emerald-700'
+                          : effectiveStatus === 'will_create' ? 'bg-blue-50 text-blue-700'
+                          : effectiveStatus === 'not_found'  ? 'bg-slate-100 text-slate-500'
+                          : 'bg-amber-50 text-amber-700';
+                        const statusLabel =
+                          effectiveStatus === 'found'       ? 'سيتم التحديث'
+                          : effectiveStatus === 'will_create' ? 'سيتم الإنشاء'
+                          : effectiveStatus === 'not_found'  ? 'غير موجود'
+                          : 'غير صالح';
+                        return (
+                          <tr key={i} className={`hover:bg-slate-50 ${effectiveStatus === 'invalid' ? 'opacity-40' : ''}`}>
+                            <td className="px-3 py-2 font-mono text-slate-800">{row.sku}</td>
+                            <td className="px-3 py-2 text-slate-400">{row.partnerSku ?? '—'}</td>
+                            <td className="px-3 py-2 tabular-nums text-slate-500">{fmtCost(row.oldCost)}</td>
+                            <td className="px-3 py-2 tabular-nums font-semibold text-blue-700">
+                              {row.newCost !== null ? fmtCost(row.newCost) : <span className="text-amber-600 font-mono">{row.rawPrice}</span>}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${statusCls}`}>
+                                {statusLabel}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {uploadDuration != null && (
+                  <p className="text-xs text-slate-400 flex items-center gap-1">
+                    <Clock size={10} /> تم التحليل في {uploadDuration} ثانية
+                  </p>
+                )}
               </div>
-
-              {uploadDuration != null && (
-                <p className="text-xs text-slate-400 flex items-center gap-1">
-                  <Clock size={10} /> تم التحليل في {uploadDuration} ثانية
-                </p>
-              )}
-            </div>
-          )}
+            );
+          })()}
 
           {/* ── Price update result ── */}
           {selectedId === 'price_update' && priceResult && (
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                <span className="font-bold text-emerald-800 text-sm">تم تحديث الأسعار بنجاح</span>
+                <span className="font-bold text-emerald-800 text-sm">
+                  {priceResult.createdCount > 0
+                    ? 'تم تحديث الأسعار وإنشاء المنتجات بنجاح'
+                    : 'تم تحديث الأسعار بنجاح'}
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <StatCard label="منتجات محدَّثة" value={priceResult.updatedCount} color="emerald" />
-                <div className="rounded-lg p-3 text-center border border-slate-100 bg-slate-50">
-                  <p className="text-xs text-slate-500 font-mono break-all">{priceResult.batchId}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">رقم الدفعة</p>
-                </div>
+                {priceResult.createdCount > 0
+                  ? <StatCard label="منتجات أُنشئت" value={priceResult.createdCount} color="blue" />
+                  : (
+                    <div className="rounded-lg p-3 text-center border border-slate-100 bg-slate-50">
+                      <p className="text-xs text-slate-500 font-mono break-all">{priceResult.batchId}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">رقم الدفعة</p>
+                    </div>
+                  )
+                }
               </div>
               <button
                 onClick={() => { setPriceResult(null); setUploadError(''); }}

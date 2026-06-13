@@ -86,9 +86,10 @@ export class ImportsController {
   @ApiOperation({ summary: 'Apply previewed product cost updates and store history' })
   priceUpdateApply(
     @Body() body: {
-      rows: { productId: number; sku: string; partnerSku?: string | null; newCost: number }[];
-      costIncludesVat: boolean;
-      fileName?: string;
+      rows: { productId: number | null; sku: string; partnerSku?: string | null; newCost: number }[];
+      costIncludesVat:    boolean;
+      fileName?:          string;
+      autoCreateMissing?: boolean;
     },
     @CurrentUser() user: JwtPayload,
   ) {

@@ -1179,16 +1179,23 @@ export class ImportsService {
     orgId:    number,
     actorId:  number,
     dto: {
-      rows: { productId: number; sku: string; partnerSku?: string | null; newCost: number }[];
-      costIncludesVat: boolean;
-      fileName?: string;
+      rows: { productId: number | null; sku: string; partnerSku?: string | null; newCost: number }[];
+      costIncludesVat:   boolean;
+      fileName?:         string;
+      autoCreateMissing?: boolean;
     },
-  ): Promise<{ batchId: string; updatedCount: number }> {
-    const { rows, costIncludesVat, fileName } = dto;
-    if (!rows?.length) throw new BadRequestException('لا توجد صفوف صالحة للتحديث');
+  ): Promise<{ batchId: string; updatedCount: number; createdCount: number }> {
+    const { rows, costIncludesVat, fileName, autoCreateMissing = false } = dto;
+
+    const foundRows    = rows.filter(r => r.productId !== null) as { productId: number; sku: string; partnerSku?: string | null; newCost: number }[];
+    const notFoundRows = rows.filter(r => r.productId === null);
+
+    if (!foundRows.length && (!autoCreateMissing || !notFoundRows.length)) {
+      throw new BadRequestException('لا توجد صفوف صالحة للتحديث');
+    }
 
     const batchId    = `price-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const productIds = rows.map(r => r.productId);
+    const productIds = foundRows.map(r => r.productId);
 
     const existing = await this.prisma.product.findMany({
       where:  { id: { in: productIds }, organizationId: orgId },
@@ -1197,9 +1204,11 @@ export class ImportsService {
     const productMap = new Map(existing.map(p => [p.id, p]));
 
     let updatedCount = 0;
+    let createdCount = 0;
 
     await this.prisma.$transaction(async tx => {
-      for (const row of rows) {
+      // ── Update existing products ──────────────────────────────────────────
+      for (const row of foundRows) {
         const product = productMap.get(row.productId);
         if (!product) continue;
 
@@ -1224,6 +1233,44 @@ export class ImportsService {
         updatedCount++;
       }
 
+      // ── Create missing products (if autoCreateMissing) ──────────────────
+      if (autoCreateMissing) {
+        for (const row of notFoundRows) {
+          if (!row.sku || row.newCost <= 0) continue;
+
+          // Noon SKUs start with Z followed by digits; everything else is a partner SKU
+          const isNoonSku   = /^Z\d{6,}$/i.test(row.sku);
+          const productSku  = isNoonSku ? row.sku : row.sku;
+          const partnerSku  = isNoonSku ? null : row.sku;
+
+          const created = await tx.product.create({
+            data: {
+              organizationId: orgId,
+              sku:            productSku,
+              partnerSku:     partnerSku,
+              nameAr:         `منتج جديد - ${row.sku}`,
+              unitCost:       row.newCost.toFixed(4),
+              costIncludesVat,
+            },
+          });
+
+          await tx.productCostUpdate.create({
+            data: {
+              organizationId:  orgId,
+              importBatchId:   batchId,
+              productId:       created.id,
+              sku:             created.sku,
+              partnerSku:      created.partnerSku ?? null,
+              oldCost:         null,
+              newCost:         row.newCost,
+              costIncludesVat,
+            },
+          });
+
+          createdCount++;
+        }
+      }
+
       await tx.importBatch.create({
         data: {
           organizationId: orgId,
@@ -1231,8 +1278,8 @@ export class ImportsService {
           importType:     ImportType.product_price_update,
           fileName:       fileName ?? null,
           fileHash:       null,
-          rowsImported:   updatedCount,
-          rowsSkipped:    0,
+          rowsImported:   updatedCount + createdCount,
+          rowsSkipped:    notFoundRows.length - createdCount,
           salesCount:     0,
           returnsCount:   0,
           feesCount:      0,
@@ -1249,10 +1296,10 @@ export class ImportsService {
       orgId,
       entityType: 'import_batch',
       entityId:   batchId,
-      after:      { batchId, updatedCount, costIncludesVat, fileName },
+      after:      { batchId, updatedCount, createdCount, costIncludesVat, fileName, autoCreateMissing },
     });
 
-    return { batchId, updatedCount };
+    return { batchId, updatedCount, createdCount };
   }
 
   // ─── Price Update: fetch batch history ───────────────────────────────────────

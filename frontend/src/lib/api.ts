@@ -344,13 +344,14 @@ export const imports = {
     }),
 
   priceUpdateApply: (
-    rows: { productId: number; sku: string; partnerSku?: string | null; newCost: number }[],
-    costIncludesVat: boolean,
-    fileName?: string,
+    rows: { productId: number | null; sku: string; partnerSku?: string | null; newCost: number }[],
+    costIncludesVat:    boolean,
+    autoCreateMissing:  boolean,
+    fileName?:          string,
   ): Promise<PriceUpdateResult> =>
     http<PriceUpdateResult>('/api/v1/imports/price-update/apply', {
       method: 'POST',
-      body:   JSON.stringify({ rows, costIncludesVat, fileName }),
+      body:   JSON.stringify({ rows, costIncludesVat, autoCreateMissing, fileName }),
     }),
 
   priceUpdateBatch: (batchId: string) =>
